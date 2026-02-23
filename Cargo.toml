@@ -8,7 +8,7 @@ repository = "https://github.com/lipish/unigateway"
 readme = "README.md"
 keywords = ["llm", "openai", "anthropic", "gateway", "proxy"]
 categories = ["web-programming::http-server", "api-bindings"]
-authors = ["Mac M4 <mac-m4@example.com>"]
+authors = ["lipi <lipicoder@qq.com>"]
 
 [lib]
 name = "unigateway"
@@ -34,3 +34,5 @@ sha2 = "0.10"
 hex = "0.4"
 rand = "0.8"
 url = "2"
+llm-connector = "0.6.1"
+llm_providers = "0.2"

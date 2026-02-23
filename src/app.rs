@@ -147,6 +147,84 @@ async fn init_db(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await?;
 
+    // --- New Tables for v0.2 Governance ---
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS services (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            routing_strategy TEXT NOT NULL DEFAULT 'round_robin',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS providers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            provider_type TEXT NOT NULL,
+            base_url TEXT,
+            api_key TEXT,
+            model_mapping TEXT,
+            weight INTEGER DEFAULT 1,
+            is_enabled BOOLEAN DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS service_providers (
+            service_id TEXT NOT NULL,
+            provider_id INTEGER NOT NULL,
+            PRIMARY KEY (service_id, provider_id),
+            FOREIGN KEY(service_id) REFERENCES services(id),
+            FOREIGN KEY(provider_id) REFERENCES providers(id)
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS api_keys (
+            key TEXT PRIMARY KEY,
+            service_id TEXT NOT NULL,
+            name TEXT,
+            quota_limit INTEGER,
+            used_quota INTEGER DEFAULT 0,
+            is_active BOOLEAN DEFAULT 1,
+            expired_at TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(service_id) REFERENCES services(id)
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS request_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            request_id TEXT NOT NULL,
+            service_id TEXT,
+            provider_id INTEGER,
+            model TEXT,
+            prompt_tokens INTEGER,
+            completion_tokens INTEGER,
+            total_tokens INTEGER,
+            latency_ms INTEGER,
+            status_code INTEGER,
+            client_ip TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    // --- End New Tables ---
+
     let admin_exists: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE username = 'admin'")
             .fetch_one(pool)
