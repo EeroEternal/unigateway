@@ -38,7 +38,8 @@ impl AppConfig {
             openai_base_url: std::env::var("OPENAI_BASE_URL")
                 .unwrap_or_else(|_| "https://api.openai.com".to_string()),
             openai_api_key: std::env::var("OPENAI_API_KEY").unwrap_or_default(),
-            openai_model: std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string()),
+            openai_model: std::env::var("OPENAI_MODEL")
+                .unwrap_or_else(|_| "gpt-4o-mini".to_string()),
             anthropic_base_url: std::env::var("ANTHROPIC_BASE_URL")
                 .unwrap_or_else(|_| "https://api.anthropic.com".to_string()),
             anthropic_api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
@@ -146,9 +147,10 @@ async fn init_db(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await?;
 
-    let admin_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE username = 'admin'")
-        .fetch_one(pool)
-        .await?;
+    let admin_exists: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE username = 'admin'")
+            .fetch_one(pool)
+            .await?;
 
     if admin_exists == 0 {
         let hash = hash_password("admin123");
@@ -233,7 +235,8 @@ fn get_cookie_token(headers: &HeaderMap) -> Option<String> {
         .and_then(|raw| {
             raw.split(';').find_map(|part| {
                 let item = part.trim();
-                item.strip_prefix("unigateway_session=").map(|v| v.to_string())
+                item.strip_prefix("unigateway_session=")
+                    .map(|v| v.to_string())
             })
         })
 }
@@ -242,10 +245,12 @@ async fn login(
     State(state): State<Arc<AppState>>,
     Form(form): Form<LoginForm>,
 ) -> impl IntoResponse {
-    let user = sqlx::query_as::<_, (i64, String)>("SELECT id, password_hash FROM users WHERE username = ?")
-        .bind(&form.username)
-        .fetch_optional(&state.pool)
-        .await;
+    let user = sqlx::query_as::<_, (i64, String)>(
+        "SELECT id, password_hash FROM users WHERE username = ?",
+    )
+    .bind(&form.username)
+    .fetch_optional(&state.pool)
+    .await;
 
     let Ok(Some((user_id, password_hash))) = user else {
         return Html(html_layout("登录失败", "<div class='p-8'><p>用户名或密码错误</p><a class='link text-brand' href='/login'>返回登录</a></div>")).into_response();
@@ -290,9 +295,7 @@ async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> impl 
     }
 
     let mut response = Redirect::to("/login").into_response();
-    if let Ok(cookie) =
-        "unigateway_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax".parse()
-    {
+    if let Ok(cookie) = "unigateway_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax".parse() {
         response.headers_mut().insert(header::SET_COOKIE, cookie);
     }
     response
@@ -373,15 +376,18 @@ async fn admin_stats_partial(
         .await
         .unwrap_or(0);
 
-    let openai_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM request_stats WHERE endpoint = '/v1/chat/completions'")
-        .fetch_one(&state.pool)
-        .await
-        .unwrap_or(0);
+    let openai_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM request_stats WHERE endpoint = '/v1/chat/completions'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap_or(0);
 
-    let anthropic_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM request_stats WHERE endpoint = '/v1/messages'")
-        .fetch_one(&state.pool)
-        .await
-        .unwrap_or(0);
+    let anthropic_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM request_stats WHERE endpoint = '/v1/messages'")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or(0);
 
     let content = format!(
         r#"
@@ -501,7 +507,10 @@ async fn anthropic_messages(
         payload["model"] = Value::String(state.config.anthropic_model.clone());
     }
 
-    let url = format!("{}/v1/messages", state.config.anthropic_base_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/v1/messages",
+        state.config.anthropic_base_url.trim_end_matches('/')
+    );
     let mut req = state
         .client
         .post(url)
@@ -556,7 +565,13 @@ async fn anthropic_messages(
     }
 }
 
-async fn record_stat(pool: &SqlitePool, provider: &str, endpoint: &str, status_code: i64, latency_ms: i64) {
+async fn record_stat(
+    pool: &SqlitePool,
+    provider: &str,
+    endpoint: &str,
+    status_code: i64,
+    latency_ms: i64,
+) {
     let _ = sqlx::query(
         "INSERT INTO request_stats(provider, endpoint, status_code, latency_ms) VALUES(?, ?, ?, ?)",
     )

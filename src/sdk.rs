@@ -28,7 +28,12 @@ impl UniGatewayClient {
             req = req.bearer_auth(key);
         }
 
-        let value = req.send().await?.error_for_status()?.json::<Value>().await?;
+        let value = req
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<Value>()
+            .await?;
         Ok(value)
     }
 
@@ -43,7 +48,12 @@ impl UniGatewayClient {
             req = req.header("x-api-key", key);
         }
 
-        let value = req.send().await?.error_for_status()?.json::<Value>().await?;
+        let value = req
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<Value>()
+            .await?;
         Ok(value)
     }
 }
