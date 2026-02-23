@@ -4,7 +4,7 @@
     <strong>A lightweight, open-source LLM gateway with OpenAI & Anthropic compatibility.</strong>
   </p>
   <p>
-    Built with Rust, Axum, and SQLite.
+    Built with Rust. Blazing fast, memory-safe, and zero dependencies.
   </p>
 
   <p>
