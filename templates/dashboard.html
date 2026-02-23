@@ -1,0 +1,41 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="navbar bg-base-100 shadow-sm px-6">
+  <div class="flex-1">
+    <a class="text-xl font-bold text-brand" href="/admin">UniGateway</a>
+    <ul class="menu menu-horizontal px-4 gap-2">
+      <li><a href="/admin" class="active">Dashboard</a></li>
+      <li><a href="/admin/providers">Providers</a></li>
+    </ul>
+  </div>
+  <div class="flex-none">
+    <form method="post" action="/logout"><button class="btn btn-sm">Logout</button></form>
+  </div>
+</div>
+
+<div class="p-6 space-y-6 max-w-5xl mx-auto">
+  <div class="alert bg-brandLight text-brand border-none">
+    <span>Lightweight OSS LLM gateway with OpenAI & Anthropic compatibility.</span>
+  </div>
+
+  <div
+    id="stats-box"
+    hx-get="/admin/stats"
+    hx-trigger="load, every 10s"
+    class="grid grid-cols-1 md:grid-cols-3 gap-4"
+  ></div>
+
+  <div class="card bg-base-100 shadow">
+    <div class="card-body">
+      <h2 class="card-title">Endpoints</h2>
+      <ul class="list-disc list-inside text-sm space-y-1">
+        <li>POST /v1/chat/completions (OpenAI compatible)</li>
+        <li>POST /v1/messages (Anthropic compatible)</li>
+        <li>GET /v1/models</li>
+        <li>GET /health</li>
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

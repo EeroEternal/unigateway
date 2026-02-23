@@ -33,6 +33,58 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
+name = "askama"
+version = "0.15.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08e1676b346cadfec169374f949d7490fd80a24193d37d2afce0c047cf695e57"
+dependencies = [
+ "askama_macros",
+ "itoa",
+ "percent-encoding",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "askama_derive"
+version = "0.15.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7661ff56517787343f376f75db037426facd7c8d3049cef8911f1e75016f3a37"
+dependencies = [
+ "askama_parser",
+ "basic-toml",
+ "memchr",
+ "proc-macro2",
+ "quote",
+ "rustc-hash",
+ "serde",
+ "serde_derive",
+ "syn",
+]
+
+[[package]]
+name = "askama_macros"
+version = "0.15.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "713ee4dbfd1eb719c2dab859465b01fa1d21cb566684614a713a6b7a99a4e47b"
+dependencies = [
+ "askama_derive",
+]
+
+[[package]]
+name = "askama_parser"
+version = "0.15.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d62d674238a526418b30c0def480d5beadb9d8964e7f38d635b03bf639c704c"
+dependencies = [
+ "rustc-hash",
+ "serde",
+ "serde_derive",
+ "unicode-ident",
+ "winnow",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -142,6 +194,15 @@ name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
+
+[[package]]
+name = "basic-toml"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba62675e8242a4c4e806d12f11d136e626e6c8361d6b829310732241652a178a"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "bitflags"
@@ -915,9 +976,9 @@ checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
 
 [[package]]
 name = "llm-connector"
-version = "0.6.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5493c714970364f1e865c7ca35a5c532f260a28914de438f7c13b7585e94810f"
+checksum = "685e548b51410f86255389a970cfdb6475de84c5bc181501f1f9fcdbe839ad61"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2161,8 +2222,10 @@ name = "unigateway"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "askama",
  "axum",
  "chrono",
+ "futures-util",
  "hex",
  "llm-connector",
  "llm_providers",
@@ -2651,6 +2714,15 @@ name = "windows_x86_64_msvc"
 version = "0.53.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
+
+[[package]]
+name = "winnow"
+version = "0.7.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a5364e9d77fcdeeaa6062ced926ee3381faa2ee02d3eb83a5c27a8825540829"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "wit-bindgen"

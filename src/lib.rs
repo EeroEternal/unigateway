@@ -1,4 +1,9 @@
-pub mod app;
-pub mod sdk;
+pub mod config;
+pub mod db;
+pub mod engine;
+pub mod handlers;
+pub mod server;
 
-pub use app::{run, AppConfig};
+// Re-export common types
+pub use config::AppConfig;
+pub use server::run;
