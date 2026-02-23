@@ -3,12 +3,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::{
-    body::Body,
     extract::{Json, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response, Sse},
 };
-use futures_util::{Stream, StreamExt};
+use futures_util::StreamExt;
 use llm_connector::types::{ChatRequest, Message, Role};
 use serde_json::Value;
 use sqlx::SqlitePool;

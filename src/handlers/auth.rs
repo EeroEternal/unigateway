@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use axum::{
-    extract::{Json, State},
+    extract::State,
     http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse, Redirect},
     Form,

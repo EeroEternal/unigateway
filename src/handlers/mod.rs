@@ -3,12 +3,8 @@ pub mod auth;
 pub mod chat;
 pub mod health;
 
-use axum::{
-    extract::State,
-    response::{IntoResponse, Redirect},
-};
-use std::sync::Arc;
-use crate::server::AppState;
+use axum::response::{IntoResponse, Redirect};
+
 
 pub async fn home() -> impl IntoResponse {
     Redirect::to("/admin")

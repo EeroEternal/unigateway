@@ -7,7 +7,6 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
-use serde_json::json;
 use sqlx::SqlitePool;
 use tokio::net::TcpListener;
 use tower_http::trace::TraceLayer;

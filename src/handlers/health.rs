@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Json, State},
+    extract::Json,
     response::IntoResponse,
 };
 use serde_json::json;
