@@ -8,9 +8,9 @@
   </p>
 
   <p>
-    <a href="https://github.com/mac-m4/unigateway/actions/workflows/rust.yml"><img src="https://github.com/mac-m4/unigateway/actions/workflows/rust.yml/badge.svg" alt="Build Status"></a>
+    <a href="https://github.com/lipish/unigateway/actions/workflows/rust.yml"><img src="https://github.com/lipish/unigateway/actions/workflows/rust.yml/badge.svg" alt="Build Status"></a>
     <a href="https://crates.io/crates/unigateway"><img src="https://img.shields.io/crates/v/unigateway.svg" alt="Crate"></a>
-    <a href="https://github.com/mac-m4/unigateway/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+    <a href="https://github.com/lipish/unigateway/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   </p>
 </div>
 
