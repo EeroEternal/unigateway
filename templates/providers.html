@@ -1,0 +1,81 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="navbar bg-base-100 shadow-sm px-6">
+  <div class="flex-1">
+    <a class="text-xl font-bold text-brand" href="/admin">UniGateway</a>
+    <ul class="menu menu-horizontal px-4 gap-2">
+      <li><a href="/admin">Dashboard</a></li>
+      <li><a href="/admin/providers" class="active">Providers</a></li>
+    </ul>
+  </div>
+  <div class="flex-none">
+    <form method="post" action="/logout"><button class="btn btn-sm">Logout</button></form>
+  </div>
+</div>
+
+<div class="p-6 max-w-5xl mx-auto space-y-6">
+  <div class="flex justify-between items-center">
+    <h1 class="text-2xl font-bold">Providers</h1>
+    <button class="btn btn-primary bg-brand border-none text-white btn-sm" onclick="provider_modal.showModal()">+ Add Provider</button>
+  </div>
+
+  <div id="providers-list" hx-get="/admin/providers/list" hx-trigger="load" class="space-y-4">
+    <!-- List will be loaded here -->
+  </div>
+</div>
+
+<!-- Add Provider Modal -->
+<dialog id="provider_modal" class="modal">
+  <div class="modal-box">
+      <h3 class="font-bold text-lg">Add New Provider</h3>
+      <form hx-post="/admin/providers" hx-target="#providers-list" hx-swap="innerHTML" hx-on::after-request="if(event.detail.successful) { provider_modal.close(); this.reset(); resetProviderDropdown(); }">
+        <div class="form-control w-full mt-4">
+          <label class="label"><span class="label-text">Name</span></label>
+          <input type="text" name="name" placeholder="e.g. OpenAI Main" class="input input-bordered w-full" required />
+        </div>
+        
+        <div class="form-control w-full mt-2">
+          <label class="label"><span class="label-text">Type</span></label>
+          <div class="dropdown w-full">
+            <div tabindex="0" role="button" id="provider_type_btn" class="input input-bordered w-full flex items-center justify-between">
+              <span>OpenAI</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+            </div>
+            <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full border border-base-200">
+              <li><a onclick="selectProvider('openai', 'OpenAI')">OpenAI</a></li>
+              <li><a onclick="selectProvider('anthropic', 'Anthropic')">Anthropic</a></li>
+              <li><a onclick="selectProvider('ollama', 'Ollama')">Ollama</a></li>
+            </ul>
+          </div>
+          <input type="hidden" name="provider_type" id="provider_type_input" value="openai" />
+        </div>
+
+        <div class="form-control w-full mt-2">
+          <label class="label"><span class="label-text">Base URL (Optional)</span></label>
+          <input type="text" name="base_url" placeholder="Default if empty" class="input input-bordered w-full" />
+        </div>
+
+        <div class="form-control w-full mt-2">
+          <label class="label"><span class="label-text">API Key</span></label>
+          <input type="password" name="api_key" placeholder="sk-..." class="input input-bordered w-full" />
+        </div>
+
+        <div class="modal-action">
+          <button type="button" class="btn" onclick="provider_modal.close()">Cancel</button>
+          <button type="submit" class="btn btn-primary bg-brand border-none text-white">Save</button>
+        </div>
+      </form>
+  </div>
+</dialog>
+<script>
+  function selectProvider(val, text) {
+    document.getElementById('provider_type_input').value = val;
+    document.getElementById('provider_type_btn').querySelector('span').innerText = text;
+    document.activeElement.blur();
+  }
+  function resetProviderDropdown() {
+    selectProvider('openai', 'OpenAI');
+  }
+</script>
+{% endblock %}

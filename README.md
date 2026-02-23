@@ -1,7 +1,7 @@
 <div align="center">
   <h1>UniGateway</h1>
   <p>
-    <strong>A lightweight, open-source LLM gateway with OpenAI & Anthropic compatibility.</strong>
+    <strong>A lightweight, open-source LLM gateway striving for 100% OpenAI & Anthropic compatibility.</strong>
   </p>
   <p>
     Built with Rust. Blazing fast, memory-safe, and zero dependencies.

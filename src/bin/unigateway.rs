@@ -1,4 +1,6 @@
 use anyhow::Result;
+use unigateway::config::AppConfig;
+use unigateway::server;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -9,6 +11,6 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let config = unigateway::AppConfig::from_env();
-    unigateway::run(config).await
+    let config = AppConfig::from_env();
+    server::run(config).await
 }

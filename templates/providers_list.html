@@ -1,0 +1,24 @@
+{% if providers.is_empty() %}
+  <div class="text-center p-8 text-gray-500 bg-base-100 rounded-box">No providers configured yet.</div>
+{% else %}
+  {% for p in providers %}
+  <div class="card bg-base-100 shadow-sm border border-base-200">
+    <div class="card-body flex-row justify-between items-center py-4">
+      <div>
+        <div class="flex items-center gap-2">
+          <h3 class="font-bold text-lg">{{ p.name }}</h3>
+          <div class="badge {% if p.is_enabled %}badge-success{% else %}badge-ghost{% endif %} badge-sm">{% if p.is_enabled %}Active{% else %}Disabled{% endif %}</div>
+          <div class="badge badge-outline badge-sm">{{ p.provider_type }}</div>
+        </div>
+        <p class="text-sm text-gray-500 mt-1">{{ p.base_url.as_deref().unwrap_or("Default") }}</p>
+      </div>
+      <div class="flex gap-2">
+        <button class="btn btn-sm btn-ghost text-error" 
+          hx-delete="/admin/providers/{{ p.id }}" 
+          hx-confirm="Are you sure?" 
+          hx-target="#providers-list">Delete</button>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+{% endif %}
