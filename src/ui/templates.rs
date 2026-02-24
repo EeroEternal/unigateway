@@ -78,6 +78,24 @@ pub const ADMIN_PAGE: &str = r#"
     class="grid grid-cols-1 md:grid-cols-3 gap-4"
   ></div>
 
+  <div
+    id="services-box"
+    hx-get="/admin/services"
+    hx-trigger="load, every 20s"
+  ></div>
+
+  <div
+    id="providers-box"
+    hx-get="/admin/providers"
+    hx-trigger="load, every 20s"
+  ></div>
+
+  <div
+    id="keys-box"
+    hx-get="/admin/api-keys"
+    hx-trigger="load, every 20s"
+  ></div>
+
   <div class="card bg-base-100 shadow">
     <div class="card-body">
       <h2 class="card-title">接口</h2>
@@ -87,6 +105,10 @@ pub const ADMIN_PAGE: &str = r#"
         <li>GET /v1/models</li>
         <li>GET /metrics</li>
         <li>GET /health</li>
+        <li>GET/POST /api/admin/services</li>
+        <li>GET/POST /api/admin/providers</li>
+        <li>POST /api/admin/bindings</li>
+        <li>GET/POST /api/admin/api-keys</li>
       </ul>
     </div>
   </div>
