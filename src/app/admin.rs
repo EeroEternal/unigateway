@@ -334,7 +334,7 @@ pub(crate) async fn admin_logs_list_partial(
 pub(crate) async fn admin_create_provider_partial(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Form(form): Form<CreateProviderForm>,
+    Form(form): Form<CreateProviderReq>,
 ) -> impl IntoResponse {
     if !ensure_login(&state.pool, &headers).await {
         return StatusCode::UNAUTHORIZED.into_response();
@@ -349,7 +349,7 @@ pub(crate) async fn admin_create_provider_partial(
         .bind(form.provider_type.trim())
         .bind(form.base_url.trim())
         .bind(form.api_key.trim())
-        .bind(form.model_mapping.unwrap_or_default())
+        .bind(form.model_mapping.as_deref().unwrap_or(""))
         .execute(&state.pool)
         .await;
     }
