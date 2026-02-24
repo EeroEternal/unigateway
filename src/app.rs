@@ -10,10 +10,10 @@ use tokio::{net::TcpListener, sync::Mutex};
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
-#[path = "app/auth.rs"]
-mod auth;
 #[path = "app/admin.rs"]
 mod admin;
+#[path = "app/auth.rs"]
+mod auth;
 #[path = "app/gateway.rs"]
 mod gateway;
 #[path = "app/storage.rs"]
@@ -81,10 +81,19 @@ pub async fn run(config: AppConfig) -> Result<()> {
         .route("/health", get(admin::health))
         .route("/metrics", get(admin::metrics))
         .route("/v1/models", get(admin::models))
-        .route("/api/admin/services", get(admin::api_list_services).post(admin::api_create_service))
-        .route("/api/admin/providers", get(admin::api_list_providers).post(admin::api_create_provider))
+        .route(
+            "/api/admin/services",
+            get(admin::api_list_services).post(admin::api_create_service),
+        )
+        .route(
+            "/api/admin/providers",
+            get(admin::api_list_providers).post(admin::api_create_provider),
+        )
         .route("/api/admin/bindings", post(admin::api_bind_provider))
-        .route("/api/admin/api-keys", get(admin::api_list_api_keys).post(admin::api_create_api_key))
+        .route(
+            "/api/admin/api-keys",
+            get(admin::api_list_api_keys).post(admin::api_create_api_key),
+        )
         .route("/v1/chat/completions", post(gateway::openai_chat))
         .route("/v1/messages", post(gateway::anthropic_messages));
 
@@ -94,13 +103,15 @@ pub async fn run(config: AppConfig) -> Result<()> {
             .route("/login", get(auth::login_page).post(auth::login))
             .route("/logout", post(auth::logout))
             .route("/admin", get(admin::admin_page))
-                .route("/admin/stats", get(admin::admin_stats_partial))
-                .route("/admin/services", get(admin::admin_services_partial))
-                .route("/admin/providers", get(admin::admin_providers_partial))
-                .route("/admin/api-keys", get(admin::admin_api_keys_partial));
+            .route("/admin/stats", get(admin::admin_stats_partial))
+            .route("/admin/services", get(admin::admin_services_partial))
+            .route("/admin/providers", get(admin::admin_providers_partial))
+            .route("/admin/api-keys", get(admin::admin_api_keys_partial));
     }
 
-    let app = app.with_state(Arc::new(state)).layer(TraceLayer::new_for_http());
+    let app = app
+        .with_state(Arc::new(state))
+        .layer(TraceLayer::new_for_http());
 
     let addr: SocketAddr = config.bind.parse().context("invalid UNIGATEWAY_BIND")?;
     let listener = TcpListener::bind(addr).await?;

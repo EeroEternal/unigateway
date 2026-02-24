@@ -11,7 +11,10 @@ use serde_json::json;
 
 use crate::ui;
 
-use super::{auth::ensure_login, types::{AppState, ModelItem, ModelList}};
+use super::{
+    auth::ensure_login,
+    types::{AppState, ModelItem, ModelList},
+};
 
 pub(crate) async fn health() -> impl IntoResponse {
     Json(json!({"status":"ok","name":"UniGateway"}))
@@ -82,10 +85,11 @@ pub(crate) async fn admin_services_partial(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let services: Vec<(String, String)> = sqlx::query_as("SELECT id, name FROM services ORDER BY id")
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
+    let services: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, name FROM services ORDER BY id")
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default();
 
     let mut rows = String::new();
     for (id, name) in services {
@@ -166,7 +170,9 @@ pub(crate) async fn admin_api_keys_partial(
             mask_key(&key),
             service_id,
             used_quota,
-            quota_limit.map(|v| v.to_string()).unwrap_or_else(|| "∞".to_string()),
+            quota_limit
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "∞".to_string()),
             if is_active == 1 { "active" } else { "inactive" }
         ));
     }
@@ -350,12 +356,11 @@ pub(crate) async fn api_list_providers(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let rows: Vec<ProviderOut> = sqlx::query_as(
-        "SELECT id, name, provider_type, base_url FROM providers ORDER BY id DESC",
-    )
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
+    let rows: Vec<ProviderOut> =
+        sqlx::query_as("SELECT id, name, provider_type, base_url FROM providers ORDER BY id DESC")
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default();
 
     Json(ApiResponse {
         success: true,
@@ -408,11 +413,13 @@ pub(crate) async fn api_bind_provider(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let result = sqlx::query("INSERT OR IGNORE INTO service_providers(service_id, provider_id) VALUES(?, ?)")
-        .bind(&req.service_id)
-        .bind(req.provider_id)
-        .execute(&state.pool)
-        .await;
+    let result = sqlx::query(
+        "INSERT OR IGNORE INTO service_providers(service_id, provider_id) VALUES(?, ?)",
+    )
+    .bind(&req.service_id)
+    .bind(req.provider_id)
+    .execute(&state.pool)
+    .await;
 
     match result {
         Ok(_) => Json(ApiResponse {

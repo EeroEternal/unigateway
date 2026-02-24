@@ -170,7 +170,10 @@ pub(crate) async fn record_stat(
     .await;
 }
 
-pub(crate) async fn find_gateway_api_key(pool: &SqlitePool, raw_key: &str) -> Result<Option<GatewayApiKey>> {
+pub(crate) async fn find_gateway_api_key(
+    pool: &SqlitePool,
+    raw_key: &str,
+) -> Result<Option<GatewayApiKey>> {
     let key = sqlx::query_as::<_, GatewayApiKey>(
         "SELECT
             k.key,

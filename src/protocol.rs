@@ -24,7 +24,10 @@ pub fn openai_payload_to_chat_request(payload: &Value, default_model: &str) -> R
         .get("temperature")
         .and_then(Value::as_f64)
         .map(|v| v as f32);
-    req.top_p = payload.get("top_p").and_then(Value::as_f64).map(|v| v as f32);
+    req.top_p = payload
+        .get("top_p")
+        .and_then(Value::as_f64)
+        .map(|v| v as f32);
     req.max_tokens = payload
         .get("max_tokens")
         .and_then(Value::as_u64)
@@ -34,7 +37,10 @@ pub fn openai_payload_to_chat_request(payload: &Value, default_model: &str) -> R
     Ok(req)
 }
 
-pub fn anthropic_payload_to_chat_request(payload: &Value, default_model: &str) -> Result<ChatRequest> {
+pub fn anthropic_payload_to_chat_request(
+    payload: &Value,
+    default_model: &str,
+) -> Result<ChatRequest> {
     let mut req = ChatRequest::new(
         payload
             .get("model")
@@ -54,7 +60,10 @@ pub fn anthropic_payload_to_chat_request(payload: &Value, default_model: &str) -
         .get("temperature")
         .and_then(Value::as_f64)
         .map(|v| v as f32);
-    req.top_p = payload.get("top_p").and_then(Value::as_f64).map(|v| v as f32);
+    req.top_p = payload
+        .get("top_p")
+        .and_then(Value::as_f64)
+        .map(|v| v as f32);
     req.max_tokens = payload
         .get("max_tokens")
         .and_then(Value::as_u64)
