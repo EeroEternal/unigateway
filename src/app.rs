@@ -2,7 +2,7 @@ use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use anyhow::{Context, Result};
 use axum::{
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use sqlx::sqlite::SqlitePoolOptions;
@@ -103,10 +103,19 @@ pub async fn run(config: AppConfig) -> Result<()> {
             .route("/login", get(auth::login_page).post(auth::login))
             .route("/logout", post(auth::logout))
             .route("/admin", get(admin::admin_page))
+            .route("/admin/dashboard", get(admin::admin_dashboard))
             .route("/admin/stats", get(admin::admin_stats_partial))
-            .route("/admin/services", get(admin::admin_services_partial))
-            .route("/admin/providers", get(admin::admin_providers_partial))
-            .route("/admin/api-keys", get(admin::admin_api_keys_partial));
+            .route("/admin/providers", get(admin::admin_providers))
+            .route("/admin/providers/list", get(admin::admin_providers_list_partial))
+            .route("/admin/providers/create", post(admin::admin_create_provider_partial))
+            .route("/admin/providers/:id", delete(admin::admin_providers_delete))
+            .route("/admin/api-keys", get(admin::admin_api_keys_page))
+            .route("/admin/api-keys/list", get(admin::admin_api_keys_list_partial))
+            .route("/admin/api-keys/create", post(admin::admin_create_api_key_partial))
+            .route("/admin/api-keys/:id", delete(admin::admin_api_keys_delete))
+            .route("/admin/logs", get(admin::admin_logs_page))
+            .route("/admin/logs/list", get(admin::admin_logs_list_partial))
+            .route("/admin/settings", get(admin::admin_settings_page));
     }
 
     let app = app
