@@ -71,6 +71,7 @@ UniGateway is configured via environment variables. You can set these in a `.env
 | `UNIGATEWAY_BIND` | `127.0.0.1:3210` | The address to bind the server to. |
 | `UNIGATEWAY_DB` | `sqlite://unigateway.db` | Path to the SQLite database file. |
 | `UNIGATEWAY_ENABLE_UI` | `true` | Enable/disable web admin UI routes. |
+| `UNIGATEWAY_ADMIN_TOKEN` | `""` | Optional token for admin APIs (`x-admin-token` header). |
 | `OPENAI_BASE_URL` | `https://api.openai.com` | Base URL for OpenAI API. |
 | `OPENAI_API_KEY` | `""` | Default OpenAI API key (optional). |
 | `OPENAI_MODEL` | `gpt-4o-mini` | Default model for OpenAI requests. |
@@ -154,6 +155,23 @@ Content-Type: application/json
 ### Metrics
 ```http
 GET /metrics
+```
+
+### Admin APIs (Headless)
+```http
+GET  /api/admin/services
+POST /api/admin/services
+GET  /api/admin/providers
+POST /api/admin/providers
+POST /api/admin/bindings
+GET  /api/admin/api-keys
+POST /api/admin/api-keys
+```
+
+When `UNIGATEWAY_ADMIN_TOKEN` is set, send header:
+
+```http
+x-admin-token: <YOUR_ADMIN_TOKEN>
 ```
 
 ## Contributing
