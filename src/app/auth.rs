@@ -10,7 +10,10 @@ use sqlx::SqlitePool;
 
 use crate::ui;
 
-use super::{storage::hash_password, types::{AppState, LoginForm}};
+use super::{
+    storage::hash_password,
+    types::{AppState, LoginForm},
+};
 
 pub(crate) async fn login_page() -> impl IntoResponse {
     Html(ui::login_page())

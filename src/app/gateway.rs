@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::{Duration, Instant}};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::{
     extract::{Json, State},
@@ -83,25 +86,30 @@ pub(crate) async fn openai_chat(
                     return resp;
                 }
 
-                let provider = match select_provider_for_service(&state, &gateway_key.service_id, "openai").await {
-                    Ok(Some(provider)) => provider,
-                    Ok(None) => {
-                        release_runtime_inflight(&state, &gateway_key.key).await;
-                        return (
+                let provider =
+                    match select_provider_for_service(&state, &gateway_key.service_id, "openai")
+                        .await
+                    {
+                        Ok(Some(provider)) => provider,
+                        Ok(None) => {
+                            release_runtime_inflight(&state, &gateway_key.key).await;
+                            return (
                             StatusCode::SERVICE_UNAVAILABLE,
-                            Json(json!({"error":{"message":"no provider bound for service/openai"}})),
+                            Json(
+                                json!({"error":{"message":"no provider bound for service/openai"}}),
+                            ),
                         )
                             .into_response();
-                    }
-                    Err(err) => {
-                        release_runtime_inflight(&state, &gateway_key.key).await;
-                        return (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(json!({"error":{"message":format!("db error: {err}")}})),
-                        )
-                            .into_response();
-                    }
-                };
+                        }
+                        Err(err) => {
+                            release_runtime_inflight(&state, &gateway_key.key).await;
+                            return (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(json!({"error":{"message":format!("db error: {err}")}})),
+                            )
+                                .into_response();
+                        }
+                    };
 
                 let Some(base_url) = provider.base_url.clone() else {
                     release_runtime_inflight(&state, &gateway_key.key).await;
@@ -120,7 +128,9 @@ pub(crate) async fn openai_chat(
                         .into_response();
                 };
 
-                if let Some(mapped_model) = map_model_name(provider.model_mapping.as_deref(), &request.model) {
+                if let Some(mapped_model) =
+                    map_model_name(provider.model_mapping.as_deref(), &request.model)
+                {
                     request.model = mapped_model;
                 }
 
@@ -129,10 +139,12 @@ pub(crate) async fn openai_chat(
                 provider_label = provider.name;
                 release_gateway_key = Some(gateway_key.key.clone());
 
-                let _ = sqlx::query("UPDATE api_keys SET used_quota = COALESCE(used_quota, 0) + 1 WHERE key = ?")
-                    .bind(&gateway_key.key)
-                    .execute(&state.pool)
-                    .await;
+                let _ = sqlx::query(
+                    "UPDATE api_keys SET used_quota = COALESCE(used_quota, 0) + 1 WHERE key = ?",
+                )
+                .bind(&gateway_key.key)
+                .execute(&state.pool)
+                .await;
             }
             Ok(None) => {}
             Err(err) => {
@@ -170,8 +182,14 @@ pub(crate) async fn openai_chat(
             }
             let body = chat_response_to_openai_json(&resp);
             let status = StatusCode::OK;
-            record_stat(&state.pool, &provider_label, "/v1/chat/completions", 200, start.elapsed().as_millis() as i64)
-                .await;
+            record_stat(
+                &state.pool,
+                &provider_label,
+                "/v1/chat/completions",
+                200,
+                start.elapsed().as_millis() as i64,
+            )
+            .await;
             (status, Json(body)).into_response()
         }
         Err(err) => {
@@ -215,17 +233,17 @@ pub(crate) async fn anthropic_messages(
         })
         .unwrap_or_default();
 
-    let mut request = match anthropic_payload_to_chat_request(&payload, &state.config.anthropic_model)
-    {
-        Ok(req) => req,
-        Err(err) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({"error":{"message":format!("invalid request: {err}")}})),
-            )
-                .into_response();
-        }
-    };
+    let mut request =
+        match anthropic_payload_to_chat_request(&payload, &state.config.anthropic_model) {
+            Ok(req) => req,
+            Err(err) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error":{"message":format!("invalid request: {err}")}})),
+                )
+                    .into_response();
+            }
+        };
 
     let mut upstream_base_url = state.config.anthropic_base_url.clone();
     let mut upstream_api_key = api_key.clone();
@@ -257,7 +275,13 @@ pub(crate) async fn anthropic_messages(
                     return resp;
                 }
 
-                let provider = match select_provider_for_service(&state, &gateway_key.service_id, "anthropic").await {
+                let provider = match select_provider_for_service(
+                    &state,
+                    &gateway_key.service_id,
+                    "anthropic",
+                )
+                .await
+                {
                     Ok(Some(provider)) => provider,
                     Ok(None) => {
                         release_runtime_inflight(&state, &gateway_key.key).await;
@@ -294,7 +318,9 @@ pub(crate) async fn anthropic_messages(
                         .into_response();
                 };
 
-                if let Some(mapped_model) = map_model_name(provider.model_mapping.as_deref(), &request.model) {
+                if let Some(mapped_model) =
+                    map_model_name(provider.model_mapping.as_deref(), &request.model)
+                {
                     request.model = mapped_model;
                 }
 
@@ -303,10 +329,12 @@ pub(crate) async fn anthropic_messages(
                 provider_label = provider.name;
                 release_gateway_key = Some(gateway_key.key.clone());
 
-                let _ = sqlx::query("UPDATE api_keys SET used_quota = COALESCE(used_quota, 0) + 1 WHERE key = ?")
-                    .bind(&gateway_key.key)
-                    .execute(&state.pool)
-                    .await;
+                let _ = sqlx::query(
+                    "UPDATE api_keys SET used_quota = COALESCE(used_quota, 0) + 1 WHERE key = ?",
+                )
+                .bind(&gateway_key.key)
+                .execute(&state.pool)
+                .await;
             }
             Ok(None) => {}
             Err(err) => {
@@ -344,8 +372,14 @@ pub(crate) async fn anthropic_messages(
             }
             let body = chat_response_to_anthropic_json(&resp);
             let status = StatusCode::OK;
-            record_stat(&state.pool, &provider_label, "/v1/messages", 200, start.elapsed().as_millis() as i64)
-                .await;
+            record_stat(
+                &state.pool,
+                &provider_label,
+                "/v1/messages",
+                200,
+                start.elapsed().as_millis() as i64,
+            )
+            .await;
             (status, Json(body)).into_response()
         }
         Err(err) => {
@@ -389,25 +423,21 @@ async fn acquire_runtime_limit(
 
     if let Some(qps_limit) = gateway_key.qps_limit {
         if qps_limit > 0.0 && (entry.request_count as f64) >= qps_limit {
-            return Err(
-                (
-                    StatusCode::TOO_MANY_REQUESTS,
-                    Json(json!({"error":{"message":"api key qps limit exceeded"}})),
-                )
-                    .into_response(),
-            );
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(json!({"error":{"message":"api key qps limit exceeded"}})),
+            )
+                .into_response());
         }
     }
 
     if let Some(concurrency_limit) = gateway_key.concurrency_limit {
         if concurrency_limit > 0 && (entry.in_flight as i64) >= concurrency_limit {
-            return Err(
-                (
-                    StatusCode::TOO_MANY_REQUESTS,
-                    Json(json!({"error":{"message":"api key concurrency limit exceeded"}})),
-                )
-                    .into_response(),
-            );
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(json!({"error":{"message":"api key concurrency limit exceeded"}})),
+            )
+                .into_response());
         }
     }
 
