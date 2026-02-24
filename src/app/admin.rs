@@ -275,14 +275,16 @@ pub(crate) async fn admin_logs_list_partial(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let logs: Vec<(
-        String,
-        Option<String>,
-        Option<i64>,
-        Option<i64>,
-        Option<String>,
-    )> = sqlx::query_as(
-        "SELECT created_at, model, status_code, latency_ms, service_id
+    #[derive(sqlx::FromRow)]
+    struct LogRow {
+        created_at: String,
+        status_code: Option<i64>,
+        latency_ms: Option<i64>,
+        service_id: Option<String>,
+    }
+
+    let logs: Vec<LogRow> = sqlx::query_as(
+        "SELECT created_at, status_code, latency_ms, service_id
          FROM request_logs ORDER BY id DESC LIMIT 20",
     )
     .fetch_all(&state.pool)
@@ -290,8 +292,8 @@ pub(crate) async fn admin_logs_list_partial(
     .unwrap_or_default();
 
     let mut rows_html = String::new();
-    for (created_at, model, status, latency, service_id) in logs {
-        let status_val = status.unwrap_or(0);
+    for row in logs {
+        let status_val = row.status_code.unwrap_or(0);
         let status_class = if status_val < 300 {
             "bg-emerald-50 text-emerald-600 border-emerald-100"
         } else {
@@ -315,7 +317,11 @@ pub(crate) async fn admin_logs_list_partial(
                 <span class='badge bg-slate-50 border-slate-200 text-slate-400 font-bold px-2 py-1 rounded-md text-[10px] uppercase tracking-wider h-auto shadow-none'>{}</span>
               </td>
             </tr>",
-            created_at, status_class, status_val, latency.unwrap_or(0), service_id.unwrap_or_default()
+            row.created_at,
+            status_class,
+            status_val,
+            row.latency_ms.unwrap_or(0),
+            row.service_id.unwrap_or_default()
         ));
     }
     if rows_html.is_empty() {
@@ -323,27 +329,6 @@ pub(crate) async fn admin_logs_list_partial(
     }
 
     Html(rows_html).into_response()
-}
-
-pub(crate) async fn admin_providers_partial(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
-    if !state.config.enable_ui {
-        return StatusCode::NOT_FOUND.into_response();
-    }
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
-    }
-
-    let providers: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(
-        "SELECT id, name, provider_type, base_url FROM providers WHERE COALESCE(is_enabled, 1)=1 ORDER BY id",
-    )
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
-
-    render_providers_partial(&providers).into_response()
 }
 
 pub(crate) async fn admin_create_provider_partial(
@@ -372,61 +357,6 @@ pub(crate) async fn admin_create_provider_partial(
     admin_providers_list_partial(State(state), headers)
         .await
         .into_response()
-}
-
-pub(crate) async fn admin_bind_provider_partial(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Form(form): Form<BindProviderForm>,
-) -> impl IntoResponse {
-    if !state.config.enable_ui {
-        return StatusCode::NOT_FOUND.into_response();
-    }
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
-    }
-
-    if !form.service_id.trim().is_empty() {
-        if let Ok(provider_id) = form.provider_id.trim().parse::<i64>() {
-            let _ = sqlx::query(
-                "INSERT OR IGNORE INTO service_providers(service_id, provider_id) VALUES(?, ?)",
-            )
-            .bind(form.service_id.trim())
-            .bind(provider_id)
-            .execute(&state.pool)
-            .await;
-        }
-    }
-
-    let providers: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(
-        "SELECT id, name, provider_type, base_url FROM providers WHERE COALESCE(is_enabled, 1)=1 ORDER BY id",
-    )
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
-
-    render_providers_partial(&providers).into_response()
-}
-
-fn render_providers_partial(providers: &[(i64, String, String, Option<String>)]) -> Html<String> {
-    let mut rows = String::new();
-    for (id, name, provider_type, base_url) in providers {
-        rows.push_str(&format!(
-            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
-            id,
-            name,
-            provider_type,
-            base_url.clone().unwrap_or_default()
-        ));
-    }
-    if rows.is_empty() {
-        rows.push_str("<tr><td colspan='4' class='text-base-content/60'>暂无 Provider</td></tr>");
-    }
-
-    Html(format!(
-        "<div class='card bg-base-100 shadow'><div class='card-body space-y-4'><h3 class='card-title text-base'>Providers</h3><form class='grid grid-cols-1 md:grid-cols-5 gap-2' hx-post='/admin/providers/create' hx-target='#providers-box' hx-swap='outerHTML'><input class='input input-bordered input-sm' name='name' placeholder='name' /><input class='input input-bordered input-sm' name='provider_type' placeholder='type: openai/anthropic' /><input class='input input-bordered input-sm' name='base_url' placeholder='base url' /><input class='input input-bordered input-sm' name='api_key' placeholder='api key' /><button class='btn btn-primary btn-sm' type='submit'>新增 Provider</button><input class='input input-bordered input-sm md:col-span-4' name='model_mapping' placeholder='model mapping (json or model)' /></form><form class='grid grid-cols-1 md:grid-cols-3 gap-2' hx-post='/admin/providers/bind' hx-target='#providers-box' hx-swap='outerHTML'><input class='input input-bordered input-sm' name='service_id' placeholder='service id' /><input class='input input-bordered input-sm' name='provider_id' placeholder='provider id' /><button class='btn btn-secondary btn-sm' type='submit'>绑定 Provider</button></form><div class='overflow-x-auto'><table class='table table-sm'><thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Base URL</th></tr></thead><tbody>{}</tbody></table></div></div></div>",
-        rows
-    ))
 }
 
 pub(crate) async fn admin_providers_delete(
@@ -603,27 +533,6 @@ pub(crate) struct CreateApiKeyReq {
     quota_limit: Option<i64>,
     qps_limit: Option<f64>,
     concurrency_limit: Option<i64>,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct CreateServiceForm {
-    id: String,
-    name: String,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct CreateProviderForm {
-    name: String,
-    provider_type: String,
-    base_url: String,
-    api_key: String,
-    model_mapping: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct BindProviderForm {
-    service_id: String,
-    provider_id: String,
 }
 
 #[derive(Deserialize)]
@@ -866,33 +775,4 @@ async fn is_admin_authorized(state: &Arc<AppState>, headers: &HeaderMap) -> bool
     }
 
     true
-}
-
-fn mask_key(key: &str) -> String {
-    if key.len() <= 8 {
-        return key.to_string();
-    }
-    format!("{}****{}", &key[..4], &key[key.len() - 4..])
-}
-
-fn parse_optional_i64(value: Option<&str>) -> Option<i64> {
-    value.and_then(|v| {
-        let trimmed = v.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            trimmed.parse::<i64>().ok()
-        }
-    })
-}
-
-fn parse_optional_f64(value: Option<&str>) -> Option<f64> {
-    value.and_then(|v| {
-        let trimmed = v.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            trimmed.parse::<f64>().ok()
-        }
-    })
 }
