@@ -224,9 +224,7 @@ pub(crate) async fn select_provider_for_service(
 }
 
 pub(crate) fn map_model_name(model_mapping: Option<&str>, requested_model: &str) -> Option<String> {
-    let Some(raw_mapping) = model_mapping else {
-        return None;
-    };
+    let raw_mapping = model_mapping?;
 
     if let Ok(value) = serde_json::from_str::<Value>(raw_mapping) {
         if let Some(mapped) = value.get(requested_model).and_then(Value::as_str) {
