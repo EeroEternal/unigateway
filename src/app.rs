@@ -106,12 +106,27 @@ pub async fn run(config: AppConfig) -> Result<()> {
             .route("/admin/dashboard", get(admin::admin_dashboard))
             .route("/admin/stats", get(admin::admin_stats_partial))
             .route("/admin/providers", get(admin::admin_providers))
-            .route("/admin/providers/list", get(admin::admin_providers_list_partial))
-            .route("/admin/providers/create", post(admin::admin_create_provider_partial))
-            .route("/admin/providers/:id", delete(admin::admin_providers_delete))
+            .route(
+                "/admin/providers/list",
+                get(admin::admin_providers_list_partial),
+            )
+            .route(
+                "/admin/providers/create",
+                post(admin::admin_create_provider_partial),
+            )
+            .route(
+                "/admin/providers/:id",
+                delete(admin::admin_providers_delete),
+            )
             .route("/admin/api-keys", get(admin::admin_api_keys_page))
-            .route("/admin/api-keys/list", get(admin::admin_api_keys_list_partial))
-            .route("/admin/api-keys/create", post(admin::admin_create_api_key_partial))
+            .route(
+                "/admin/api-keys/list",
+                get(admin::admin_api_keys_list_partial),
+            )
+            .route(
+                "/admin/api-keys/create",
+                post(admin::admin_create_api_key_partial),
+            )
             .route("/admin/api-keys/:id", delete(admin::admin_api_keys_delete))
             .route("/admin/logs", get(admin::admin_logs_page))
             .route("/admin/logs/list", get(admin::admin_logs_list_partial))

@@ -160,12 +160,11 @@ pub(crate) async fn admin_providers_list_partial(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let providers: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(
-        "SELECT id, name, provider_type, base_url FROM providers ORDER BY id",
-    )
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
+    let providers: Vec<(i64, String, String, Option<String>)> =
+        sqlx::query_as("SELECT id, name, provider_type, base_url FROM providers ORDER BY id")
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default();
 
     let mut rows_html = String::new();
     for (id, name, ptype, url) in providers {
@@ -216,12 +215,11 @@ pub(crate) async fn admin_api_keys_list_partial(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let keys: Vec<(String, Option<String>, i64)> = sqlx::query_as(
-        "SELECT key, name, used_quota FROM api_keys ORDER BY created_at DESC",
-    )
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
+    let keys: Vec<(String, Option<String>, i64)> =
+        sqlx::query_as("SELECT key, name, used_quota FROM api_keys ORDER BY created_at DESC")
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default();
 
     let mut rows_html = String::new();
     for (key, name, used) in keys {
@@ -277,7 +275,13 @@ pub(crate) async fn admin_logs_list_partial(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let logs: Vec<(String, Option<String>, Option<i64>, Option<i64>, Option<String>)> = sqlx::query_as(
+    let logs: Vec<(
+        String,
+        Option<String>,
+        Option<i64>,
+        Option<i64>,
+        Option<String>,
+    )> = sqlx::query_as(
         "SELECT created_at, model, status_code, latency_ms, service_id
          FROM request_logs ORDER BY id DESC LIMIT 20",
     )
@@ -288,7 +292,11 @@ pub(crate) async fn admin_logs_list_partial(
     let mut rows_html = String::new();
     for (created_at, model, status, latency, service_id) in logs {
         let status_val = status.unwrap_or(0);
-        let status_class = if status_val < 300 { "bg-emerald-50 text-emerald-600 border-emerald-100" } else { "bg-rose-50 text-rose-600 border-rose-100" };
+        let status_class = if status_val < 300 {
+            "bg-emerald-50 text-emerald-600 border-emerald-100"
+        } else {
+            "bg-rose-50 text-rose-600 border-rose-100"
+        };
         rows_html.push_str(&format!(
             "<tr class='group hover:bg-slate-50 transition-colors'>
               <td class='py-4 px-8 border-b border-slate-100'>
@@ -361,7 +369,9 @@ pub(crate) async fn admin_create_provider_partial(
         .await;
     }
 
-    admin_providers_list_partial(State(state), headers).await.into_response()
+    admin_providers_list_partial(State(state), headers)
+        .await
+        .into_response()
 }
 
 pub(crate) async fn admin_bind_provider_partial(
@@ -433,7 +443,9 @@ pub(crate) async fn admin_providers_delete(
         .execute(&state.pool)
         .await;
 
-    admin_providers_list_partial(State(state), headers).await.into_response()
+    admin_providers_list_partial(State(state), headers)
+        .await
+        .into_response()
 }
 
 pub(crate) async fn admin_api_keys_delete(
@@ -450,7 +462,9 @@ pub(crate) async fn admin_api_keys_delete(
         .execute(&state.pool)
         .await;
 
-    admin_api_keys_list_partial(State(state), headers).await.into_response()
+    admin_api_keys_list_partial(State(state), headers)
+        .await
+        .into_response()
 }
 
 pub(crate) async fn admin_create_api_key_partial(
@@ -474,7 +488,9 @@ pub(crate) async fn admin_create_api_key_partial(
         .await;
     }
 
-    admin_api_keys_list_partial(State(state), headers).await.into_response()
+    admin_api_keys_list_partial(State(state), headers)
+        .await
+        .into_response()
 }
 
 pub(crate) async fn metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
