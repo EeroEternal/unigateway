@@ -160,14 +160,16 @@ pub(crate) async fn admin_providers_list_partial(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let providers: Vec<(i64, String, String, Option<String>)> =
-        sqlx::query_as("SELECT id, name, provider_type, base_url FROM providers ORDER BY id")
+    let providers: Vec<(i64, String, String, Option<String>, Option<String>)> =
+        sqlx::query_as(
+            "SELECT id, name, provider_type, endpoint_id, base_url FROM providers ORDER BY id",
+        )
             .fetch_all(&state.pool)
             .await
             .unwrap_or_default();
 
     let mut rows_html = String::new();
-    for (id, name, ptype, url) in providers {
+    for (id, name, ptype, endpoint_id, url) in providers {
         let first_char = name.chars().next().unwrap_or('?');
         rows_html.push_str(&format!(
             "<tr class='group hover:bg-slate-50 transition-colors'>
@@ -183,7 +185,10 @@ pub(crate) async fn admin_providers_list_partial(
                 <span class='badge bg-slate-50 border-slate-200 text-slate-500 font-bold px-2.5 py-1.5 rounded-md text-[10px] uppercase tracking-widest h-auto shadow-none'>{}</span>
               </td>
               <td class='py-4 px-8 border-b border-slate-100'>
-                <code class='text-[12px] font-mono text-slate-400 bg-slate-50 border border-slate-100 px-2 py-1 rounded-md'>{}</code>
+                <div class='flex flex-col gap-1'>
+                  <code class='text-[12px] font-mono text-slate-400 bg-slate-50 border border-slate-100 px-2 py-1 rounded-md'>{}</code>
+                  <code class='text-[11px] font-mono text-slate-300 bg-slate-50 border border-slate-100 px-2 py-1 rounded-md'>{}</code>
+                </div>
               </td>
               <td class='py-4 px-8 border-b border-slate-100 text-right'>
                 <button
@@ -196,7 +201,12 @@ pub(crate) async fn admin_providers_list_partial(
                 </button>
               </td>
             </tr>",
-            first_char, name, ptype, url.unwrap_or_default(), id
+            first_char,
+            name,
+            ptype,
+            endpoint_id.unwrap_or_default(),
+            url.unwrap_or_default(),
+            id
         ));
     }
     if rows_html.is_empty() {
@@ -340,14 +350,15 @@ pub(crate) async fn admin_create_provider_partial(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    if !form.name.trim().is_empty() && !form.base_url.trim().is_empty() {
+    if !form.name.trim().is_empty() && !form.endpoint_id.trim().is_empty() {
         let _ = sqlx::query(
-            "INSERT INTO providers(name, provider_type, base_url, api_key, model_mapping, is_enabled)
-             VALUES(?, ?, ?, ?, ?, 1)",
+            "INSERT INTO providers(name, provider_type, endpoint_id, base_url, api_key, model_mapping, is_enabled)
+             VALUES(?, ?, ?, ?, ?, ?, 1)",
         )
         .bind(form.name.trim())
         .bind(form.provider_type.trim())
-        .bind(form.base_url.trim())
+        .bind(form.endpoint_id.trim())
+        .bind(form.base_url.as_deref().unwrap_or(""))
         .bind(form.api_key.trim())
         .bind(form.model_mapping.as_deref().unwrap_or(""))
         .execute(&state.pool)
@@ -491,6 +502,7 @@ pub(crate) struct ProviderOut {
     id: i64,
     name: String,
     provider_type: String,
+    endpoint_id: Option<String>,
     base_url: Option<String>,
 }
 
@@ -515,7 +527,8 @@ pub(crate) struct CreateServiceReq {
 pub(crate) struct CreateProviderReq {
     name: String,
     provider_type: String,
-    base_url: String,
+    endpoint_id: String,
+    base_url: Option<String>,
     api_key: String,
     model_mapping: Option<String>,
 }
@@ -599,7 +612,9 @@ pub(crate) async fn api_list_providers(
     }
 
     let rows: Vec<ProviderOut> =
-        sqlx::query_as("SELECT id, name, provider_type, base_url FROM providers ORDER BY id DESC")
+        sqlx::query_as(
+            "SELECT id, name, provider_type, endpoint_id, base_url FROM providers ORDER BY id DESC",
+        )
             .fetch_all(&state.pool)
             .await
             .unwrap_or_default();
@@ -621,12 +636,13 @@ pub(crate) async fn api_create_provider(
     }
 
     let result = sqlx::query(
-        "INSERT INTO providers(name, provider_type, base_url, api_key, model_mapping, is_enabled)
-         VALUES(?, ?, ?, ?, ?, 1)",
+        "INSERT INTO providers(name, provider_type, endpoint_id, base_url, api_key, model_mapping, is_enabled)
+         VALUES(?, ?, ?, ?, ?, ?, 1)",
     )
     .bind(&req.name)
     .bind(&req.provider_type)
-    .bind(&req.base_url)
+    .bind(&req.endpoint_id)
+    .bind(req.base_url.as_deref().unwrap_or(""))
     .bind(&req.api_key)
     .bind(req.model_mapping.as_deref().unwrap_or(""))
     .execute(&state.pool)

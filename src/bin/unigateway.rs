@@ -44,7 +44,9 @@ enum Commands {
         #[arg(long)]
         provider_type: String,
         #[arg(long)]
-        base_url: String,
+        endpoint_id: String,
+        #[arg(long)]
+        base_url: Option<String>,
         #[arg(long)]
         api_key: String,
         #[arg(long)]
@@ -113,6 +115,7 @@ async fn main() -> Result<()> {
         Some(Commands::CreateProvider {
             name,
             provider_type,
+            endpoint_id,
             base_url,
             api_key,
             model_mapping,
@@ -122,7 +125,8 @@ async fn main() -> Result<()> {
                 &db,
                 &name,
                 &provider_type,
-                &base_url,
+                Some(&endpoint_id),
+                base_url.as_deref(),
                 &api_key,
                 model_mapping.as_deref(),
             )

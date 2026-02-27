@@ -59,6 +59,7 @@ pub(crate) async fn init_db(pool: &SqlitePool) -> Result<()> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             provider_type TEXT NOT NULL,
+            endpoint_id TEXT,
             base_url TEXT,
             api_key TEXT,
             model_mapping TEXT,
@@ -69,6 +70,11 @@ pub(crate) async fn init_db(pool: &SqlitePool) -> Result<()> {
     )
     .execute(pool)
     .await?;
+
+    // 旧库轻量迁移：补齐 endpoint_id 列
+    let _ = sqlx::query("ALTER TABLE providers ADD COLUMN endpoint_id TEXT")
+        .execute(pool)
+        .await;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS service_providers (
@@ -200,7 +206,7 @@ pub(crate) async fn select_provider_for_service(
     protocol: &str,
 ) -> Result<Option<ServiceProvider>> {
     let providers = sqlx::query_as::<_, ServiceProvider>(
-        "SELECT p.name, p.base_url, p.api_key, p.model_mapping
+        "SELECT p.name, p.provider_type, p.endpoint_id, p.base_url, p.api_key, p.model_mapping
          FROM providers p
          INNER JOIN service_providers sp ON sp.provider_id = p.id
          WHERE sp.service_id = ? AND COALESCE(p.is_enabled, 1) = 1 AND p.provider_type = ?

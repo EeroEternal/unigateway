@@ -437,8 +437,12 @@ pub const PROVIDERS_PAGE: &str = r##"
           </select>
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text font-bold text-slate-500 text-xs">API 端点 (Endpoint)</span></label>
-          <input name="base_url" type="text" value="https://api.openai.com/v1" class="input h-11 bg-slate-50 border-slate-200 rounded-lg focus:border-brand/50 focus:ring-0 font-medium text-sm transition-all" required />
+          <label class="label"><span class="label-text font-bold text-slate-500 text-xs">Endpoint ID</span></label>
+          <input name="endpoint_id" type="text" placeholder="例如: openai / deepseek" class="input h-11 bg-slate-50 border-slate-200 rounded-lg focus:border-brand/50 focus:ring-0 font-medium text-sm transition-all" required />
+        </div>
+        <div class="form-control">
+          <label class="label"><span class="label-text font-bold text-slate-500 text-xs">Base URL 覆盖（可选）</span></label>
+          <input name="base_url" type="text" placeholder="例如: https://api.deepseek.com" class="input h-11 bg-slate-50 border-slate-200 rounded-lg focus:border-brand/50 focus:ring-0 font-medium text-sm transition-all" />
         </div>
         <div class="form-control">
           <label class="label"><span class="label-text font-bold text-slate-500 text-xs">API Key</span></label>

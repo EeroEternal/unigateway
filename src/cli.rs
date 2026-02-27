@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+use std::path::Path;
 
 use crate::app::hash_password;
 
@@ -16,11 +17,14 @@ pub async fn init_admin(db_url: &str, username: &str, password: &str) -> Result<
     .execute(&pool)
     .await?;
 
-    sqlx::query("INSERT OR REPLACE INTO users(username, password_hash) VALUES(?, ?)")
-        .bind(username)
-        .bind(hash_password(password))
-        .execute(&pool)
-        .await?;
+    sqlx::query(
+        "INSERT INTO users(username, password_hash) VALUES(?, ?)
+         ON CONFLICT(username) DO UPDATE SET password_hash = excluded.password_hash",
+    )
+    .bind(username)
+    .bind(hash_password(password))
+    .execute(&pool)
+    .await?;
 
     Ok(())
 }
@@ -42,7 +46,8 @@ pub async fn create_provider(
     db_url: &str,
     name: &str,
     provider_type: &str,
-    base_url: &str,
+    endpoint_id: Option<&str>,
+    base_url: Option<&str>,
     api_key: &str,
     model_mapping: Option<&str>,
 ) -> Result<i64> {
@@ -50,12 +55,13 @@ pub async fn create_provider(
     ensure_management_schema(&pool).await?;
 
     let result = sqlx::query(
-        "INSERT INTO providers(name, provider_type, base_url, api_key, model_mapping, is_enabled)
-         VALUES(?, ?, ?, ?, ?, 1)",
+        "INSERT INTO providers(name, provider_type, endpoint_id, base_url, api_key, model_mapping, is_enabled)
+         VALUES(?, ?, ?, ?, ?, ?, 1)",
     )
     .bind(name)
     .bind(provider_type)
-    .bind(base_url)
+    .bind(endpoint_id.unwrap_or(""))
+    .bind(base_url.unwrap_or(""))
     .bind(api_key)
     .bind(model_mapping.unwrap_or(""))
     .execute(&pool)
@@ -145,6 +151,15 @@ pub async fn print_metrics_snapshot(db_url: &str) -> Result<()> {
 }
 
 async fn connect(db_url: &str) -> Result<SqlitePool> {
+    // 如果数据库文件不存在，自动创建
+    if db_url.starts_with("sqlite://") {
+        let db_path = db_url.strip_prefix("sqlite://").unwrap();
+        if !Path::new(db_path).exists() {
+            std::fs::File::create(db_path)
+                .with_context(|| format!("failed to create database file: {}", db_path))?;
+        }
+    }
+
     SqlitePoolOptions::new()
         .max_connections(2)
         .connect(db_url)
@@ -169,6 +184,7 @@ async fn ensure_management_schema(pool: &SqlitePool) -> Result<()> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             provider_type TEXT NOT NULL,
+            endpoint_id TEXT,
             base_url TEXT,
             api_key TEXT,
             model_mapping TEXT,
@@ -179,6 +195,10 @@ async fn ensure_management_schema(pool: &SqlitePool) -> Result<()> {
     )
     .execute(pool)
     .await?;
+
+    let _ = sqlx::query("ALTER TABLE providers ADD COLUMN endpoint_id TEXT")
+        .execute(pool)
+        .await;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS service_providers (

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
 use axum::{
@@ -62,6 +62,16 @@ impl AppConfig {
 }
 
 pub async fn run(config: AppConfig) -> Result<()> {
+    // 如果数据库文件不存在，自动创建
+    if config.db_url.starts_with("sqlite://") {
+        let db_path = config.db_url.strip_prefix("sqlite://").unwrap();
+        if !Path::new(db_path).exists() {
+            info!("Creating database file: {}", db_path);
+            std::fs::File::create(db_path)
+                .with_context(|| format!("failed to create database file: {}", db_path))?;
+        }
+    }
+
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
         .connect(&config.db_url)
