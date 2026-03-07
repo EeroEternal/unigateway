@@ -1,10 +1,10 @@
 <div align="center">
   <h1>UniGateway</h1>
   <p>
-    <strong>A lightweight, open-source LLM gateway with OpenAI & Anthropic compatibility.</strong>
+    <strong>A lightweight, open-source LLM gateway with OpenAI and Anthropic compatibility.</strong>
   </p>
   <p>
-    Built with Rust. Blazing fast, memory-safe, and zero dependencies.
+    Built with Rust for fast startup, low overhead, and simple operations.
   </p>
 
   <p>
@@ -16,11 +16,15 @@
 
 <br />
 
+<p align="center">
+  <img src="docs/dashboard.jpg" alt="UniGateway dashboard" width="960" />
+</p>
+
 ## Philosophy
 
 Managing multiple LLM providers (OpenAI, Anthropic, etc.) in production can be complex. **UniGateway** solves this by providing a unified, lightweight proxy layer that sits between your application and the LLM providers.
 
-It offers a **drop-in replacement** for standard OpenAI and Anthropic clients, while adding essential features like request logging, latency tracking, and a built-in admin dashboard—all without the overhead of heavy API gateway solutions.
+It offers a **drop-in replacement** for standard OpenAI and Anthropic clients, while adding essential features like request logging, latency tracking, service-based routing, and a built-in admin dashboard without the overhead of a heavyweight API gateway.
 
 ## Features
 
@@ -32,7 +36,9 @@ It offers a **drop-in replacement** for standard OpenAI and Anthropic clients, w
 - 📈 **Minimal Observability**: Exposes `GET /metrics` (Prometheus text format) for external observability integration.
 - 🧭 **Service Routing**: Supports `service -> provider` binding with round-robin selection.
 - 🔐 **API Key Limits (MVP)**: Supports per-key quota, QPS, and concurrency limits.
-- 🛡️ **Lightweight Admin UI**: A zero-dependency admin dashboard built with HTMX + DaisyUI (templates separated from Rust handlers).
+- 🛡️ **Refined Admin UI**: A lightweight admin console built with HTMX + DaisyUI, including Providers, API Keys, Services, Request Logs, and Settings.
+- 🔎 **Detail Pages**: Providers, API keys, and services can be inspected from dedicated detail views with linked navigation between related resources.
+- 🧩 **Product-Oriented Information Architecture**: List pages are optimized for scanability while full relationships are available from detail pages.
 - 🧰 **CLI First Operations**: Supports no-UI/headless runtime and admin operations from CLI.
 - 📦 **Flexible Deployment**: Run as a standalone binary or embed it as a library in your Rust application.
 
@@ -43,9 +49,15 @@ It offers a **drop-in replacement** for standard OpenAI and Anthropic clients, w
 Ensure you have [Rust installed](https://rustup.rs/).
 
 ```bash
-git clone https://github.com/mac-m4/unigateway.git
+git clone https://github.com/lipish/unigateway.git
 cd unigateway
 cargo build --release
+```
+
+### From crates.io
+
+```bash
+cargo install unigateway
 ```
 
 ## Usage
@@ -61,6 +73,29 @@ cargo run --bin unigateway -- serve --no-ui
 ```
 
 The server will start on `http://127.0.0.1:3210` by default.
+
+## Admin Experience
+
+The built-in admin UI is designed for operational clarity and lightweight day-to-day management.
+
+- **Providers**
+  - Register upstream vendors such as OpenAI, Anthropic, DeepSeek, or custom-compatible backends.
+  - Review provider settings from a detail page.
+  - Inspect all services currently bound to a provider.
+
+- **API Keys**
+  - Create gateway access keys from the UI.
+  - Automatically route each key through a service.
+  - Inspect an API key and jump to its linked service.
+
+- **Services**
+  - Manage the routing layer between API keys and providers.
+  - Inspect all bound providers and all API keys using a service.
+
+- **Request Logs**
+  - Review recent requests with path, latency, and status.
+
+This makes UniGateway suitable for small teams that want a practical gateway without adding a separate control plane.
 
 ### Configuration
 
@@ -86,7 +121,7 @@ Access the admin dashboard at `http://127.0.0.1:3210/admin`.
 - **Username**: `admin`
 - **Password**: `admin123` (Default)
 
-> **Note**: The dashboard provides real-time statistics on request volume and distribution across providers.
+> **Note**: The dashboard provides a lightweight operations surface for providers, API keys, services, request logs, and runtime stats.
 
 ### CLI Operations
 
@@ -107,6 +142,7 @@ unigateway create-service --id svc_openai --name "OpenAI Service" --db sqlite://
 unigateway create-provider \
   --name openai-prod \
   --provider-type openai \
+  --endpoint-id openai \
   --base-url https://api.openai.com \
   --api-key sk-xxx \
   --db sqlite://unigateway.db

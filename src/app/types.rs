@@ -28,6 +28,7 @@ pub(crate) struct GatewayApiKey {
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct ServiceProvider {
     pub name: String,
+    #[allow(dead_code)]
     pub provider_type: String,
     pub endpoint_id: Option<String>,
     pub base_url: Option<String>,

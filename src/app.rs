@@ -2,8 +2,8 @@ use std::{collections::HashMap, net::SocketAddr, path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
 use axum::{
-    routing::{delete, get, post},
     Router,
+    routing::{get, post},
 };
 use sqlx::sqlite::SqlitePoolOptions;
 use tokio::{net::TcpListener, sync::Mutex};
@@ -126,7 +126,7 @@ pub async fn run(config: AppConfig) -> Result<()> {
             )
             .route(
                 "/admin/providers/:id",
-                delete(admin::admin_providers_delete),
+                get(admin::admin_provider_detail_page).delete(admin::admin_providers_delete),
             )
             .route("/admin/api-keys", get(admin::admin_api_keys_page))
             .route(
@@ -137,7 +137,19 @@ pub async fn run(config: AppConfig) -> Result<()> {
                 "/admin/api-keys/create",
                 post(admin::admin_create_api_key_partial),
             )
-            .route("/admin/api-keys/:id", delete(admin::admin_api_keys_delete))
+            .route(
+                "/admin/api-keys/:id",
+                get(admin::admin_api_key_detail_page).delete(admin::admin_api_keys_delete),
+            )
+            .route("/admin/services", get(admin::admin_services_page))
+            .route(
+                "/admin/services/list",
+                get(admin::admin_services_list_partial),
+            )
+            .route(
+                "/admin/services/:id",
+                get(admin::admin_service_detail_page).delete(admin::admin_services_delete),
+            )
             .route("/admin/logs", get(admin::admin_logs_page))
             .route("/admin/logs/list", get(admin::admin_logs_list_partial))
             .route("/admin/settings", get(admin::admin_settings_page));
