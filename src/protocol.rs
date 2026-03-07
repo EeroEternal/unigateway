@@ -1,9 +1,9 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use llm_connector::{
-    types::{ChatRequest, Message, Role},
     ChatResponse, LlmClient,
+    types::{ChatRequest, Message, Role},
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub enum UpstreamProtocol {
     OpenAi,

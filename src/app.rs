@@ -2,8 +2,8 @@ use std::{collections::HashMap, net::SocketAddr, path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
 use axum::{
-    routing::{get, post},
     Router,
+    routing::{get, post},
 };
 use sqlx::sqlite::SqlitePoolOptions;
 use tokio::{net::TcpListener, sync::Mutex};

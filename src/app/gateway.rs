@@ -5,16 +5,15 @@ use std::{
 
 use axum::{
     extract::{Json, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use llm_providers::get_endpoint;
 use serde_json::json;
 
 use crate::protocol::{
-    anthropic_payload_to_chat_request, chat_response_to_anthropic_json,
+    UpstreamProtocol, anthropic_payload_to_chat_request, chat_response_to_anthropic_json,
     chat_response_to_openai_json, invoke_with_connector, openai_payload_to_chat_request,
-    UpstreamProtocol,
 };
 
 use super::{
