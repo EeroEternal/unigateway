@@ -8,8 +8,8 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use serde_json::json;
 use llm_providers::get_endpoint;
+use serde_json::json;
 
 use crate::protocol::{
     anthropic_payload_to_chat_request, chat_response_to_anthropic_json,
@@ -22,7 +22,10 @@ use super::{
     types::{AppState, GatewayApiKey, RuntimeRateState},
 };
 
-fn resolve_upstream_base_url(provider_base_url: Option<String>, endpoint_id: Option<&str>) -> Option<String> {
+fn resolve_upstream_base_url(
+    provider_base_url: Option<String>,
+    endpoint_id: Option<&str>,
+) -> Option<String> {
     if let Some(url) = provider_base_url {
         let trimmed = url.trim();
         if !trimmed.is_empty() {
@@ -129,9 +132,10 @@ pub(crate) async fn openai_chat(
                         }
                     };
 
-                let Some(base_url) =
-                    resolve_upstream_base_url(provider.base_url.clone(), provider.endpoint_id.as_deref())
-                else {
+                let Some(base_url) = resolve_upstream_base_url(
+                    provider.base_url.clone(),
+                    provider.endpoint_id.as_deref(),
+                ) else {
                     release_runtime_inflight(&state, &gateway_key.key).await;
                     return (
                         StatusCode::SERVICE_UNAVAILABLE,
@@ -321,9 +325,10 @@ pub(crate) async fn anthropic_messages(
                     }
                 };
 
-                let Some(base_url) =
-                    resolve_upstream_base_url(provider.base_url.clone(), provider.endpoint_id.as_deref())
-                else {
+                let Some(base_url) = resolve_upstream_base_url(
+                    provider.base_url.clone(),
+                    provider.endpoint_id.as_deref(),
+                ) else {
                     release_runtime_inflight(&state, &gateway_key.key).await;
                     return (
                         StatusCode::SERVICE_UNAVAILABLE,

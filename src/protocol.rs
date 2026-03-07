@@ -84,8 +84,9 @@ pub async fn invoke_with_connector(
     }
 
     let client = match protocol {
-        UpstreamProtocol::OpenAi => LlmClient::openai(api_key, base_url)
-            .context("failed to create openai client")?,
+        UpstreamProtocol::OpenAi => {
+            LlmClient::openai(api_key, base_url).context("failed to create openai client")?
+        }
         UpstreamProtocol::Anthropic => {
             LlmClient::anthropic_with_config(api_key, base_url, None, None)
                 .context("failed to create anthropic client")?

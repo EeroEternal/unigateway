@@ -30,7 +30,10 @@ fn generate_provider_options() -> String {
     for (id, provider) in sorted_providers {
         let has_global = provider.endpoints.values().any(|ep| ep.region == "global");
         if has_global {
-             options.push_str(&format!(r#"<option value="{}">{}</option>"#, id, provider.label));
+            options.push_str(&format!(
+                r#"<option value="{}">{}</option>"#,
+                id, provider.label
+            ));
         }
     }
     options
