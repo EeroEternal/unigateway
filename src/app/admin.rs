@@ -935,26 +935,25 @@ pub(crate) async fn admin_api_keys_delete(
         .execute(&state.pool)
         .await;
 
-    if query.delete_service.unwrap_or(0) == 1 {
-        if let Some(service_id) = service_id {
-            if service_id != "default" {
-                let remaining: i64 =
-                    sqlx::query_scalar("SELECT COUNT(*) FROM api_keys WHERE service_id = ?")
-                        .bind(&service_id)
-                        .fetch_one(&state.pool)
-                        .await
-                        .unwrap_or(0);
-                if remaining == 0 {
-                    let _ = sqlx::query("DELETE FROM service_providers WHERE service_id = ?")
-                        .bind(&service_id)
-                        .execute(&state.pool)
-                        .await;
-                    let _ = sqlx::query("DELETE FROM services WHERE id = ?")
-                        .bind(&service_id)
-                        .execute(&state.pool)
-                        .await;
-                }
-            }
+    if query.delete_service.unwrap_or(0) == 1
+        && let Some(service_id) = service_id
+        && service_id != "default"
+    {
+        let remaining: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM api_keys WHERE service_id = ?")
+                .bind(&service_id)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap_or(0);
+        if remaining == 0 {
+            let _ = sqlx::query("DELETE FROM service_providers WHERE service_id = ?")
+                .bind(&service_id)
+                .execute(&state.pool)
+                .await;
+            let _ = sqlx::query("DELETE FROM services WHERE id = ?")
+                .bind(&service_id)
+                .execute(&state.pool)
+                .await;
         }
     }
 
