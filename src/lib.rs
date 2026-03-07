@@ -4,4 +4,4 @@ pub mod protocol;
 pub mod sdk;
 pub mod ui;
 
-pub use app::{run, AppConfig};
+pub use app::{AppConfig, run};
