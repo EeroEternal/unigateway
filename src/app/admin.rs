@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Form, Query, RawForm, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
-    response::{Html, IntoResponse, Redirect},
     Json,
+    extract::{Form, Query, RawForm, State},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
+    response::{Html, IntoResponse, Redirect},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;

@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Form, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Redirect},
 };
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{Rng, distributions::Alphanumeric};
 use sqlx::SqlitePool;
 
 use crate::ui;
