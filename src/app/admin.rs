@@ -16,6 +16,51 @@ use super::{
     types::{AppState, ModelItem, ModelList},
 };
 
+#[derive(sqlx::FromRow)]
+struct ProviderDetailRow {
+    id: i64,
+    name: String,
+    provider_type: String,
+    endpoint_id: Option<String>,
+    base_url: Option<String>,
+}
+
+#[derive(sqlx::FromRow)]
+struct ServiceSummaryRow {
+    id: String,
+    name: String,
+    created_at: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct ApiKeyListRow {
+    key: String,
+    name: Option<String>,
+    service_id: String,
+    service_name: Option<String>,
+    created_at: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct ApiKeyDetailRow {
+    name: Option<String>,
+    key: String,
+    service_id: String,
+    service_name: Option<String>,
+    created_at: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct ProviderListRow {
+    id: i64,
+    name: String,
+    provider_type: String,
+    endpoint_id: Option<String>,
+    base_url: Option<String>,
+    service_count: i64,
+    service_ids: Option<String>,
+}
+
 pub(crate) async fn health() -> impl IntoResponse {
     Json(json!({"status":"ok","name":"UniGateway"}))
 }
@@ -51,7 +96,7 @@ pub(crate) async fn admin_provider_detail_page(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let provider_row: Option<(i64, String, String, Option<String>, Option<String>)> = sqlx::query_as(
+    let provider_row: Option<ProviderDetailRow> = sqlx::query_as(
         "SELECT id, name, provider_type, endpoint_id, base_url FROM providers WHERE id = ?",
     )
     .bind(id)
@@ -59,24 +104,28 @@ pub(crate) async fn admin_provider_detail_page(
     .await
     .unwrap_or(None);
 
-    let Some((provider_id, provider_name, provider_type, endpoint_id, base_url)) = provider_row else {
-        return (StatusCode::NOT_FOUND, Html("Provider not found".to_string())).into_response();
+    let Some(provider_row) = provider_row else {
+        return (
+            StatusCode::NOT_FOUND,
+            Html("Provider not found".to_string()),
+        )
+            .into_response();
     };
 
-    let bound_services: Vec<(String, String, String)> = sqlx::query_as(
+    let bound_services: Vec<ServiceSummaryRow> = sqlx::query_as(
         "SELECT s.id, s.name, s.created_at
          FROM service_providers sp
          JOIN services s ON s.id = sp.service_id
          WHERE sp.provider_id = ?
          ORDER BY s.created_at DESC",
     )
-    .bind(provider_id)
+    .bind(provider_row.id)
     .fetch_all(&state.pool)
     .await
     .unwrap_or_default();
 
     let mut service_rows = String::new();
-    for (service_id, service_name, created_at) in bound_services {
+    for service in bound_services {
         service_rows.push_str(&format!(
             "<tr>
               <td class='py-4 px-6 border-b border-slate-100'>
@@ -85,7 +134,7 @@ pub(crate) async fn admin_provider_detail_page(
               <td class='py-4 px-6 border-b border-slate-100'><code class='text-[12px] font-mono text-slate-600 bg-slate-50 border border-slate-100 px-2 py-1 rounded-md'>{}</code></td>
               <td class='py-4 px-6 border-b border-slate-100 text-sm font-semibold text-slate-500'>{}</td>
             </tr>",
-            service_id, service_name, service_id, created_at
+            service.id, service.name, service.id, service.created_at
         ));
     }
     if service_rows.is_empty() {
@@ -93,10 +142,16 @@ pub(crate) async fn admin_provider_detail_page(
     }
 
     let body = ui::templates::PROVIDER_DETAIL_PAGE
-        .replace("{{provider_name}}", &provider_name)
-        .replace("{{provider_type}}", &provider_type)
-        .replace("{{endpoint_id}}", &endpoint_id.unwrap_or_else(|| "-".to_string()))
-        .replace("{{base_url}}", &base_url.unwrap_or_else(|| "-".to_string()))
+        .replace("{{provider_name}}", &provider_row.name)
+        .replace("{{provider_type}}", &provider_row.provider_type)
+        .replace(
+            "{{endpoint_id}}",
+            &provider_row.endpoint_id.unwrap_or_else(|| "-".to_string()),
+        )
+        .replace(
+            "{{base_url}}",
+            &provider_row.base_url.unwrap_or_else(|| "-".to_string()),
+        )
         .replace("{{service_rows}}", &service_rows);
 
     if headers.contains_key("hx-request") {
@@ -115,13 +170,12 @@ pub(crate) async fn admin_service_detail_page(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let service_row: Option<(String, String, String)> = sqlx::query_as(
-        "SELECT id, name, created_at FROM services WHERE id = ?",
-    )
-    .bind(&service_id)
-    .fetch_optional(&state.pool)
-    .await
-    .unwrap_or(None);
+    let service_row: Option<(String, String, String)> =
+        sqlx::query_as("SELECT id, name, created_at FROM services WHERE id = ?")
+            .bind(&service_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
 
     let Some((service_id, service_name, created_at)) = service_row else {
         return (StatusCode::NOT_FOUND, Html("Service not found".to_string())).into_response();
@@ -203,7 +257,7 @@ pub(crate) async fn admin_api_key_detail_page(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let row: Option<(Option<String>, String, String, Option<String>, String)> = sqlx::query_as(
+    let row: Option<ApiKeyDetailRow> = sqlx::query_as(
         "SELECT k.name, k.key, k.service_id, s.name, k.created_at
          FROM api_keys k
          LEFT JOIN services s ON s.id = k.service_id
@@ -214,23 +268,23 @@ pub(crate) async fn admin_api_key_detail_page(
     .await
     .unwrap_or(None);
 
-    let Some((name, key, service_id, service_name, created_at)) = row else {
+    let Some(row) = row else {
         return (StatusCode::NOT_FOUND, Html("API key not found".to_string())).into_response();
     };
 
-    let service_name = service_name.unwrap_or_else(|| {
-        if service_id == "default" {
+    let service_name = row.service_name.unwrap_or_else(|| {
+        if row.service_id == "default" {
             "Default Service".to_string()
         } else {
-            service_id.clone()
+            row.service_id.clone()
         }
     });
 
     let body = ui::templates::API_KEY_DETAIL_PAGE
-        .replace("{{api_key_name}}", &name.unwrap_or_default())
-        .replace("{{api_key_value}}", &key)
-        .replace("{{created_at}}", &created_at)
-        .replace("{{service_id}}", &service_id)
+        .replace("{{api_key_name}}", &row.name.unwrap_or_default())
+        .replace("{{api_key_value}}", &row.key)
+        .replace("{{created_at}}", &row.created_at)
+        .replace("{{service_id}}", &row.service_id)
         .replace("{{service_name}}", &service_name);
 
     if headers.contains_key("hx-request") {
@@ -311,7 +365,9 @@ pub(crate) async fn admin_api_keys_page(
         ));
     }
     if provider_options.is_empty() {
-        provider_options.push_str(r#"<div class="text-xs text-slate-400 px-2 py-3">No providers available</div>"#);
+        provider_options.push_str(
+            r#"<div class="text-xs text-slate-400 px-2 py-3">No providers available</div>"#,
+        );
     }
 
     let body = ui::templates::KEYS_PAGE.replace("{{provider_multi_items}}", &provider_options);
@@ -397,9 +453,8 @@ pub(crate) async fn admin_providers_list_partial(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let providers: Vec<(i64, String, String, Option<String>, Option<String>, i64, Option<String>)> =
-        sqlx::query_as(
-            "SELECT
+    let providers: Vec<ProviderListRow> = sqlx::query_as(
+        "SELECT
                 p.id,
                 p.name,
                 p.provider_type,
@@ -411,14 +466,15 @@ pub(crate) async fn admin_providers_list_partial(
              LEFT JOIN service_providers sp ON sp.provider_id = p.id
              GROUP BY p.id, p.name, p.provider_type, p.endpoint_id, p.base_url
              ORDER BY p.id DESC",
-        )
-            .fetch_all(&state.pool)
-            .await
-            .unwrap_or_default();
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
 
     let mut rows_html = String::new();
-    for (id, name, ptype, endpoint_id, url, service_count, _) in providers {
-        let first_char = name.chars().next().unwrap_or('?');
+    for provider in providers {
+        let first_char = provider.name.chars().next().unwrap_or('?');
+        let _ = &provider.service_ids;
         rows_html.push_str(&format!(
             "<tr class='group hover:bg-slate-50 transition-colors'>
               <td class='py-4 px-8 border-b border-slate-100'>
@@ -455,14 +511,14 @@ pub(crate) async fn admin_providers_list_partial(
               </td>
             </tr>",
             first_char,
-            id,
-            name,
-            ptype,
-            endpoint_id.unwrap_or_default(),
-            url.unwrap_or_default(),
-            id,
-            service_count,
-            id
+            provider.id,
+            provider.name,
+            provider.provider_type,
+            provider.endpoint_id.unwrap_or_default(),
+            provider.base_url.unwrap_or_default(),
+            provider.id,
+            provider.service_count,
+            provider.id
         ));
     }
     if rows_html.is_empty() {
@@ -484,7 +540,11 @@ pub(crate) async fn admin_services_delete(
     }
 
     if service_id == "default" {
-        return (StatusCode::BAD_REQUEST, Html("Default service cannot be deleted".to_string())).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Html("Default service cannot be deleted".to_string()),
+        )
+            .into_response();
     }
 
     let token_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM api_keys WHERE service_id = ?")
@@ -496,7 +556,10 @@ pub(crate) async fn admin_services_delete(
     if token_count > 0 && query.force.unwrap_or(0) != 1 {
         return (
             StatusCode::BAD_REQUEST,
-            Html(format!("Please delete the {} linked API key(s) first, or use force delete.", token_count)),
+            Html(format!(
+                "Please delete the {} linked API key(s) first, or use force delete.",
+                token_count
+            )),
         )
             .into_response();
     }
@@ -536,25 +599,24 @@ pub(crate) async fn admin_api_keys_list_partial(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let keys: Vec<(String, Option<String>, String, Option<String>, String)> =
-        sqlx::query_as(
-            "SELECT k.key, k.name, k.service_id, s.name, k.created_at
+    let keys: Vec<ApiKeyListRow> = sqlx::query_as(
+        "SELECT k.key, k.name, k.service_id, s.name, k.created_at
              FROM api_keys k
              LEFT JOIN services s ON s.id = k.service_id
              ORDER BY k.created_at DESC",
-        )
-            .fetch_all(&state.pool)
-            .await
-            .unwrap_or_default();
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
 
     let mut rows_html = String::new();
-    for (key, name, service_id, service_name, created_at) in keys {
-        let display_name = name.unwrap_or_default();
-        let display_service_name = service_name.unwrap_or_else(|| {
-            if service_id == "default" {
+    for row in keys {
+        let display_name = row.name.unwrap_or_default();
+        let display_service_name = row.service_name.unwrap_or_else(|| {
+            if row.service_id == "default" {
                 "Default Service".to_string()
             } else {
-                service_id.clone()
+                row.service_id.clone()
             }
         });
         rows_html.push_str(&format!(
@@ -601,14 +663,14 @@ pub(crate) async fn admin_api_keys_list_partial(
               </td>
             </tr>",
             display_name.chars().next().unwrap_or('K').to_ascii_uppercase(),
-            key,
+            row.key,
             display_name,
-            key,
-            key,
-            service_id,
+            row.key,
+            row.key,
+            row.service_id,
             display_service_name,
-            created_at,
-            key
+            row.created_at,
+            row.key
         ));
     }
     if rows_html.is_empty() {
@@ -808,9 +870,11 @@ pub(crate) async fn admin_create_provider_partial(
         });
 
         if let Ok(pid) = provider_id {
-            let _ = sqlx::query("INSERT OR IGNORE INTO services(id, name) VALUES('default', 'Default Service')")
-                .execute(&state.pool)
-                .await;
+            let _ = sqlx::query(
+                "INSERT OR IGNORE INTO services(id, name) VALUES('default', 'Default Service')",
+            )
+            .execute(&state.pool)
+            .await;
 
             let _ = sqlx::query("INSERT OR IGNORE INTO service_providers(service_id, provider_id) VALUES('default', ?)")
                 .bind(pid)
@@ -853,12 +917,13 @@ pub(crate) async fn admin_api_keys_delete(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let service_id: Option<String> = sqlx::query_scalar("SELECT service_id FROM api_keys WHERE key = ?")
-        .bind(&key)
-        .fetch_optional(&state.pool)
-        .await
-        .ok()
-        .flatten();
+    let service_id: Option<String> =
+        sqlx::query_scalar("SELECT service_id FROM api_keys WHERE key = ?")
+            .bind(&key)
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten();
 
     let _ = sqlx::query("DELETE FROM api_key_limits WHERE api_key = ?")
         .bind(&key)
@@ -947,9 +1012,11 @@ pub(crate) async fn admin_create_api_key_partial(
         format!("{} Service", name.trim())
     };
 
-    let _ = sqlx::query("INSERT OR IGNORE INTO services(id, name) VALUES('default', 'Default Service')")
-        .execute(&state.pool)
-        .await;
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO services(id, name) VALUES('default', 'Default Service')",
+    )
+    .execute(&state.pool)
+    .await;
 
     if !provider_ids.is_empty() {
         let _ = sqlx::query("INSERT OR IGNORE INTO services(id, name) VALUES(?, ?)")
@@ -969,14 +1036,13 @@ pub(crate) async fn admin_create_api_key_partial(
         }
     }
 
-    let insert_result = sqlx::query(
-        "INSERT INTO api_keys(name, key, service_id, is_active) VALUES(?, ?, ?, 1)",
-    )
-    .bind(name.trim())
-    .bind(&key)
-    .bind(&service_id)
-    .execute(&state.pool)
-    .await;
+    let insert_result =
+        sqlx::query("INSERT INTO api_keys(name, key, service_id, is_active) VALUES(?, ?, ?, 1)")
+            .bind(name.trim())
+            .bind(&key)
+            .bind(&service_id)
+            .execute(&state.pool)
+            .await;
 
     if let Err(err) = insert_result {
         return (
@@ -1186,13 +1252,12 @@ pub(crate) async fn api_list_providers(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let rows: Vec<ProviderOut> =
-        sqlx::query_as(
-            "SELECT id, name, provider_type, endpoint_id, base_url FROM providers ORDER BY id DESC",
-        )
-            .fetch_all(&state.pool)
-            .await
-            .unwrap_or_default();
+    let rows: Vec<ProviderOut> = sqlx::query_as(
+        "SELECT id, name, provider_type, endpoint_id, base_url FROM providers ORDER BY id DESC",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
 
     Json(ApiResponse {
         success: true,
