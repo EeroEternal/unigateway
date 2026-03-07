@@ -92,14 +92,14 @@ pub(crate) async fn openai_chat(
                         .into_response();
                 }
 
-                if let Some(quota_limit) = gateway_key.quota_limit {
-                    if gateway_key.used_quota >= quota_limit {
-                        return (
-                            StatusCode::TOO_MANY_REQUESTS,
-                            Json(json!({"error":{"message":"api key quota exceeded"}})),
-                        )
-                            .into_response();
-                    }
+                if let Some(quota_limit) = gateway_key.quota_limit
+                    && gateway_key.used_quota >= quota_limit
+                {
+                    return (
+                        StatusCode::TOO_MANY_REQUESTS,
+                        Json(json!({"error":{"message":"api key quota exceeded"}})),
+                    )
+                        .into_response();
                 }
 
                 if let Err(resp) = acquire_runtime_limit(&state, &gateway_key).await {
@@ -284,14 +284,14 @@ pub(crate) async fn anthropic_messages(
                         .into_response();
                 }
 
-                if let Some(quota_limit) = gateway_key.quota_limit {
-                    if gateway_key.used_quota >= quota_limit {
-                        return (
-                            StatusCode::TOO_MANY_REQUESTS,
-                            Json(json!({"error":{"message":"api key quota exceeded"}})),
-                        )
-                            .into_response();
-                    }
+                if let Some(quota_limit) = gateway_key.quota_limit
+                    && gateway_key.used_quota >= quota_limit
+                {
+                    return (
+                        StatusCode::TOO_MANY_REQUESTS,
+                        Json(json!({"error":{"message":"api key quota exceeded"}})),
+                    )
+                        .into_response();
                 }
 
                 if let Err(resp) = acquire_runtime_limit(&state, &gateway_key).await {
@@ -447,24 +447,26 @@ async fn acquire_runtime_limit(
         entry.request_count = 0;
     }
 
-    if let Some(qps_limit) = gateway_key.qps_limit {
-        if qps_limit > 0.0 && (entry.request_count as f64) >= qps_limit {
-            return Err((
-                StatusCode::TOO_MANY_REQUESTS,
-                Json(json!({"error":{"message":"api key qps limit exceeded"}})),
-            )
-                .into_response());
-        }
+    if let Some(qps_limit) = gateway_key.qps_limit
+        && qps_limit > 0.0
+        && (entry.request_count as f64) >= qps_limit
+    {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({"error":{"message":"api key qps limit exceeded"}})),
+        )
+            .into_response());
     }
 
-    if let Some(concurrency_limit) = gateway_key.concurrency_limit {
-        if concurrency_limit > 0 && (entry.in_flight as i64) >= concurrency_limit {
-            return Err((
-                StatusCode::TOO_MANY_REQUESTS,
-                Json(json!({"error":{"message":"api key concurrency limit exceeded"}})),
-            )
-                .into_response());
-        }
+    if let Some(concurrency_limit) = gateway_key.concurrency_limit
+        && concurrency_limit > 0
+        && (entry.in_flight as i64) >= concurrency_limit
+    {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({"error":{"message":"api key concurrency limit exceeded"}})),
+        )
+            .into_response());
     }
 
     entry.request_count += 1;
@@ -475,9 +477,9 @@ async fn acquire_runtime_limit(
 
 async fn release_runtime_inflight(state: &Arc<AppState>, key: &str) {
     let mut runtime = state.api_key_runtime.lock().await;
-    if let Some(entry) = runtime.get_mut(key) {
-        if entry.in_flight > 0 {
-            entry.in_flight -= 1;
-        }
+    if let Some(entry) = runtime.get_mut(key)
+        && entry.in_flight > 0
+    {
+        entry.in_flight -= 1;
     }
 }
