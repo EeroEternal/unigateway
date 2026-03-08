@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
-    response::{Html, IntoResponse, Redirect},
+    response::{IntoResponse, Redirect},
 };
 
 use crate::{
@@ -22,7 +22,10 @@ use super::{
         render_service_detail_body,
         render_service_detail_api_key_rows, render_service_detail_provider_rows,
     },
-    shell::{ensure_ui_login, ensure_ui_login_or_redirect, render_hx_or_full, render_hx_or_html},
+    shell::{
+        ensure_ui_login, ensure_ui_login_or_redirect, render_hx_or_full, render_hx_or_html,
+        text_not_found,
+    },
 };
 
 pub(crate) async fn home() -> impl IntoResponse {
@@ -55,11 +58,7 @@ pub(crate) async fn admin_provider_detail_page(
     let provider_row = find_provider_detail(&state.pool, id).await;
 
     let Some(provider_row) = provider_row else {
-        return (
-            StatusCode::NOT_FOUND,
-            Html("Provider not found".to_string()),
-        )
-            .into_response();
+        return text_not_found("Provider not found");
     };
 
     let bound_services = list_services_by_provider(&state.pool, provider_row.id).await;
@@ -89,7 +88,7 @@ pub(crate) async fn admin_service_detail_page(
     let service_row = find_service_detail(&state.pool, &service_id).await;
 
     let Some(service_row) = service_row else {
-        return (StatusCode::NOT_FOUND, Html("Service not found".to_string())).into_response();
+        return text_not_found("Service not found");
     };
 
     let service_id = service_row.id;
@@ -127,7 +126,7 @@ pub(crate) async fn admin_api_key_detail_page(
     let row = find_api_key_detail(&state.pool, &api_key).await;
 
     let Some(row) = row else {
-        return (StatusCode::NOT_FOUND, Html("API key not found".to_string())).into_response();
+        return text_not_found("API key not found");
     };
 
     let service_name = row.service_name.unwrap_or_else(|| {
