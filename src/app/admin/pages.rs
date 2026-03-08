@@ -17,7 +17,9 @@ use super::{
         list_provider_options, list_providers_for_service, list_services_by_provider,
     },
     render::{
+        render_api_key_detail_body, render_provider_detail_body,
         render_provider_detail_service_rows, render_provider_options,
+        render_service_detail_body,
         render_service_detail_api_key_rows, render_service_detail_provider_rows,
     },
     shell::{ensure_ui_login, ensure_ui_login_or_redirect, render_hx_or_full, render_hx_or_html},
@@ -64,18 +66,13 @@ pub(crate) async fn admin_provider_detail_page(
 
     let service_rows = render_provider_detail_service_rows(bound_services);
 
-    let body = ui::templates::PROVIDER_DETAIL_PAGE
-        .replace("{{provider_name}}", &provider_row.name)
-        .replace("{{provider_type}}", &provider_row.provider_type)
-        .replace(
-            "{{endpoint_id}}",
-            &provider_row.endpoint_id.unwrap_or_else(|| "-".to_string()),
-        )
-        .replace(
-            "{{base_url}}",
-            &provider_row.base_url.unwrap_or_else(|| "-".to_string()),
-        )
-        .replace("{{service_rows}}", &service_rows);
+    let body = render_provider_detail_body(
+        &provider_row.name,
+        &provider_row.provider_type,
+        provider_row.endpoint_id.as_deref(),
+        provider_row.base_url.as_deref(),
+        &service_rows,
+    );
 
     render_hx_or_full(&headers, body, ui::provider_detail_page)
 }
@@ -107,12 +104,13 @@ pub(crate) async fn admin_service_detail_page(
 
     let api_key_rows = render_service_detail_api_key_rows(api_keys);
 
-    let body = ui::templates::SERVICE_DETAIL_PAGE
-        .replace("{{service_name}}", &service_name)
-        .replace("{{service_id}}", &service_id)
-        .replace("{{created_at}}", &created_at)
-        .replace("{{provider_rows}}", &provider_rows)
-        .replace("{{api_key_rows}}", &api_key_rows);
+    let body = render_service_detail_body(
+        &service_name,
+        &service_id,
+        &created_at,
+        &provider_rows,
+        &api_key_rows,
+    );
 
     render_hx_or_full(&headers, body, ui::service_detail_page)
 }
@@ -140,12 +138,13 @@ pub(crate) async fn admin_api_key_detail_page(
         }
     });
 
-    let body = ui::templates::API_KEY_DETAIL_PAGE
-        .replace("{{api_key_name}}", &row.name.unwrap_or_default())
-        .replace("{{api_key_value}}", &row.key)
-        .replace("{{created_at}}", &row.created_at)
-        .replace("{{service_id}}", &row.service_id)
-        .replace("{{service_name}}", &service_name);
+    let body = render_api_key_detail_body(
+        row.name.as_deref().unwrap_or_default(),
+        &row.key,
+        &row.created_at,
+        &row.service_id,
+        &service_name,
+    );
 
     render_hx_or_full(&headers, body, ui::api_key_detail_page)
 }

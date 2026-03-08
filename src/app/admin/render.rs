@@ -2,6 +2,7 @@ use super::dto::{
     ApiKeyListRow, ProviderListRow, ProviderOptionRow, ServiceListRow, ServiceSummaryRow,
     ServiceDetailProviderRow, ServiceTokenRow, LogRow,
 };
+use crate::ui;
 
 pub(crate) fn render_provider_detail_service_rows(services: Vec<ServiceSummaryRow>) -> String {
     let mut rows = String::new();
@@ -135,6 +136,51 @@ pub(crate) fn render_provider_list_rows(providers: Vec<ProviderListRow>) -> Stri
         rows_html.push_str("<tr><td colspan='5' class='text-center py-20 text-slate-300 font-bold'>No model providers found</td></tr>");
     }
     rows_html
+}
+
+pub(crate) fn render_provider_detail_body(
+    provider_name: &str,
+    provider_type: &str,
+    endpoint_id: Option<&str>,
+    base_url: Option<&str>,
+    service_rows: &str,
+) -> String {
+    ui::templates::PROVIDER_DETAIL_PAGE
+        .replace("{{provider_name}}", provider_name)
+        .replace("{{provider_type}}", provider_type)
+        .replace("{{endpoint_id}}", endpoint_id.unwrap_or("-"))
+        .replace("{{base_url}}", base_url.unwrap_or("-"))
+        .replace("{{service_rows}}", service_rows)
+}
+
+pub(crate) fn render_service_detail_body(
+    service_name: &str,
+    service_id: &str,
+    created_at: &str,
+    provider_rows: &str,
+    api_key_rows: &str,
+) -> String {
+    ui::templates::SERVICE_DETAIL_PAGE
+        .replace("{{service_name}}", service_name)
+        .replace("{{service_id}}", service_id)
+        .replace("{{created_at}}", created_at)
+        .replace("{{provider_rows}}", provider_rows)
+        .replace("{{api_key_rows}}", api_key_rows)
+}
+
+pub(crate) fn render_api_key_detail_body(
+    api_key_name: &str,
+    api_key_value: &str,
+    created_at: &str,
+    service_id: &str,
+    service_name: &str,
+) -> String {
+    ui::templates::API_KEY_DETAIL_PAGE
+        .replace("{{api_key_name}}", api_key_name)
+        .replace("{{api_key_value}}", api_key_value)
+        .replace("{{created_at}}", created_at)
+        .replace("{{service_id}}", service_id)
+        .replace("{{service_name}}", service_name)
 }
 
 pub(crate) fn render_api_key_list_rows(keys: Vec<ApiKeyListRow>) -> String {
