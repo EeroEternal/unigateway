@@ -28,7 +28,7 @@ use super::{
         render_provider_list_rows, render_providers_list_partial, render_service_list_rows,
         render_services_list_partial,
     },
-    shell::ensure_ui_login,
+    shell::{ensure_ui_login, text_bad_request},
 };
 
 pub(crate) async fn admin_stats_partial(
@@ -77,24 +77,16 @@ pub(crate) async fn admin_services_delete(
     }
 
     if service_id == "default" {
-        return (
-            StatusCode::BAD_REQUEST,
-            Html("Default service cannot be deleted".to_string()),
-        )
-            .into_response();
+        return text_bad_request("Default service cannot be deleted");
     }
 
     let token_count = count_api_keys_by_service(&state.pool, &service_id).await;
 
     if token_count > 0 && query.force.unwrap_or(0) != 1 {
-        return (
-            StatusCode::BAD_REQUEST,
-            Html(format!(
-                "Please delete the {} linked API key(s) first, or use force delete.",
-                token_count
-            )),
-        )
-            .into_response();
+        return text_bad_request(format!(
+            "Please delete the {} linked API key(s) first, or use force delete.",
+            token_count
+        ));
     }
 
     delete_service(&state.pool, &service_id, token_count).await;
@@ -247,11 +239,7 @@ pub(crate) async fn admin_create_api_key_partial(
     provider_ids.dedup();
 
     if name.trim().is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Html("Token name is required".to_string()),
-        )
-            .into_response();
+        return text_bad_request("Token name is required");
     }
 
     let key = format!("sk-{}", uuid::Uuid::new_v4().to_string().replace('-', ""));
@@ -277,11 +265,7 @@ pub(crate) async fn admin_create_api_key_partial(
     .await;
 
     if let Err(err) = insert_result {
-        return (
-            StatusCode::BAD_REQUEST,
-            Html(format!("Failed to create token: {}", err)),
-        )
-            .into_response();
+        return text_bad_request(format!("Failed to create token: {}", err));
     }
 
     let trigger = json!({

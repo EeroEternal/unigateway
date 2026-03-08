@@ -1,11 +1,19 @@
 use std::sync::Arc;
 
 use axum::{
-    http::HeaderMap,
+    http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
 };
 
 use crate::app::{auth::ensure_login, types::AppState};
+
+pub(crate) fn text_not_found(message: impl Into<String>) -> Response {
+    (StatusCode::NOT_FOUND, Html(message.into())).into_response()
+}
+
+pub(crate) fn text_bad_request(message: impl Into<String>) -> Response {
+    (StatusCode::BAD_REQUEST, Html(message.into())).into_response()
+}
 
 pub(crate) async fn ensure_ui_login(
     state: &Arc<AppState>,
