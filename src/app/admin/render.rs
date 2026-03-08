@@ -183,6 +183,18 @@ pub(crate) fn render_api_key_detail_body(
         .replace("{{service_name}}", service_name)
 }
 
+pub(crate) fn render_providers_list_partial(rows_html: &str) -> String {
+    ui::templates::PROVIDERS_LIST_PARTIAL.replace("{{rows}}", rows_html)
+}
+
+pub(crate) fn render_api_keys_list_partial(rows_html: &str) -> String {
+    ui::templates::KEYS_LIST_PARTIAL.replace("{{rows}}", rows_html)
+}
+
+pub(crate) fn render_services_list_partial(rows_html: &str) -> String {
+    ui::templates::SERVICES_LIST_PARTIAL.replace("{{rows}}", rows_html)
+}
+
 pub(crate) fn render_api_key_list_rows(keys: Vec<ApiKeyListRow>) -> String {
     let mut rows_html = String::new();
     for row in keys {
