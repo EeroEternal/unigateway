@@ -7,7 +7,7 @@ use axum::{
 };
 
 use crate::{
-    app::{auth::ensure_login, types::AppState},
+    app::types::AppState,
     ui,
 };
 
@@ -20,6 +20,7 @@ use super::{
         render_provider_detail_service_rows, render_provider_options,
         render_service_detail_api_key_rows, render_service_detail_provider_rows,
     },
+    shell::{ensure_ui_login, ensure_ui_login_or_redirect, render_hx_or_full, render_hx_or_html},
 };
 
 pub(crate) async fn home() -> impl IntoResponse {
@@ -33,15 +34,11 @@ pub(crate) async fn admin_page(
     if !state.config.enable_ui {
         return StatusCode::NOT_FOUND.into_response();
     }
-    if !ensure_login(&state.pool, &headers).await {
-        return Redirect::to("/login").into_response();
+    if let Err(response) = ensure_ui_login_or_redirect(&state, &headers).await {
+        return response;
     }
 
-    if headers.contains_key("hx-request") {
-        Html(ui::templates::ADMIN_PAGE.to_string()).into_response()
-    } else {
-        Html(ui::admin_page()).into_response()
-    }
+    render_hx_or_html(&headers, || ui::templates::ADMIN_PAGE.to_string(), ui::admin_page)
 }
 
 pub(crate) async fn admin_provider_detail_page(
@@ -49,8 +46,8 @@ pub(crate) async fn admin_provider_detail_page(
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<i64>,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
     let provider_row = find_provider_detail(&state.pool, id).await;
@@ -80,11 +77,7 @@ pub(crate) async fn admin_provider_detail_page(
         )
         .replace("{{service_rows}}", &service_rows);
 
-    if headers.contains_key("hx-request") {
-        Html(body).into_response()
-    } else {
-        Html(ui::provider_detail_page(&body)).into_response()
-    }
+    render_hx_or_full(&headers, body, ui::provider_detail_page)
 }
 
 pub(crate) async fn admin_service_detail_page(
@@ -92,8 +85,8 @@ pub(crate) async fn admin_service_detail_page(
     headers: HeaderMap,
     axum::extract::Path(service_id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
     let service_row = find_service_detail(&state.pool, &service_id).await;
@@ -121,11 +114,7 @@ pub(crate) async fn admin_service_detail_page(
         .replace("{{provider_rows}}", &provider_rows)
         .replace("{{api_key_rows}}", &api_key_rows);
 
-    if headers.contains_key("hx-request") {
-        Html(body).into_response()
-    } else {
-        Html(ui::service_detail_page(&body)).into_response()
-    }
+    render_hx_or_full(&headers, body, ui::service_detail_page)
 }
 
 pub(crate) async fn admin_api_key_detail_page(
@@ -133,8 +122,8 @@ pub(crate) async fn admin_api_key_detail_page(
     headers: HeaderMap,
     axum::extract::Path(api_key): axum::extract::Path<String>,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
     let row = find_api_key_detail(&state.pool, &api_key).await;
@@ -158,64 +147,48 @@ pub(crate) async fn admin_api_key_detail_page(
         .replace("{{service_id}}", &row.service_id)
         .replace("{{service_name}}", &service_name);
 
-    if headers.contains_key("hx-request") {
-        Html(body).into_response()
-    } else {
-        Html(ui::api_key_detail_page(&body)).into_response()
-    }
+    render_hx_or_full(&headers, body, ui::api_key_detail_page)
 }
 
 pub(crate) async fn admin_services_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
-    if headers.contains_key("hx-request") {
-        Html(ui::templates::SERVICES_PAGE.to_string()).into_response()
-    } else {
-        Html(ui::services_page()).into_response()
-    }
+    render_hx_or_html(&headers, || ui::templates::SERVICES_PAGE.to_string(), ui::services_page)
 }
 
 pub(crate) async fn admin_dashboard(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
-    if headers.contains_key("hx-request") {
-        Html(ui::templates::ADMIN_PAGE.to_string()).into_response()
-    } else {
-        Html(ui::admin_page()).into_response()
-    }
+    render_hx_or_html(&headers, || ui::templates::ADMIN_PAGE.to_string(), ui::admin_page)
 }
 
 pub(crate) async fn admin_providers(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
-    if headers.contains_key("hx-request") {
-        Html(ui::render_providers_body()).into_response()
-    } else {
-        Html(ui::providers_page()).into_response()
-    }
+    render_hx_or_html(&headers, ui::render_providers_body, ui::providers_page)
 }
 
 pub(crate) async fn admin_api_keys_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
     let providers = list_provider_options(&state.pool).await;
@@ -223,39 +196,27 @@ pub(crate) async fn admin_api_keys_page(
     let provider_options = render_provider_options(providers);
 
     let body = ui::templates::KEYS_PAGE.replace("{{provider_multi_items}}", &provider_options);
-    if headers.contains_key("hx-request") {
-        Html(body).into_response()
-    } else {
-        Html(ui::page("UniGateway - API Keys", &body)).into_response()
-    }
+    render_hx_or_full(&headers, body, |body| ui::page("UniGateway - API Keys", body))
 }
 
 pub(crate) async fn admin_logs_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
-    if headers.contains_key("hx-request") {
-        Html(ui::templates::LOGS_PAGE.to_string()).into_response()
-    } else {
-        Html(ui::logs_page()).into_response()
-    }
+    render_hx_or_html(&headers, || ui::templates::LOGS_PAGE.to_string(), ui::logs_page)
 }
 
 pub(crate) async fn admin_settings_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
-    if headers.contains_key("hx-request") {
-        Html(ui::templates::SETTINGS_PAGE.to_string()).into_response()
-    } else {
-        Html(ui::settings_page()).into_response()
-    }
+    render_hx_or_html(&headers, || ui::templates::SETTINGS_PAGE.to_string(), ui::settings_page)
 }

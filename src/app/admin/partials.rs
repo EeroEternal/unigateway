@@ -9,7 +9,7 @@ use axum::{
 use serde_json::json;
 
 use crate::{
-    app::{auth::ensure_login, types::AppState},
+    app::types::AppState,
     ui,
 };
 
@@ -27,6 +27,7 @@ use super::{
         render_api_key_list_rows, render_log_rows, render_provider_list_rows,
         render_service_list_rows,
     },
+    shell::ensure_ui_login,
 };
 
 pub(crate) async fn admin_stats_partial(
@@ -37,8 +38,8 @@ pub(crate) async fn admin_stats_partial(
         return StatusCode::NOT_FOUND.into_response();
     }
 
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
     let stats = fetch_dashboard_stats(&state.pool).await;
@@ -52,8 +53,8 @@ pub(crate) async fn admin_providers_list_partial(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
     let providers = list_provider_rows(&state.pool).await;
@@ -70,8 +71,8 @@ pub(crate) async fn admin_services_delete(
     Query(query): Query<DeleteServiceQuery>,
     axum::extract::Path(service_id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
     if service_id == "default" {
@@ -106,8 +107,8 @@ pub(crate) async fn admin_api_keys_list_partial(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
     let keys = list_api_key_rows(&state.pool).await;
@@ -122,8 +123,8 @@ pub(crate) async fn admin_services_list_partial(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
     let services = list_service_rows(&state.pool).await;
@@ -138,8 +139,8 @@ pub(crate) async fn admin_logs_list_partial(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
     let logs = list_log_rows(&state.pool).await;
@@ -154,8 +155,8 @@ pub(crate) async fn admin_create_provider_partial(
     headers: HeaderMap,
     Form(form): Form<CreateProviderReq>,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
     create_provider_and_bind_default(
@@ -179,8 +180,8 @@ pub(crate) async fn admin_providers_delete(
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<i64>,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
     delete_provider(&state.pool, id).await;
@@ -196,8 +197,8 @@ pub(crate) async fn admin_api_keys_delete(
     Query(query): Query<DeleteApiKeyQuery>,
     axum::extract::Path(key): axum::extract::Path<String>,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
     let service_id = find_service_id_for_api_key(&state.pool, &key).await;
@@ -220,8 +221,8 @@ pub(crate) async fn admin_create_api_key_partial(
     headers: HeaderMap,
     RawForm(raw_form): RawForm,
 ) -> impl IntoResponse {
-    if !ensure_login(&state.pool, &headers).await {
-        return StatusCode::UNAUTHORIZED.into_response();
+    if let Err(response) = ensure_ui_login(&state, &headers).await {
+        return response;
     }
 
     let mut name = String::new();

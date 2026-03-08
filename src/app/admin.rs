@@ -14,6 +14,8 @@ mod partials;
 mod queries;
 #[path = "admin/render.rs"]
 mod render;
+#[path = "admin/shell.rs"]
+mod shell;
 
 pub(crate) use api::{
     api_bind_provider, api_create_api_key, api_create_provider, api_create_service,
