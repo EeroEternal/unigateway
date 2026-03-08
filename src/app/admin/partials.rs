@@ -24,8 +24,9 @@ use super::{
         list_api_key_rows, list_log_rows, list_provider_rows, list_service_rows,
     },
     render::{
-        render_api_key_list_rows, render_log_rows, render_provider_list_rows,
-        render_service_list_rows,
+        render_api_key_list_rows, render_api_keys_list_partial, render_log_rows,
+        render_provider_list_rows, render_providers_list_partial, render_service_list_rows,
+        render_services_list_partial,
     },
     shell::ensure_ui_login,
 };
@@ -61,7 +62,7 @@ pub(crate) async fn admin_providers_list_partial(
 
     let rows_html = render_provider_list_rows(providers);
 
-    let final_html = ui::templates::PROVIDERS_LIST_PARTIAL.replace("{{rows}}", &rows_html);
+    let final_html = render_providers_list_partial(&rows_html);
     Html(final_html).into_response()
 }
 
@@ -115,7 +116,7 @@ pub(crate) async fn admin_api_keys_list_partial(
 
     let rows_html = render_api_key_list_rows(keys);
 
-    let final_html = ui::templates::KEYS_LIST_PARTIAL.replace("{{rows}}", &rows_html);
+    let final_html = render_api_keys_list_partial(&rows_html);
     Html(final_html).into_response()
 }
 
@@ -131,7 +132,7 @@ pub(crate) async fn admin_services_list_partial(
 
     let rows_html = render_service_list_rows(services);
 
-    let final_html = ui::templates::SERVICES_LIST_PARTIAL.replace("{{rows}}", &rows_html);
+    let final_html = render_services_list_partial(&rows_html);
     Html(final_html).into_response()
 }
 
