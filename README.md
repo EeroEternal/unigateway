@@ -16,9 +16,10 @@
 ## Features
 
 - **Unified API**: `POST /v1/chat/completions` (OpenAI), `POST /v1/messages` (Anthropic)
-- **CLI**: `serve`, `init-admin`, `metrics`, `create-service`, `create-provider`, `bind-provider`, `create-api-key`
-- **Service → Provider** binding with round-robin routing; API Key quota / QPS / concurrency limits
-- **SQLite stats**: request count, status codes, latency; `GET /health`, `GET /metrics`, `GET /v1/models`
+- **CLI**: `serve`, `quickstart`, `metrics`, `create-service`, `create-provider`, `bind-provider`, `create-api-key`
+- **Config file**: single TOML (`unigateway.toml`); in-memory state, persisted on change (no DB)
+- **Service → Provider** binding with round-robin routing; optional `x-target-vendor` / `x-unigateway-provider` header to pin a provider; API Key quota / QPS / concurrency limits
+- **In-memory stats**: request counts; `GET /health`, `GET /metrics`, `GET /v1/models`
 - **Admin API**: `/api/admin/*` (optional `x-admin-token`)
 
 ## Install
@@ -31,34 +32,54 @@ cargo install unigateway
 
 ## Usage
 
+### Quick start (single provider)
+
+One command creates a service, provider, binding, and API key; prints the key. Then start the gateway. Config defaults to `unigateway.toml` (override with `UNIGATEWAY_CONFIG` or `--config`).
+
 ```bash
-# Start (no subcommand = start gateway)
-unigateway
-# or
-unigateway serve --bind 127.0.0.1:3210 --db sqlite://unigateway.db
-
-# Init admin, print metrics
-unigateway init-admin --username admin --password 'your-password' --db sqlite://unigateway.db
-unigateway metrics --db sqlite://unigateway.db
-
-# Create service → provider → bind → create API key
-unigateway create-service --id svc_openai --name "OpenAI" --db sqlite://unigateway.db
-unigateway create-provider --name openai-prod --provider-type openai --endpoint-id openai --base-url https://api.openai.com --api-key sk-xxx --db sqlite://unigateway.db
-unigateway bind-provider --service-id svc_openai --provider-id 1 --db sqlite://unigateway.db
-unigateway create-api-key --key ugk_xxx --service-id svc_openai --qps-limit 20 --concurrency-limit 8 --db sqlite://unigateway.db
+unigateway quickstart --provider-type openai --endpoint-id openai --base-url https://api.openai.com --api-key "sk-..."
+# Copy the printed key (ugk_...), then:
+unigateway serve
 ```
 
-## Config (env)
+Optional: `--service-id`, `--service-name`, `--provider-name`, `--config`.
+
+### Manual setup
+
+All commands default to config file `unigateway.toml`; use `--config <path>` or `UNIGATEWAY_CONFIG` to override.
+
+```bash
+# Start gateway (no subcommand = serve)
+unigateway
+# or with options:
+unigateway serve --bind 127.0.0.1:3210
+
+# Print metrics (in-memory counts; 0 if server not running)
+unigateway metrics
+
+# Create service → provider → bind → create API key (use provider_id from create-provider output)
+unigateway create-service --id svc_openai --name "OpenAI"
+unigateway create-provider --name openai-prod --provider-type openai --endpoint-id openai --base-url https://api.openai.com --api-key sk-xxx
+unigateway bind-provider --service-id svc_openai --provider-id 0
+unigateway create-api-key --key ugk_xxx --service-id svc_openai --qps-limit 20 --concurrency-limit 8
+```
+
+**Multi-provider round-robin**: bind multiple providers to the same service; traffic is round-robin across them.
+
+## Config
+
+- **File**: `unigateway.toml` (created on first write). Services, providers, bindings, and API keys are stored here; runtime state (e.g. `used_quota`) is persisted on structural changes.
+- **Env**:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `UNIGATEWAY_BIND` | `127.0.0.1:3210` | Bind address |
-| `UNIGATEWAY_DB` | `sqlite://unigateway.db` | Database path |
+| `UNIGATEWAY_CONFIG` | `unigateway.toml` | Config file path |
 | `UNIGATEWAY_ADMIN_TOKEN` | `""` | Admin API auth (`x-admin-token`) |
 
 ## API overview
 
-- **OpenAI**: `POST /v1/chat/completions`, `Authorization: Bearer <key>`
+- **OpenAI**: `POST /v1/chat/completions`, `Authorization: Bearer <key>`. Optional: `x-target-vendor` or `x-unigateway-provider` (e.g. `minimax`) to route to a specific provider.
 - **Anthropic**: `POST /v1/messages`, `x-api-key`, `anthropic-version: 2023-06-01`
 - **Admin**: `GET/POST /api/admin/services`, `GET/POST /api/admin/providers`, `POST /api/admin/bindings`, `GET/POST /api/admin/api-keys`
 

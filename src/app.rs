@@ -1,41 +1,36 @@
-use std::{collections::HashMap, net::SocketAddr, path::Path, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::{Context, Result};
 use axum::{
     Router,
     routing::{get, post},
 };
-use sqlx::sqlite::SqlitePoolOptions;
-use tokio::{net::TcpListener, sync::Mutex};
+use tokio::net::TcpListener;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
+use crate::config::GatewayState;
 use crate::types::{AppConfig, AppState};
 
 pub async fn run(config: AppConfig) -> Result<()> {
-    if config.db_url.starts_with("sqlite://") {
-        let db_path = config.db_url.strip_prefix("sqlite://").unwrap();
-        if !Path::new(db_path).exists() {
-            info!("Creating database file: {}", db_path);
-            std::fs::File::create(db_path)
-                .with_context(|| format!("failed to create database file: {}", db_path))?;
-        }
-    }
-
-    let pool = SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect(&config.db_url)
+    let config_path = std::path::Path::new(&config.config_path);
+    let gateway = GatewayState::load(config_path)
         .await
-        .with_context(|| format!("failed to connect sqlite: {}", config.db_url))?;
-
-    crate::storage::init_db(&pool).await?;
-
+        .with_context(|| format!("load config: {}", config.config_path))?;
     let state = AppState {
-        pool,
         config: config.clone(),
-        api_key_runtime: Arc::new(Mutex::new(HashMap::new())),
-        service_rr: Arc::new(Mutex::new(HashMap::new())),
+        gateway: gateway.clone(),
     };
+
+    // Periodically persist used_quota and other dirty state to config file
+    let gw = gateway.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            let _ = gw.persist_if_dirty().await;
+        }
+    });
 
     let app = Router::new()
         .route("/health", get(crate::system::health))
@@ -66,4 +61,5 @@ pub async fn run(config: AppConfig) -> Result<()> {
     Ok(())
 }
 
+#[allow(unused_imports)]
 pub use crate::storage::hash_password;

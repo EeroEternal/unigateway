@@ -30,12 +30,12 @@
 
 ### 4. CLI Subcommands (Current)
 
-- **Serve**: `--bind`, `--db`, `--no-ui` (no UI; kept for compatibility).
-- **InitAdmin**: Initialize/update admin user password.
-- **Metrics**: Print metrics snapshot from DB.
-- **CreateService** / **CreateProvider** / **BindProvider** / **CreateApiKey**: Corresponding admin operations.
+- **Serve** (default): `--bind`, `--config`, `--no-ui`.
+- **Quickstart**: one-shot create service, provider, binding, and API key.
+- **Metrics**: Print in-memory request counts (from config file state).
+- **CreateService** / **CreateProvider** / **BindProvider** / **CreateApiKey**: Admin operations; config file path via `--config`.
 
-Scenarios and routing design: see `usage-scenarios-and-routing-design.md`. Future work: quickstart, nested subcommands (e.g. `service list`).
+Scenarios and routing design: see `usage-scenarios-and-routing-design.md`.
 
 ## II. Docs vs Code
 

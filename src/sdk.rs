@@ -1,3 +1,6 @@
+// Public SDK for programmatic access; allow dead_code until used by consumers.
+#![allow(dead_code)]
+
 use anyhow::Result;
 use reqwest::Client;
 use serde_json::Value;

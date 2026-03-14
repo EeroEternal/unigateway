@@ -9,8 +9,6 @@ use serde_json::json;
 
 use crate::authz::is_admin_authorized;
 use crate::dto::{ApiResponse, CreateServiceReq, ServiceOut};
-use crate::mutations::upsert_service;
-use crate::queries::list_service_out;
 use crate::types::AppState;
 
 pub(crate) async fn api_list_services(
@@ -21,7 +19,13 @@ pub(crate) async fn api_list_services(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let rows: Vec<ServiceOut> = list_service_out(&state.pool).await;
+    let rows: Vec<ServiceOut> = state
+        .gateway
+        .list_services()
+        .await
+        .into_iter()
+        .map(|(id, name)| ServiceOut { id, name })
+        .collect();
 
     axum::Json(ApiResponse {
         success: true,
@@ -39,18 +43,12 @@ pub(crate) async fn api_create_service(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let result = upsert_service(&state.pool, &req.id, &req.name).await;
+    state.gateway.create_service(&req.id, &req.name).await;
+    let _ = state.gateway.persist_if_dirty().await;
 
-    match result {
-        Ok(_) => axum::Json(ApiResponse {
-            success: true,
-            data: json!({"id": req.id, "name": req.name}),
-        })
-        .into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            axum::Json(json!({"success": false, "error": e.to_string()})),
-        )
-            .into_response(),
-    }
+    axum::Json(ApiResponse {
+        success: true,
+        data: json!({"id": req.id, "name": req.name}),
+    })
+    .into_response()
 }

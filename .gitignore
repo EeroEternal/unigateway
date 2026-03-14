@@ -22,6 +22,10 @@ target/
 # Environment variables
 .env
 
+# Config (may contain API keys)
+unigateway.toml
+unigateway.toml.tmp
+
 # macOS
 .DS_Store
 .AppleDouble

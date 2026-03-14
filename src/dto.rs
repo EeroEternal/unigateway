@@ -1,3 +1,6 @@
+// DTOs for admin API / future UI; allow dead_code until used.
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
@@ -6,7 +9,6 @@ pub(crate) struct ApiResponse<T: Serialize> {
     pub(crate) data: T,
 }
 
-#[derive(sqlx::FromRow)]
 pub(crate) struct ProviderDetailRow {
     pub(crate) id: i64,
     pub(crate) name: String,
@@ -15,14 +17,12 @@ pub(crate) struct ProviderDetailRow {
     pub(crate) base_url: Option<String>,
 }
 
-#[derive(sqlx::FromRow)]
 pub(crate) struct ServiceSummaryRow {
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) created_at: String,
 }
 
-#[derive(sqlx::FromRow)]
 pub(crate) struct ApiKeyListRow {
     pub(crate) key: String,
     pub(crate) name: Option<String>,
@@ -31,7 +31,6 @@ pub(crate) struct ApiKeyListRow {
     pub(crate) created_at: String,
 }
 
-#[derive(sqlx::FromRow)]
 pub(crate) struct ApiKeyDetailRow {
     pub(crate) name: Option<String>,
     pub(crate) key: String,
@@ -40,7 +39,6 @@ pub(crate) struct ApiKeyDetailRow {
     pub(crate) created_at: String,
 }
 
-#[derive(sqlx::FromRow)]
 pub(crate) struct ProviderListRow {
     pub(crate) id: i64,
     pub(crate) name: String,
@@ -51,35 +49,30 @@ pub(crate) struct ProviderListRow {
     pub(crate) service_ids: Option<String>,
 }
 
-#[derive(sqlx::FromRow)]
 pub(crate) struct ProviderOptionRow {
     pub(crate) id: i64,
     pub(crate) name: String,
     pub(crate) provider_type: String,
 }
 
-#[derive(sqlx::FromRow)]
 pub(crate) struct ServiceDetailRow {
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) created_at: String,
 }
 
-#[derive(sqlx::FromRow)]
 pub(crate) struct ServiceDetailProviderRow {
     pub(crate) name: String,
     pub(crate) provider_type: String,
     pub(crate) endpoint_id: String,
 }
 
-#[derive(sqlx::FromRow)]
 pub(crate) struct ServiceTokenRow {
     pub(crate) name: Option<String>,
     pub(crate) key: String,
     pub(crate) created_at: String,
 }
 
-#[derive(sqlx::FromRow)]
 pub(crate) struct ServiceListRow {
     pub(crate) id: String,
     pub(crate) name: String,
@@ -90,7 +83,6 @@ pub(crate) struct ServiceListRow {
     pub(crate) token_names: Option<String>,
 }
 
-#[derive(sqlx::FromRow)]
 pub(crate) struct LogRow {
     pub(crate) created_at: String,
     pub(crate) endpoint: String,
@@ -106,13 +98,13 @@ pub(crate) struct DashboardStats {
     pub(crate) services: i64,
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize)]
 pub(crate) struct ServiceOut {
     pub(crate) id: String,
     pub(crate) name: String,
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize)]
 pub(crate) struct ProviderOut {
     pub(crate) id: i64,
     pub(crate) name: String,
@@ -121,7 +113,7 @@ pub(crate) struct ProviderOut {
     pub(crate) base_url: Option<String>,
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize)]
 pub(crate) struct ApiKeyOut {
     pub(crate) key: String,
     pub(crate) service_id: String,

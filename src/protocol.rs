@@ -4,6 +4,8 @@ use llm_connector::{
     types::{ChatRequest, Message, Role},
 };
 use serde_json::{Value, json};
+use tracing::debug;
+
 
 pub enum UpstreamProtocol {
     OpenAi,
@@ -73,27 +75,80 @@ pub fn anthropic_payload_to_chat_request(
     Ok(req)
 }
 
+/// Build OpenAI-compatible client. When family_id is Some("minimax"), uses llm_providers-derived
+/// base_url with MiniMax chat path (/v1/text/chatcompletion_v2) via ConfigurableProtocol.
 pub async fn invoke_with_connector(
     protocol: UpstreamProtocol,
     base_url: &str,
     api_key: &str,
     req: &ChatRequest,
+    family_id: Option<&str>,
 ) -> Result<ChatResponse> {
-    if api_key.is_empty() {
-        return Err(anyhow!("missing upstream api key"));
-    }
-
+    debug!(
+        protocol = match protocol {
+            UpstreamProtocol::OpenAi => "openai",
+            UpstreamProtocol::Anthropic => "anthropic",
+        },
+        base_url,
+        family_id = family_id.unwrap_or(""),
+        model = req.model.as_str(),
+        stream = req.stream.unwrap_or(false),
+        message_count = req.messages.len(),
+        "invoking llm-connector"
+    );
     let client = match protocol {
-        UpstreamProtocol::OpenAi => {
-            LlmClient::openai(api_key, base_url).context("failed to create openai client")?
-        }
+        UpstreamProtocol::OpenAi => build_openai_client(base_url, api_key, family_id)?,
         UpstreamProtocol::Anthropic => {
+            if api_key.is_empty() {
+                return Err(anyhow!("missing upstream api key"));
+            }
             LlmClient::anthropic_with_config(api_key, base_url, None, None)
                 .context("failed to create anthropic client")?
         }
     };
+    let resp = client.chat(req).await.context("llm-connector chat failed")?;
+    debug!(
+        response_id = resp.id.as_str(),
+        response_model = resp.model.as_str(),
+        response_created = resp.created,
+        choices = resp.choices.len(),
+        usage_present = resp.usage.is_some(),
+        first_content_len = resp
+            .choices
+            .first()
+            .map(|c| c.message.content_as_text().len())
+            .unwrap_or(0),
+        "llm-connector chat returned"
+    );
+    Ok(resp)
+}
 
-    client.chat(req).await.context("llm-connector chat failed")
+/// Build the same client as invoke_with_connector (OpenAI path only). Used for streaming.
+/// MiniMax supports the standard OpenAI-compatible /v1/chat/completions endpoint,
+/// so all providers use the same standard OpenAI client.
+fn build_openai_client(
+    base_url: &str,
+    api_key: &str,
+    _family_id: Option<&str>,
+) -> Result<LlmClient, anyhow::Error> {
+    if api_key.is_empty() {
+        return Err(anyhow!("missing upstream api key"));
+    }
+    LlmClient::openai(api_key, base_url).context("failed to create openai client")
+}
+
+/// Streaming chat: OpenAI protocol only. Returns a stream of SSE chunks.
+pub async fn invoke_with_connector_stream(
+    base_url: &str,
+    api_key: &str,
+    req: &ChatRequest,
+    family_id: Option<&str>,
+) -> Result<llm_connector::types::ChatStream, anyhow::Error> {
+    let client = build_openai_client(base_url, api_key, family_id)?;
+    client
+        .chat_stream(req)
+        .await
+        .context("llm-connector chat_stream failed")
 }
 
 pub fn chat_response_to_openai_json(resp: &ChatResponse) -> Value {

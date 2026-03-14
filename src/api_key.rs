@@ -8,9 +8,7 @@ use axum::{
 use serde_json::json;
 
 use crate::authz::is_admin_authorized;
-use crate::dto::{ApiResponse, CreateApiKeyReq};
-use crate::mutations::upsert_api_key_limits;
-use crate::queries::list_api_key_out;
+use crate::dto::{ApiResponse, ApiKeyOut, CreateApiKeyReq};
 use crate::types::AppState;
 
 pub(crate) async fn api_list_api_keys(
@@ -21,7 +19,21 @@ pub(crate) async fn api_list_api_keys(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let rows = list_api_key_out(&state.pool).await;
+    let rows: Vec<ApiKeyOut> = state
+        .gateway
+        .list_api_keys()
+        .await
+        .into_iter()
+        .map(|a| ApiKeyOut {
+            key: a.key,
+            service_id: a.service_id,
+            quota_limit: a.quota_limit,
+            used_quota: a.used_quota,
+            is_active: if a.is_active { 1 } else { 0 },
+            qps_limit: a.qps_limit,
+            concurrency_limit: a.concurrency_limit,
+        })
+        .collect();
 
     axum::Json(ApiResponse {
         success: true,
@@ -39,25 +51,21 @@ pub(crate) async fn api_create_api_key(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    match upsert_api_key_limits(
-        &state.pool,
-        &req.key,
-        &req.service_id,
-        req.quota_limit,
-        req.qps_limit,
-        req.concurrency_limit,
-    )
-    .await
-    {
-        Ok(_) => axum::Json(ApiResponse {
-            success: true,
-            data: json!({"key": req.key, "service_id": req.service_id}),
-        })
-        .into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            axum::Json(json!({"success": false, "error": e.to_string()})),
+    state
+        .gateway
+        .create_api_key(
+            &req.key,
+            &req.service_id,
+            req.quota_limit,
+            req.qps_limit,
+            req.concurrency_limit,
         )
-            .into_response(),
-    }
+        .await;
+    let _ = state.gateway.persist_if_dirty().await;
+
+    axum::Json(ApiResponse {
+        success: true,
+        data: json!({"key": req.key, "service_id": req.service_id}),
+    })
+    .into_response()
 }

@@ -2,11 +2,10 @@ mod api_key;
 mod app;
 mod authz;
 mod cli;
+mod config;
 mod dto;
 mod gateway;
-mod mutations;
 mod provider;
-mod queries;
 mod protocol;
 mod sdk;
 mod service;
@@ -30,29 +29,21 @@ enum Commands {
         #[arg(long)]
         bind: Option<String>,
         #[arg(long)]
-        db: Option<String>,
+        config: Option<String>,
         #[arg(long, default_value_t = false)]
         no_ui: bool,
     },
-    InitAdmin {
-        #[arg(long, default_value = "admin")]
-        username: String,
-        #[arg(long)]
-        password: String,
-        #[arg(long, default_value = "sqlite://unigateway.db")]
-        db: String,
-    },
     Metrics {
-        #[arg(long, default_value = "sqlite://unigateway.db")]
-        db: String,
+        #[arg(long, default_value = "unigateway.toml")]
+        config: String,
     },
     CreateService {
         #[arg(long)]
         id: String,
         #[arg(long)]
         name: String,
-        #[arg(long, default_value = "sqlite://unigateway.db")]
-        db: String,
+        #[arg(long, default_value = "unigateway.toml")]
+        config: String,
     },
     CreateProvider {
         #[arg(long)]
@@ -67,16 +58,16 @@ enum Commands {
         api_key: String,
         #[arg(long)]
         model_mapping: Option<String>,
-        #[arg(long, default_value = "sqlite://unigateway.db")]
-        db: String,
+        #[arg(long, default_value = "unigateway.toml")]
+        config: String,
     },
     BindProvider {
         #[arg(long)]
         service_id: String,
         #[arg(long)]
         provider_id: i64,
-        #[arg(long, default_value = "sqlite://unigateway.db")]
-        db: String,
+        #[arg(long, default_value = "unigateway.toml")]
+        config: String,
     },
     CreateApiKey {
         #[arg(long)]
@@ -89,8 +80,29 @@ enum Commands {
         qps_limit: Option<f64>,
         #[arg(long)]
         concurrency_limit: Option<i64>,
-        #[arg(long, default_value = "sqlite://unigateway.db")]
-        db: String,
+        #[arg(long, default_value = "unigateway.toml")]
+        config: String,
+    },
+    /// One-shot init: create service, provider, bind, and API key; print the key.
+    Quickstart {
+        #[arg(long, default_value = "default")]
+        service_id: String,
+        #[arg(long, default_value = "Default")]
+        service_name: String,
+        #[arg(long, default_value = "default")]
+        provider_name: String,
+        #[arg(long)]
+        provider_type: String,
+        #[arg(long)]
+        endpoint_id: String,
+        #[arg(long)]
+        base_url: Option<String>,
+        #[arg(long)]
+        api_key: String,
+        #[arg(long)]
+        model_mapping: Option<String>,
+        #[arg(long, default_value = "unigateway.toml")]
+        config: String,
     },
 }
 
@@ -106,27 +118,22 @@ async fn main() -> Result<()> {
     let cli_args = Cli::parse();
 
     match cli_args.command {
-        Some(Commands::Serve { bind, db, no_ui }) => {
-            let mut config = types::AppConfig::from_env();
+        Some(Commands::Serve { bind, config: config_path, no_ui }) => {
+            let mut app_config = types::AppConfig::from_env();
             if let Some(bind) = bind {
-                config.bind = bind;
+                app_config.bind = bind;
             }
-            if let Some(db) = db {
-                config.db_url = db;
+            if let Some(c) = config_path {
+                app_config.config_path = c;
             }
             if no_ui {
-                config.enable_ui = false;
+                app_config.enable_ui = false;
             }
-            app::run(config).await
+            app::run(app_config).await
         }
-        Some(Commands::InitAdmin {
-            username,
-            password,
-            db,
-        }) => cli::init_admin(&db, &username, &password).await,
-        Some(Commands::Metrics { db }) => cli::print_metrics_snapshot(&db).await,
-        Some(Commands::CreateService { id, name, db }) => {
-            cli::create_service(&db, &id, &name).await
+        Some(Commands::Metrics { config }) => cli::print_metrics_snapshot(&config).await,
+        Some(Commands::CreateService { id, name, config }) => {
+            cli::create_service(&config, &id, &name).await
         }
         Some(Commands::CreateProvider {
             name,
@@ -135,13 +142,13 @@ async fn main() -> Result<()> {
             base_url,
             api_key,
             model_mapping,
-            db,
+            config,
         }) => {
             let provider_id = cli::create_provider(
-                &db,
+                &config,
                 &name,
                 &provider_type,
-                Some(&endpoint_id),
+                &endpoint_id,
                 base_url.as_deref(),
                 &api_key,
                 model_mapping.as_deref(),
@@ -153,18 +160,18 @@ async fn main() -> Result<()> {
         Some(Commands::BindProvider {
             service_id,
             provider_id,
-            db,
-        }) => cli::bind_provider(&db, &service_id, provider_id).await,
+            config,
+        }) => cli::bind_provider(&config, &service_id, provider_id).await,
         Some(Commands::CreateApiKey {
             key,
             service_id,
             quota_limit,
             qps_limit,
             concurrency_limit,
-            db,
+            config,
         }) => {
             cli::create_api_key(
-                &db,
+                &config,
                 &key,
                 &service_id,
                 quota_limit,
@@ -173,9 +180,35 @@ async fn main() -> Result<()> {
             )
             .await
         }
+        Some(Commands::Quickstart {
+            service_id,
+            service_name,
+            provider_name,
+            provider_type,
+            endpoint_id,
+            base_url,
+            api_key,
+            model_mapping,
+            config,
+        }) => {
+            let key = cli::quickstart(
+                &config,
+                &service_id,
+                &service_name,
+                &provider_name,
+                &provider_type,
+                &endpoint_id,
+                base_url.as_deref(),
+                &api_key,
+                model_mapping.as_deref(),
+            )
+            .await?;
+            println!("{}", key);
+            Ok(())
+        }
         None => {
-            let config = types::AppConfig::from_env();
-            app::run(config).await
+            let app_config = types::AppConfig::from_env();
+            app::run(app_config).await
         }
     }
 }
