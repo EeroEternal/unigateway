@@ -482,8 +482,7 @@ impl GatewayState {
         model_mapping: Option<&str>,
     ) -> i64 {
         let mut guard = self.inner.write().await;
-        let idx = guard.file.providers.len() as i64;
-        guard.file.providers.push(ProviderEntry {
+        let entry = ProviderEntry {
             name: name.to_string(),
             provider_type: provider_type.to_string(),
             endpoint_id: endpoint_id.to_string(),
@@ -491,7 +490,15 @@ impl GatewayState {
             api_key: api_key.to_string(),
             model_mapping: model_mapping.unwrap_or("").to_string(),
             is_enabled: true,
-        });
+        };
+        let idx = if let Some((i, p)) = guard.file.providers.iter_mut().enumerate().find(|(_, p)| p.name == name) {
+            *p = entry;
+            i as i64
+        } else {
+            let i = guard.file.providers.len() as i64;
+            guard.file.providers.push(entry);
+            i
+        };
         guard.dirty = true;
         idx
     }
