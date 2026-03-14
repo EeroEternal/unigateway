@@ -19,7 +19,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(name = "unigateway", version, about = "Lightweight LLM gateway")]
+#[command(name = "ug", version, about = "UniGateway – lightweight LLM gateway")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,

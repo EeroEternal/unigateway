@@ -16,18 +16,38 @@
 ## Features
 
 - **Unified API**: `POST /v1/chat/completions` (OpenAI), `POST /v1/messages` (Anthropic)
-- **CLI**: `serve`, `quickstart`, `metrics`, `create-service`, `create-provider`, `bind-provider`, `create-api-key`
+- **CLI**: `ug serve`, `ug quickstart`, `ug metrics`, `ug create-service`, `ug create-provider`, `ug bind-provider`, `ug create-api-key`
 - **Config file**: single TOML (`unigateway.toml`); in-memory state, persisted on change (no DB)
-- **Service → Provider** binding with round-robin routing; optional `x-target-vendor` / `x-unigateway-provider` header to pin a provider; API Key quota / QPS / concurrency limits
+- **Routing**: round-robin load balancing, fallback (priority-based retry on upstream failure); optional `x-target-vendor` / `x-unigateway-provider` header to pin a provider
+- **Embeddings**: `POST /v1/embeddings` (OpenAI-compatible)
+- **API Key**: quota / QPS / concurrency limits per key
 - **In-memory stats**: request counts; `GET /health`, `GET /metrics`, `GET /v1/models`
 - **Admin API**: `/api/admin/*` (optional `x-admin-token`)
 
 ## Install
 
+**Homebrew (macOS)**
+
+```bash
+brew install EeroEternal/tap/ug
+```
+
+**Shell script (macOS / Linux)**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/EeroEternal/unigateway/main/install.sh | sh
+```
+
+**Cargo**
+
+```bash
+cargo install unigateway
+```
+
+**From source**
+
 ```bash
 git clone https://github.com/EeroEternal/unigateway.git && cd unigateway && cargo build --release
-# or
-cargo install unigateway
 ```
 
 ## Usage
@@ -37,9 +57,9 @@ cargo install unigateway
 One command creates a service, provider, binding, and API key; prints the key. Then start the gateway. Config defaults to `unigateway.toml` (override with `UNIGATEWAY_CONFIG` or `--config`).
 
 ```bash
-unigateway quickstart --provider-type openai --endpoint-id openai --base-url https://api.openai.com --api-key "sk-..."
+ug quickstart --provider-type openai --endpoint-id openai --base-url https://api.openai.com --api-key "sk-..."
 # Copy the printed key (ugk_...), then:
-unigateway serve
+ug serve
 ```
 
 Optional: `--service-id`, `--service-name`, `--provider-name`, `--config`.
@@ -50,18 +70,18 @@ All commands default to config file `unigateway.toml`; use `--config <path>` or 
 
 ```bash
 # Start gateway (no subcommand = serve)
-unigateway
+ug
 # or with options:
-unigateway serve --bind 127.0.0.1:3210
+ug serve --bind 127.0.0.1:3210
 
 # Print metrics (in-memory counts; 0 if server not running)
-unigateway metrics
+ug metrics
 
 # Create service → provider → bind → create API key (use provider_id from create-provider output)
-unigateway create-service --id svc_openai --name "OpenAI"
-unigateway create-provider --name openai-prod --provider-type openai --endpoint-id openai --base-url https://api.openai.com --api-key sk-xxx
-unigateway bind-provider --service-id svc_openai --provider-id 0
-unigateway create-api-key --key ugk_xxx --service-id svc_openai --qps-limit 20 --concurrency-limit 8
+ug create-service --id svc_openai --name "OpenAI"
+ug create-provider --name openai-prod --provider-type openai --endpoint-id openai --base-url https://api.openai.com --api-key sk-xxx
+ug bind-provider --service-id svc_openai --provider-id 0
+ug create-api-key --key ugk_xxx --service-id svc_openai --qps-limit 20 --concurrency-limit 8
 ```
 
 **Multi-provider round-robin**: bind multiple providers to the same service; traffic is round-robin across them.

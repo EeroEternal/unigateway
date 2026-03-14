@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "api-bindings", "command-line-util
 authors = ["EeroEternal <songmqq@proton.me>"]
 
 [[bin]]
-name = "unigateway"
+name = "ug"
 path = "src/main.rs"
 
 [dependencies]
