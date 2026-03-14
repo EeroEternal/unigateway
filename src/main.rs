@@ -17,6 +17,7 @@ mod types;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use dialoguer::{Input, Password, Select, theme::ColorfulTheme};
 
 fn config_default() -> String {
     types::default_config_path()
@@ -94,22 +95,22 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
-    /// One-shot init: create service, provider, bind, and API key; print the key.
+    /// Interactive setup: create service, provider, bind, and API key.
     Quickstart {
-        #[arg(long, default_value = "default")]
-        service_id: String,
-        #[arg(long, default_value = "Default")]
-        service_name: String,
-        #[arg(long, default_value = "default")]
-        provider_name: String,
         #[arg(long)]
-        provider_type: String,
+        service_id: Option<String>,
         #[arg(long)]
-        endpoint_id: String,
+        service_name: Option<String>,
+        #[arg(long)]
+        provider_name: Option<String>,
+        #[arg(long)]
+        provider_type: Option<String>,
+        #[arg(long)]
+        endpoint_id: Option<String>,
         #[arg(long)]
         base_url: Option<String>,
         #[arg(long)]
-        api_key: String,
+        api_key: Option<String>,
         #[arg(long)]
         model_mapping: Option<String>,
         #[arg(long, default_value_t = config_default())]
@@ -249,6 +250,67 @@ async fn main() -> Result<()> {
             model_mapping,
             config,
         }) => {
+            let interactive = provider_type.is_none() || endpoint_id.is_none() || api_key.is_none();
+
+            let (provider_type, endpoint_id, base_url, api_key) = if interactive {
+                let theme = ColorfulTheme::default();
+                println!("\n  Welcome to UniGateway quickstart!\n");
+
+                let provider_types = ["openai", "anthropic"];
+                let pt = provider_type.unwrap_or_else(|| {
+                    let idx = Select::with_theme(&theme)
+                        .with_prompt("Provider type")
+                        .items(&provider_types)
+                        .default(0)
+                        .interact()
+                        .unwrap();
+                    provider_types[idx].to_string()
+                });
+
+                let default_base_url = match pt.as_str() {
+                    "openai" => "https://api.openai.com",
+                    "anthropic" => "https://api.anthropic.com",
+                    _ => "",
+                };
+                let default_endpoint = match pt.as_str() {
+                    "openai" => "gpt-4o",
+                    "anthropic" => "claude-sonnet-4-20250514",
+                    _ => "",
+                };
+
+                let eid = endpoint_id.unwrap_or_else(|| {
+                    Input::with_theme(&theme)
+                        .with_prompt("Model / endpoint ID")
+                        .default(default_endpoint.to_string())
+                        .interact_text()
+                        .unwrap()
+                });
+
+                let bu = base_url.or_else(|| {
+                    let url: String = Input::with_theme(&theme)
+                        .with_prompt("Base URL")
+                        .default(default_base_url.to_string())
+                        .interact_text()
+                        .unwrap();
+                    if url == default_base_url { None } else { Some(url) }
+                });
+
+                let ak = api_key.unwrap_or_else(|| {
+                    Password::with_theme(&theme)
+                        .with_prompt("API Key")
+                        .interact()
+                        .unwrap()
+                });
+
+                (pt, eid, bu, ak)
+            } else {
+                (provider_type.unwrap(), endpoint_id.unwrap(), base_url, api_key.unwrap())
+            };
+
+            let service_id = service_id.unwrap_or_else(|| "default".to_string());
+            let service_name = service_name.unwrap_or_else(|| "Default".to_string());
+            let provider_name = provider_name.unwrap_or_else(|| provider_type.clone());
+
             let key = cli::quickstart(
                 &config,
                 &service_id,
@@ -261,7 +323,11 @@ async fn main() -> Result<()> {
                 model_mapping.as_deref(),
             )
             .await?;
-            println!("{}", key);
+
+            println!("\n  Done! Your gateway API key:\n");
+            println!("    {}\n", key);
+            println!("  Start the gateway:\n");
+            println!("    ug serve\n");
             Ok(())
         }
         None => {

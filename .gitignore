@@ -1,3 +1,6 @@
+# Cursor
+.cursor/
+
 # UniGateway Database
 *.db
 *.sqlite
