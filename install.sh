@@ -4,6 +4,7 @@ set -euo pipefail
 REPO="EeroEternal/unigateway"
 BIN="ug"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+TMPDIR_INSTALL=""
 
 get_latest_tag() {
   curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
@@ -33,8 +34,10 @@ detect_target() {
   esac
 }
 
+cleanup() { [ -n "$TMPDIR_INSTALL" ] && rm -rf "$TMPDIR_INSTALL"; }
+
 main() {
-  local tag target archive url tmpdir
+  local tag target archive url
 
   tag="${1:-$(get_latest_tag)}"
   if [ -z "$tag" ]; then
@@ -48,17 +51,17 @@ main() {
 
   echo "Installing ${BIN} ${tag} (${target})..."
 
-  tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$tmpdir"' EXIT
+  TMPDIR_INSTALL="$(mktemp -d)"
+  trap cleanup EXIT
 
-  curl -fsSL "$url" -o "${tmpdir}/${archive}"
-  tar xzf "${tmpdir}/${archive}" -C "$tmpdir"
+  curl -fsSL "$url" -o "${TMPDIR_INSTALL}/${archive}"
+  tar xzf "${TMPDIR_INSTALL}/${archive}" -C "$TMPDIR_INSTALL"
 
   if [ -w "$INSTALL_DIR" ]; then
-    mv "${tmpdir}/${BIN}" "${INSTALL_DIR}/${BIN}"
+    mv "${TMPDIR_INSTALL}/${BIN}" "${INSTALL_DIR}/${BIN}"
   else
     echo "Need sudo to install to ${INSTALL_DIR}"
-    sudo mv "${tmpdir}/${BIN}" "${INSTALL_DIR}/${BIN}"
+    sudo mv "${TMPDIR_INSTALL}/${BIN}" "${INSTALL_DIR}/${BIN}"
   fi
 
   chmod +x "${INSTALL_DIR}/${BIN}"
