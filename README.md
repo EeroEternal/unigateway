@@ -16,50 +16,50 @@
 ## Features
 
 - **Unified API**: `POST /v1/chat/completions` (OpenAI), `POST /v1/messages` (Anthropic)
-- **CLI 管理**: `serve`, `init-admin`, `metrics`, `create-service`, `create-provider`, `bind-provider`, `create-api-key`
-- **Service → Provider** 绑定，round-robin 选路；API Key 支持 quota / QPS / concurrency 限制
-- **SQLite 统计**：请求数、状态码、延迟；`GET /health`, `GET /metrics`, `GET /v1/models`
-- **Admin API**: `/api/admin/*`（可选 `x-admin-token`）
+- **CLI**: `serve`, `init-admin`, `metrics`, `create-service`, `create-provider`, `bind-provider`, `create-api-key`
+- **Service → Provider** binding with round-robin routing; API Key quota / QPS / concurrency limits
+- **SQLite stats**: request count, status codes, latency; `GET /health`, `GET /metrics`, `GET /v1/models`
+- **Admin API**: `/api/admin/*` (optional `x-admin-token`)
 
 ## Install
 
 ```bash
 git clone https://github.com/EeroEternal/unigateway.git && cd unigateway && cargo build --release
-# 或
+# or
 cargo install unigateway
 ```
 
 ## Usage
 
 ```bash
-# 启动（无子命令即启动网关）
+# Start (no subcommand = start gateway)
 unigateway
-# 或
+# or
 unigateway serve --bind 127.0.0.1:3210 --db sqlite://unigateway.db
 
-# 初始化 admin、打印 metrics
+# Init admin, print metrics
 unigateway init-admin --username admin --password 'your-password' --db sqlite://unigateway.db
 unigateway metrics --db sqlite://unigateway.db
 
-# 创建 service → provider → 绑定 → 创建 API Key
+# Create service → provider → bind → create API key
 unigateway create-service --id svc_openai --name "OpenAI" --db sqlite://unigateway.db
 unigateway create-provider --name openai-prod --provider-type openai --endpoint-id openai --base-url https://api.openai.com --api-key sk-xxx --db sqlite://unigateway.db
 unigateway bind-provider --service-id svc_openai --provider-id 1 --db sqlite://unigateway.db
 unigateway create-api-key --key ugk_xxx --service-id svc_openai --qps-limit 20 --concurrency-limit 8 --db sqlite://unigateway.db
 ```
 
-## Config (环境变量)
+## Config (env)
 
-| 变量 | 默认 | 说明 |
-|------|------|------|
-| `UNIGATEWAY_BIND` | `127.0.0.1:3210` | 监听地址 |
-| `UNIGATEWAY_DB` | `sqlite://unigateway.db` | 数据库路径 |
-| `UNIGATEWAY_ADMIN_TOKEN` | `""` | Admin API 鉴权（`x-admin-token`） |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `UNIGATEWAY_BIND` | `127.0.0.1:3210` | Bind address |
+| `UNIGATEWAY_DB` | `sqlite://unigateway.db` | Database path |
+| `UNIGATEWAY_ADMIN_TOKEN` | `""` | Admin API auth (`x-admin-token`) |
 
-## API 速览
+## API overview
 
-- **OpenAI**: `POST /v1/chat/completions`，`Authorization: Bearer <key>`
-- **Anthropic**: `POST /v1/messages`，`x-api-key`, `anthropic-version: 2023-06-01`
+- **OpenAI**: `POST /v1/chat/completions`, `Authorization: Bearer <key>`
+- **Anthropic**: `POST /v1/messages`, `x-api-key`, `anthropic-version: 2023-06-01`
 - **Admin**: `GET/POST /api/admin/services`, `GET/POST /api/admin/providers`, `POST /api/admin/bindings`, `GET/POST /api/admin/api-keys`
 
 ## License
