@@ -1,76 +1,99 @@
 ---
 name: unigateway
-description: One-shot init and manage UniGateway (LLM gateway with OpenAI/Anthropic compatibility). Use when the user wants to set up the gateway, create a service/provider/API key, bind provider to service, run init-admin or metrics, or automate UniGateway setup from chat or scripts.
+description: One-shot init and manage UniGateway (LLM gateway with OpenAI/Anthropic compatibility). Use when the user wants to set up the gateway, create a service/provider/API key, bind provider to service, run metrics, or automate UniGateway setup from chat or scripts.
 ---
 
 # UniGateway Skill
 
-Use this skill when the user asks to set up, init, or manage **UniGateway** (the LLM gateway): creating services, providers, API keys, bindings, or running the server. Prefer the CLI; use the same `--config` path everywhere (default `unigateway.toml`). No database: config is a single TOML file.
+Use this skill when the user asks to set up, init, or manage **UniGateway** (the LLM gateway). The CLI binary is **`ug`**. Config is a single TOML file at `~/.config/unigateway/config.toml` (macOS: `~/Library/Application Support/unigateway/config.toml`), auto-created on first write. Override with `--config <path>` or `UNIGATEWAY_CONFIG` env.
 
-## Preferred: quickstart (single provider)
-
-For one provider behind one gateway key, use one command (key is auto-generated and printed):
+## Install
 
 ```bash
-unigateway quickstart \
-  --provider-type openai \
-  --endpoint-id openai \
-  --base-url https://api.openai.com \
-  --api-key "sk-..." \
-  --config unigateway.toml
+curl -fsSL https://raw.githubusercontent.com/EeroEternal/unigateway/main/install.sh | sh
+# or
+brew install EeroEternal/tap/ug
+# or
+cargo install unigateway
 ```
 
-For Anthropic: `--provider-type anthropic` `--endpoint-id anthropic` `--base-url https://api.anthropic.com` and the user's API key. Optional: `--service-id`, `--service-name`, `--provider-name`, `--model-mapping`. Then start the gateway: `unigateway serve` (or `unigateway`).
+## Preferred: quickstart (interactive)
 
-## Manual one-shot init (when quickstart is not enough)
+Just run `ug quickstart` — it walks the user through provider type, model, base URL, and API key interactively:
 
-Run in order. Use a single config path (e.g. `unigateway.toml` or `--config /path/to/unigateway.toml`). **provider_id** is the 0-based index of the provider (first created = 0).
+```bash
+ug quickstart
+```
+
+Non-interactive (for scripts):
+
+```bash
+ug quickstart \
+  --provider-type openai \
+  --endpoint-id gpt-4o \
+  --api-key "sk-..."
+```
+
+For Anthropic: `--provider-type anthropic --endpoint-id claude-sonnet-4-20250514`. Optional: `--base-url`, `--service-id`, `--service-name`, `--provider-name`, `--model-mapping`. Then start the gateway: `ug serve` (or just `ug`).
+
+## Manual setup (when quickstart is not enough)
+
+Run in order. **provider_id** is the 0-based index of the provider (first created = 0).
 
 1. **Create service**:
    ```bash
-   unigateway create-service --id SERVICE_ID --name "Display Name" --config unigateway.toml
+   ug create-service --id SERVICE_ID --name "Display Name"
    ```
-   Example: `--id default --name "Default"`.
 
-2. **Create provider** (prints `provider_id`, 0-based index; required: `--name`, `--provider-type`, `--endpoint-id`, `--api-key`):
+2. **Create provider** (prints `provider_id`):
    ```bash
-   unigateway create-provider \
+   ug create-provider \
      --name PROVIDER_NAME \
      --provider-type openai \
-     --endpoint-id openai \
+     --endpoint-id gpt-4o \
      --base-url https://api.openai.com \
-     --api-key "sk-..." \
-     --config unigateway.toml
+     --api-key "sk-..."
    ```
-   Use the printed `provider_id` (0 for first provider) in the next step. For Anthropic use `--provider-type anthropic`, `--endpoint-id anthropic`, and appropriate `--base-url`.
 
 3. **Bind provider to service**:
    ```bash
-   unigateway bind-provider --service-id SERVICE_ID --provider-id 0 --config unigateway.toml
+   ug bind-provider --service-id SERVICE_ID --provider-id 0
    ```
 
 4. **Create gateway API key** (optional limits):
    ```bash
-   unigateway create-api-key \
+   ug create-api-key \
      --key "ugk_..." \
-     --service-id SERVICE_ID \
-     --config unigateway.toml
+     --service-id SERVICE_ID
    ```
-   Optional: `--quota-limit 100000` `--qps-limit 20` `--concurrency-limit 8`. Tell the user the key for `Authorization: Bearer <key>` or `x-api-key: <key>`.
+   Optional: `--quota-limit 100000` `--qps-limit 20` `--concurrency-limit 8`.
 
-5. **Start gateway** (if not already running):
+5. **Start gateway**:
    ```bash
-   unigateway serve --bind 127.0.0.1:3210
+   ug serve
    ```
-   Or just `unigateway` (no subcommand = serve).
+
+## Config management
+
+```bash
+ug config path     # print config file location
+ug config show     # print current config
+ug config edit     # open in $EDITOR
+```
 
 ## Other commands
 
-- **Metrics snapshot**: `unigateway metrics --config unigateway.toml` (in-memory counts; 0 if server not running).
-- **Multi-provider**: Create multiple providers, bind them to the same service with multiple `bind-provider` calls; routing is round-robin.
+- **Metrics**: `ug metrics`
+- **Multi-provider round-robin**: bind multiple providers to the same service.
+- **Fallback routing**: set `routing_strategy = "fallback"` on the service, use `priority` on bindings.
 
 ## Conventions
 
-- Use one config path for all commands (default `unigateway.toml`).
-- If the user does not specify a key name, generate a safe placeholder (e.g. `ugk_` + random suffix) and remind them to replace it.
-- After one-shot init, suggest testing with: `curl -H "Authorization: Bearer <key>" http://127.0.0.1:3210/v1/chat/completions -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hi"}]}'`
+- All commands use the same default config path. No need to pass `--config` unless overriding.
+- If the user does not specify a key name, `ug quickstart` auto-generates one (`ugk_` + random hex).
+- After setup, suggest testing with:
+  ```bash
+  curl http://127.0.0.1:3210/v1/chat/completions \
+    -H "Authorization: Bearer <key>" \
+    -d '{"model":"gpt-4o","messages":[{"role":"user","content":"Hi"}]}'
+  ```
