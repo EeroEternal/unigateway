@@ -252,47 +252,73 @@ async fn main() -> Result<()> {
         }) => {
             let interactive = provider_type.is_none() || endpoint_id.is_none() || api_key.is_none();
 
+            // Known providers: (display_name, provider_type, default_base_url, default_model)
+            let known_providers: &[(&str, &str, &str, &str)] = &[
+                ("OpenAI",      "openai",    "https://api.openai.com",       "gpt-4o"),
+                ("Anthropic",   "anthropic", "https://api.anthropic.com",    "claude-sonnet-4-20250514"),
+                ("DeepSeek",    "openai",    "https://api.deepseek.com",     "deepseek-chat"),
+                ("Groq",        "openai",    "https://api.groq.com/openai",  "llama-3.3-70b-versatile"),
+                ("MiniMax",     "openai",    "https://api.minimax.chat/v1",  "MiniMax-Text-01"),
+                ("Ollama",      "openai",    "http://localhost:11434",       "llama3"),
+                ("OpenRouter",  "openai",    "https://openrouter.ai/api",    "openai/gpt-4o"),
+                ("Together AI", "openai",    "https://api.together.xyz",     "meta-llama/Llama-3-70b-chat-hf"),
+                ("Other (OpenAI-compatible)", "openai", "", ""),
+            ];
+
             let (provider_type, endpoint_id, base_url, api_key) = if interactive {
                 let theme = ColorfulTheme::default();
                 println!("\n  Welcome to UniGateway quickstart!\n");
 
-                let provider_types = ["openai", "anthropic"];
-                let pt = provider_type.unwrap_or_else(|| {
-                    let idx = Select::with_theme(&theme)
-                        .with_prompt("Provider type")
-                        .items(&provider_types)
-                        .default(0)
-                        .interact()
-                        .unwrap();
-                    provider_types[idx].to_string()
+                let display_names: Vec<&str> = known_providers.iter().map(|(name, _, _, _)| *name).collect();
+                let selected = provider_type.as_deref().and_then(|pt| {
+                    known_providers.iter().position(|(_, _, url, _)| url.contains(pt) || display_names.iter().position(|n| n.to_lowercase() == pt).is_some())
                 });
 
-                let default_base_url = match pt.as_str() {
-                    "openai" => "https://api.openai.com",
-                    "anthropic" => "https://api.anthropic.com",
-                    _ => "",
-                };
-                let default_endpoint = match pt.as_str() {
-                    "openai" => "gpt-4o",
-                    "anthropic" => "claude-sonnet-4-20250514",
-                    _ => "",
+                let idx = if selected.is_some() {
+                    selected.unwrap()
+                } else if provider_type.is_none() {
+                    Select::with_theme(&theme)
+                        .with_prompt("Provider")
+                        .items(&display_names)
+                        .default(0)
+                        .interact()
+                        .unwrap()
+                } else {
+                    known_providers.len() - 1
                 };
 
+                let (_, pt, default_url, default_model) = known_providers[idx];
+
                 let eid = endpoint_id.unwrap_or_else(|| {
-                    Input::with_theme(&theme)
-                        .with_prompt("Model / endpoint ID")
-                        .default(default_endpoint.to_string())
-                        .interact_text()
-                        .unwrap()
+                    if !default_model.is_empty() {
+                        Input::with_theme(&theme)
+                            .with_prompt("Model")
+                            .default(default_model.to_string())
+                            .interact_text()
+                            .unwrap()
+                    } else {
+                        Input::with_theme(&theme)
+                            .with_prompt("Model")
+                            .interact_text()
+                            .unwrap()
+                    }
                 });
 
                 let bu = base_url.or_else(|| {
-                    let url: String = Input::with_theme(&theme)
-                        .with_prompt("Base URL")
-                        .default(default_base_url.to_string())
-                        .interact_text()
-                        .unwrap();
-                    if url == default_base_url { None } else { Some(url) }
+                    if !default_url.is_empty() {
+                        let url: String = Input::with_theme(&theme)
+                            .with_prompt("Base URL")
+                            .default(default_url.to_string())
+                            .interact_text()
+                            .unwrap();
+                        if url == default_url { None } else { Some(url) }
+                    } else {
+                        let url: String = Input::with_theme(&theme)
+                            .with_prompt("Base URL")
+                            .interact_text()
+                            .unwrap();
+                        Some(url)
+                    }
                 });
 
                 let ak = api_key.unwrap_or_else(|| {
@@ -302,7 +328,7 @@ async fn main() -> Result<()> {
                         .unwrap()
                 });
 
-                (pt, eid, bu, ak)
+                (pt.to_string(), eid, bu, ak)
             } else {
                 (provider_type.unwrap(), endpoint_id.unwrap(), base_url, api_key.unwrap())
             };
