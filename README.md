@@ -1,10 +1,10 @@
 <div align="center">
   <h1>UniGateway</h1>
   <p>
-    <strong>Scenario-oriented LLM gateway with OpenAI and Anthropic compatibility.</strong>
+    <strong>Unified LLM gateway for OpenAI, Anthropic, DeepSeek, Groq, MiniMax, and any OpenAI-compatible provider.</strong>
   </p>
   <p>
-    Rich CLI + JSON admin API, single binary. No Web UI. Install as a <strong>Skill</strong> in Codex/Cursor for one-shot init.
+    Single binary, interactive CLI, JSON admin API. Routing, fallback, rate limiting, embeddings.
   </p>
   <p>
     <a href="https://github.com/EeroEternal/unigateway/actions/workflows/rust.yml"><img src="https://github.com/EeroEternal/unigateway/actions/workflows/rust.yml/badge.svg" alt="Build Status"></a>
@@ -15,14 +15,15 @@
 
 ## Features
 
-- **Unified API**: `POST /v1/chat/completions` (OpenAI), `POST /v1/messages` (Anthropic)
-- **CLI**: `ug serve`, `ug quickstart`, `ug metrics`, `ug create-service`, `ug create-provider`, `ug bind-provider`, `ug create-api-key`
-- **Config file**: single TOML (`unigateway.toml`); in-memory state, persisted on change (no DB)
-- **Routing**: round-robin load balancing, fallback (priority-based retry on upstream failure); optional `x-target-vendor` / `x-unigateway-provider` header to pin a provider
-- **Embeddings**: `POST /v1/embeddings` (OpenAI-compatible)
-- **API Key**: quota / QPS / concurrency limits per key
-- **In-memory stats**: request counts; `GET /health`, `GET /metrics`, `GET /v1/models`
-- **Admin API**: `/api/admin/*` (optional `x-admin-token`)
+- **Unified API**: `POST /v1/chat/completions` (OpenAI), `POST /v1/messages` (Anthropic), `POST /v1/embeddings`
+- **Multi-provider**: OpenAI, Anthropic, DeepSeek, Groq, MiniMax, Ollama, Azure OpenAI, Together AI, OpenRouter — anything OpenAI-compatible
+- **Routing**: round-robin load balancing, fallback with priority, provider pinning via header
+- **Interactive CLI**: `ug quickstart` wizard, `ug config show/edit`, and full management commands
+- **Rate limiting**: quota / QPS / concurrency limits per API key
+- **Model mapping**: translate downstream model names to upstream provider models
+- **Observability**: `GET /health`, `GET /metrics` (Prometheus), `GET /v1/models`
+- **Admin API**: `/api/admin/*` for programmatic management
+- **AI-ready**: ships with [Skill file](skills/SKILL.md) and [OpenAPI spec](skills/openapi.yaml) for AI agent integration
 
 ## Install
 
@@ -40,17 +41,21 @@ git clone https://github.com/EeroEternal/unigateway.git && cd unigateway && carg
 
 ## Usage
 
-### Quick start (single provider)
+### Quick start
 
-One command creates a service, provider, binding, and API key; prints the key. Then start the gateway. Config defaults to `unigateway.toml` (override with `UNIGATEWAY_CONFIG` or `--config`).
+Run the interactive wizard — select provider, enter model and API key:
 
 ```bash
-ug quickstart --provider-type openai --endpoint-id openai --base-url https://api.openai.com --api-key "sk-..."
-# Copy the printed key (ugk_...), then:
+ug quickstart
 ug serve
 ```
 
-Optional: `--service-id`, `--service-name`, `--provider-name`, `--config`.
+Or non-interactive:
+
+```bash
+ug quickstart --provider-type openai --endpoint-id gpt-4o --api-key "sk-..."
+ug serve
+```
 
 ### Manual setup
 
@@ -90,6 +95,17 @@ ug create-api-key --key ugk_xxx --service-id svc_openai --qps-limit 20 --concurr
 - **OpenAI**: `POST /v1/chat/completions`, `Authorization: Bearer <key>`. Optional: `x-target-vendor` or `x-unigateway-provider` (e.g. `minimax`) to route to a specific provider.
 - **Anthropic**: `POST /v1/messages`, `x-api-key`, `anthropic-version: 2023-06-01`
 - **Admin**: `GET/POST /api/admin/services`, `GET/POST /api/admin/providers`, `POST /api/admin/bindings`, `GET/POST /api/admin/api-keys`
+
+## AI Integration
+
+UniGateway ships with ready-to-use files for AI agents in the [`skills/`](skills/) directory:
+
+| File | Purpose |
+|------|---------|
+| [`SKILL.md`](skills/SKILL.md) | Full operational guide for AI agents — install, configure, manage, and use all features |
+| [`openapi.yaml`](skills/openapi.yaml) | OpenAPI 3.1 spec covering all gateway and admin endpoints |
+
+Any AI tool (Codex, Cursor, ChatGPT, Claude, custom agents) can read these files to automate UniGateway setup and interact with the API programmatically.
 
 ## License
 

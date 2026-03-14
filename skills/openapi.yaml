@@ -1,0 +1,475 @@
+openapi: 3.1.0
+info:
+  title: UniGateway API
+  version: 0.3.0
+  description: >
+    Unified LLM gateway supporting OpenAI, Anthropic, DeepSeek, Groq, MiniMax,
+    and any OpenAI-compatible provider. Provides chat completions, messages,
+    embeddings, model listing, admin management, health, and metrics.
+
+servers:
+  - url: http://localhost:3210
+    description: Local development
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+paths:
+  /v1/chat/completions:
+    post:
+      operationId: chatCompletions
+      summary: OpenAI-compatible chat completions
+      description: >
+        Proxies to the upstream provider bound to the service associated with
+        the API key. Supports streaming via `stream: true`. Supports
+        `x-unigateway-provider` or `x-target-vendor` header to pin a provider.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: x-unigateway-provider
+          in: header
+          schema:
+            type: string
+          description: Pin request to a specific provider by name
+        - name: x-target-vendor
+          in: header
+          schema:
+            type: string
+          description: Alias for x-unigateway-provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: Chat completion response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE stream (when stream=true)
+
+  /v1/messages:
+    post:
+      operationId: anthropicMessages
+      summary: Anthropic-compatible messages API
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: anthropic-version
+          in: header
+          required: true
+          schema:
+            type: string
+            default: "2023-06-01"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnthropicRequest"
+      responses:
+        "200":
+          description: Messages response
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/embeddings:
+    post:
+      operationId: createEmbeddings
+      summary: OpenAI-compatible text embeddings
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmbeddingRequest"
+      responses:
+        "200":
+          description: Embedding response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbeddingResponse"
+
+  /v1/models:
+    get:
+      operationId: listModels
+      summary: List available models from all enabled providers
+      responses:
+        "200":
+          description: Model list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  object:
+                    type: string
+                    example: list
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        object:
+                          type: string
+                        created:
+                          type: integer
+                        owned_by:
+                          type: string
+
+  /health:
+    get:
+      operationId: healthCheck
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: Gateway is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /metrics:
+    get:
+      operationId: getMetrics
+      summary: Prometheus-style request metrics
+      security: []
+      responses:
+        "200":
+          description: Metrics in Prometheus text format
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/admin/services:
+    get:
+      operationId: listServices
+      summary: List all services
+      security:
+        - AdminToken: []
+      responses:
+        "200":
+          description: Service list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Service"
+    post:
+      operationId: createService
+      summary: Create or update a service
+      security:
+        - AdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, name]
+              properties:
+                id:
+                  type: string
+                name:
+                  type: string
+                routing_strategy:
+                  type: string
+                  enum: [round_robin, fallback]
+                  default: round_robin
+      responses:
+        "200":
+          description: Service created/updated
+
+  /api/admin/providers:
+    get:
+      operationId: listProviders
+      summary: List all providers
+      security:
+        - AdminToken: []
+      responses:
+        "200":
+          description: Provider list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Provider"
+    post:
+      operationId: createProvider
+      summary: Create or update a provider
+      security:
+        - AdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Provider"
+      responses:
+        "200":
+          description: Provider created/updated
+
+  /api/admin/bindings:
+    post:
+      operationId: bindProvider
+      summary: Bind a provider to a service
+      security:
+        - AdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [service_id, provider_id]
+              properties:
+                service_id:
+                  type: string
+                provider_id:
+                  type: integer
+                  description: 0-based index of the provider
+      responses:
+        "200":
+          description: Binding created
+
+  /api/admin/api-keys:
+    get:
+      operationId: listApiKeys
+      summary: List all API keys
+      security:
+        - AdminToken: []
+      responses:
+        "200":
+          description: API key list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApiKey"
+    post:
+      operationId: createApiKey
+      summary: Create or update an API key
+      security:
+        - AdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiKey"
+      responses:
+        "200":
+          description: API key created/updated
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Gateway API key (ugk_...)
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: Gateway API key for Anthropic-style endpoints
+    AdminToken:
+      type: apiKey
+      in: header
+      name: x-admin-token
+      description: Admin token (set via UNIGATEWAY_ADMIN_TOKEN env)
+
+  schemas:
+    ChatRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model:
+          type: string
+          example: gpt-4o
+        messages:
+          type: array
+          items:
+            type: object
+            properties:
+              role:
+                type: string
+                enum: [system, user, assistant]
+              content:
+                type: string
+        stream:
+          type: boolean
+          default: false
+        temperature:
+          type: number
+        max_tokens:
+          type: integer
+
+    ChatResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              message:
+                type: object
+                properties:
+                  role:
+                    type: string
+                  content:
+                    type: string
+              finish_reason:
+                type: string
+        usage:
+          type: object
+          properties:
+            prompt_tokens:
+              type: integer
+            completion_tokens:
+              type: integer
+            total_tokens:
+              type: integer
+
+    AnthropicRequest:
+      type: object
+      required: [model, max_tokens, messages]
+      properties:
+        model:
+          type: string
+          example: claude-sonnet-4-20250514
+        max_tokens:
+          type: integer
+        messages:
+          type: array
+          items:
+            type: object
+            properties:
+              role:
+                type: string
+                enum: [user, assistant]
+              content:
+                type: string
+        stream:
+          type: boolean
+          default: false
+
+    EmbeddingRequest:
+      type: object
+      required: [model, input]
+      properties:
+        model:
+          type: string
+          example: text-embedding-3-small
+        input:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+
+    EmbeddingResponse:
+      type: object
+      properties:
+        object:
+          type: string
+          example: list
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              object:
+                type: string
+              index:
+                type: integer
+              embedding:
+                type: array
+                items:
+                  type: number
+        model:
+          type: string
+        usage:
+          type: object
+          properties:
+            prompt_tokens:
+              type: integer
+            total_tokens:
+              type: integer
+
+    Service:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        routing_strategy:
+          type: string
+          enum: [round_robin, fallback]
+
+    Provider:
+      type: object
+      required: [name, provider_type, api_key]
+      properties:
+        name:
+          type: string
+        provider_type:
+          type: string
+          enum: [openai, anthropic]
+        endpoint_id:
+          type: string
+        base_url:
+          type: string
+        api_key:
+          type: string
+        model_mapping:
+          type: string
+          description: 'JSON object mapping downstream model names to upstream, e.g. {"chat":"gpt-4o"}'
+
+    ApiKey:
+      type: object
+      required: [key, service_id]
+      properties:
+        key:
+          type: string
+        service_id:
+          type: string
+        quota_limit:
+          type: integer
+          nullable: true
+        qps_limit:
+          type: number
+          nullable: true
+        concurrency_limit:
+          type: integer
+          nullable: true
