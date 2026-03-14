@@ -26,28 +26,16 @@
 
 ## Install
 
-**Homebrew (macOS)**
-
-```bash
-brew install EeroEternal/tap/ug
-```
-
-**Shell script (macOS / Linux)**
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/EeroEternal/unigateway/main/install.sh | sh
 ```
 
-**Cargo**
+Or via Homebrew / Cargo / source:
 
 ```bash
-cargo install unigateway
-```
-
-**From source**
-
-```bash
-git clone https://github.com/EeroEternal/unigateway.git && cd unigateway && cargo build --release
+brew install EeroEternal/tap/ug          # macOS (Homebrew)
+cargo install unigateway                 # Rust toolchain
+git clone https://github.com/EeroEternal/unigateway.git && cd unigateway && cargo build --release  # from source
 ```
 
 ## Usage
