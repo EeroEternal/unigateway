@@ -89,6 +89,11 @@ enum Commands {
         #[arg(long, default_value_t = config_default())]
         config: String,
     },
+    /// Show, edit, or locate the config file.
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
     /// One-shot init: create service, provider, bind, and API key; print the key.
     Quickstart {
         #[arg(long, default_value = "default")]
@@ -107,6 +112,22 @@ enum Commands {
         api_key: String,
         #[arg(long)]
         model_mapping: Option<String>,
+        #[arg(long, default_value_t = config_default())]
+        config: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ConfigAction {
+    /// Print the config file path
+    Path,
+    /// Print the current config contents
+    Show {
+        #[arg(long, default_value_t = config_default())]
+        config: String,
+    },
+    /// Open the config file in $EDITOR
+    Edit {
         #[arg(long, default_value_t = config_default())]
         config: String,
     },
@@ -185,6 +206,37 @@ async fn main() -> Result<()> {
                 concurrency_limit,
             )
             .await
+        }
+        Some(Commands::Config { action }) => {
+            match action {
+                ConfigAction::Path => {
+                    println!("{}", config_default());
+                    Ok(())
+                }
+                ConfigAction::Show { config } => {
+                    let path = std::path::Path::new(&config);
+                    if path.exists() {
+                        let contents = std::fs::read_to_string(path)?;
+                        print!("{}", contents);
+                    } else {
+                        println!("Config file not found: {}", config);
+                        println!("Run `ug quickstart` to create one.");
+                    }
+                    Ok(())
+                }
+                ConfigAction::Edit { config } => {
+                    let path = std::path::Path::new(&config);
+                    if !path.exists() {
+                        anyhow::bail!("Config file not found: {}. Run `ug quickstart` first.", config);
+                    }
+                    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+                    let status = std::process::Command::new(&editor).arg(path).status()?;
+                    if !status.success() {
+                        anyhow::bail!("Editor exited with status: {}", status);
+                    }
+                    Ok(())
+                }
+            }
         }
         Some(Commands::Quickstart {
             service_id,
