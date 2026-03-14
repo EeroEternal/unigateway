@@ -28,9 +28,9 @@ This doc starts from common usage scenarios to constrain abstractions and implem
 
 **Target**: Bind multiple Providers to one Service; default routing_strategy; requests round-robin across Providers.
 
-**Current**: `service_providers` supports multiple bindings; `providers.weight` exists; `select_provider_for_service` does in-memory round-robin by service_id + protocol. **Gaps**: (a) Docs/CLI don’t advertise “bind multiple → automatic round-robin”; (b) weight not yet used in routing.
+**Current**: `service_providers` supports multiple bindings; `providers.weight` exists; `select_provider_for_service` does in-memory round-robin by service_id + protocol. **Gaps**: (a) Docs/CLI don’t advertise “bind multiple → automatic round-robin”; (b) 加权（weight）**暂不支持**；`providers.weight` 字段保留，当前路由未使用。
 
-**Suggestions**: Document that binding multiple Providers gives round_robin; then add minimal weight support (e.g. expand-by-weight or weighted round-robin) using `providers.weight`.
+**Suggestions**: Document that binding multiple Providers gives round_robin.
 
 ### 4. Scenario: Multi-Provider Weighted
 
@@ -38,15 +38,15 @@ This doc starts from common usage scenarios to constrain abstractions and implem
 
 **Target**: Set weight (e.g. A=3, B=1) in CLI; same Service binds both; gateway sends 3:1 to A vs B.
 
-**Design**: Use `providers.weight` as relative weight; in `select_provider_for_service` implement weighted round-robin (e.g. expand to logical array or classic algorithm). If all weights NULL/0, fall back to equal round-robin.
+**Status**: **暂不支持**。设计保留：使用 `providers.weight` 做相对权重、在 `select_provider_for_service` 中实现加权轮询；若权重均为 NULL/0 则回退到等权 round-robin。
 
-### 5. Scenario: Simple Fallback
+### 5. Scenario: Simple Fallback（类似 Cloudflare 动态路由）
 
-**User goal**: Primary + backup provider; on sustained errors, switch to backup; no heavy health system.
+**User goal**: Primary + backup provider; on request failure (e.g. 5xx or connection error), automatically try next provider; one route name, automatic fallback.
 
-**Target**: Multiple Providers, one primary; after N consecutive errors, prefer fallback.
+**Target**: Service 设置 `routing_strategy = "fallback"`；Binding 用 `priority` 排序（0=主，1=第一备份…）；请求时按优先级依次尝试，直到成功或全部失败。
 
-**Design**: (1) Config: reuse weight for soft priority or add light field (e.g. is_primary / priority). (2) In-process: per-Provider error window (e.g. last N calls); over threshold, exclude from candidates for a few seconds; state in memory. (3) Only 5xx/connection errors count; 4xx not provider failure; if all unavailable, try primary again and return clear error.
+**Current**: (1) Config: Service 支持 `routing_strategy`（默认 `round_robin`，可选 `fallback`）；Binding 支持 `priority`（默认 0，数值越小越优先）。(2) 请求级回退：选主 Provider 调用；若返回 5xx 或连接错误，自动用下一优先级 Provider 重试；仅 5xx/连接错误触发回退，4xx 不重试。(3) 无持久化健康状态，单请求内按顺序尝试。
 
 ### 6. Scenario: Embeddings
 
@@ -66,7 +66,7 @@ This doc starts from common usage scenarios to constrain abstractions and implem
 
 ### 8. High-Value Lightweight Scenarios (Priority)
 
-All stay within “no Redis, no K8s, no extra services”; SQLite + single process only.
+All stay within “no Redis, no K8s, no extra services”; TOML config + single process only.
 
 - **Local dev / multi-model playground**: One quickstart, multiple providers on one service; one gateway URL/key; switch via routing_strategy (e.g. PriorityFallback, Single). Add `/v1/embeddings` for “chat + vectors”. README: “3-minute local setup” + curl.
 - **Small team shared gateway**: Per-key quota, QPS, logs; Weighted/RoundRobin; clear JSON errors (e.g. “quota exceeded”); quickstart `--team` to create several keys; `.env.example` and “team gateway” template.
@@ -75,9 +75,9 @@ All stay within “no Redis, no K8s, no extra services”; SQLite + single proce
 
 ### 9. Implementation Order
 
-1. **Docs and CLI**: Make “single-provider” and “multi-provider round-robin” obvious and easy to try; no code change required first.
-2. **Weights**: Implement minimal weight support in `select_provider_for_service` using `providers.weight`.
-3. **Soft fallback**: Simple per-Provider error count in gateway (in-process, no persistence).
-4. **Embeddings + one more provider**: Add `/v1/embeddings` and one mainstream provider example; “chat + embeddings + multi-provider” as a flagship combo.
+1. **Docs and CLI**: Make single-provider and multi-provider round-robin obvious and easy to try.
+2. **Weights**: **暂缓**。加权路由暂不支持；`providers.weight` 字段保留供后续使用。
+3. **Fallback**: 已实现请求级主路 + 自动回退（`routing_strategy = "fallback"` + `priority`）。
+4. **Embeddings + one more provider**: Add `/v1/embeddings` and one mainstream provider example.
 
 Goal: use a few high-signal scenarios to get the most from current abstractions (Service, Provider, API Key, model mapping, routing strategy) and give a clear direction for later iterations without making the gateway heavy.

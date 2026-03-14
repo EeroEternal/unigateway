@@ -13,7 +13,7 @@ Proposed structure:
 
 - `unigateway serve [FLAGS] [OPTIONS]`
   - Start HTTP gateway.
-  - Options: `--bind <ADDR>`, `--db <URL>` (override env).
+  - Options: `--bind <ADDR>`, `--config <PATH>` (override env).
 - `unigateway quickstart [OPTIONS]`
   - One-shot init: default service (e.g. `default`), default provider (from provider_type/endpoint_id/base_url/api_key), bind, create one API key and print it.
 - `unigateway service <SUBCOMMAND>`
@@ -29,8 +29,8 @@ Proposed structure:
   - `list`: list API keys.
   - `create --name <NAME> [--service-id <SID>] [--provider-id <PID>...] [--quota-limit <N>] [--qps-limit <F>] [--concurrency-limit <N>]`: create key; auto-create service if no `--service-id`; bind given providers to that service.
   - `revoke --key <KEY> [--delete-service]`: revoke key; optionally delete its service.
-- `unigateway metrics [--db <URL>]`
-  - Print/export basic metrics from DB (total requests, per-endpoint counts, etc.).
+- `unigateway metrics [--config <PATH>]`
+  - Print/export basic metrics (total requests, per-endpoint counts, etc.).
 
 Implement in `cli.rs` with `clap::Parser` + `Subcommand` and match dispatch.
 
@@ -55,14 +55,14 @@ So AI/scripts can parse stdout for automation.
 
 ### 4. Relation to HTTP Admin API
 
-- CLI subcommands call `sqlx` and `queries.rs` / `mutations.rs` directly; no HTTP.
+- CLI subcommands call `GatewayState` (TOML-based config) directly; no HTTP.
 - `/api/admin/...` remains for future Web UI or remote management and for external integration.
 - Both CLI and HTTP handlers: parse args → call shared query/mutation → format output.
 
 ### 5. Directory and Modules (Current)
 
-- No `src/app/` directory: `src/app.rs` has `run()` and route registration; `AppConfig` in `types.rs`; gateway and admin logic in single-file modules under `src/`.
-- `src/cli.rs`: CLI parsing and dispatch; uses `app::hash_password` and DB create/bind/print_metrics.
+- No `src/app/` directory: `src/server.rs` has `run()` and route registration; `AppConfig` in `types.rs`; gateway and admin logic in single-file modules under `src/`.
+- `src/cli.rs`: CLI parsing and dispatch; uses `GatewayState` for create/bind/print_metrics.
 - `src/ui/` removed: no Web UI; management is CLI + `/api/admin/*` JSON API.
 
 ### 6. Suggested Next Steps

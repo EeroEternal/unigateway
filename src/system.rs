@@ -14,11 +14,11 @@ pub(crate) async fn health() -> impl IntoResponse {
 }
 
 pub(crate) async fn metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let (total, openai_total, anthropic_total) = state.gateway.metrics_snapshot().await;
+    let (total, openai_total, anthropic_total, embeddings_total) = state.gateway.metrics_snapshot().await;
 
     let body = format!(
-        "# TYPE unigateway_requests_total counter\nunigateway_requests_total {}\n# TYPE unigateway_requests_by_endpoint_total counter\nunigateway_requests_by_endpoint_total{{endpoint=\"/v1/chat/completions\"}} {}\nunigateway_requests_by_endpoint_total{{endpoint=\"/v1/messages\"}} {}\n",
-        total, openai_total, anthropic_total
+        "# TYPE unigateway_requests_total counter\nunigateway_requests_total {}\n# TYPE unigateway_requests_by_endpoint_total counter\nunigateway_requests_by_endpoint_total{{endpoint=\"/v1/chat/completions\"}} {}\nunigateway_requests_by_endpoint_total{{endpoint=\"/v1/messages\"}} {}\nunigateway_requests_by_endpoint_total{{endpoint=\"/v1/embeddings\"}} {}\n",
+        total, openai_total, anthropic_total, embeddings_total
     );
 
     (

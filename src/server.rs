@@ -50,6 +50,7 @@ pub async fn run(config: AppConfig) -> Result<()> {
             get(crate::api_key::api_list_api_keys).post(crate::api_key::api_create_api_key),
         )
         .route("/v1/chat/completions", post(crate::gateway::openai_chat))
+        .route("/v1/embeddings", post(crate::gateway::openai_embeddings))
         .route("/v1/messages", post(crate::gateway::anthropic_messages))
         .with_state(Arc::new(state))
         .layer(TraceLayer::new_for_http());
