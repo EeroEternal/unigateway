@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use llm_connector::{
     ChatResponse, LlmClient,
-    types::{ChatRequest, Message, Role},
+    types::{ChatRequest, EmbedRequest, EmbedResponse, Message, Role},
 };
 use serde_json::{Value, json};
 use tracing::debug;
@@ -280,4 +280,74 @@ fn extract_text_content(value: &Value) -> String {
     }
 
     String::new()
+}
+
+// --- Embeddings ---
+
+pub fn openai_payload_to_embed_request(payload: &Value, default_model: &str) -> Result<EmbedRequest> {
+    let model = payload
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or(default_model)
+        .to_string();
+
+    let input = match payload.get("input") {
+        Some(Value::String(s)) => vec![s.clone()],
+        Some(Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
+        _ => return Err(anyhow!("input must be a string or array of strings")),
+    };
+
+    let mut req = EmbedRequest::new_batch(model, input);
+    if let Some(fmt) = payload.get("encoding_format").and_then(Value::as_str) {
+        req = req.with_encoding_format(fmt);
+    }
+    Ok(req)
+}
+
+pub async fn invoke_embeddings(
+    base_url: &str,
+    api_key: &str,
+    req: &EmbedRequest,
+) -> Result<EmbedResponse> {
+    debug!(
+        base_url,
+        model = req.model.as_str(),
+        input_count = req.input.len(),
+        "invoking llm-connector embed"
+    );
+    let client = build_openai_client(base_url, api_key, None)?;
+    let resp = client.embed(req).await.context("llm-connector embed failed")?;
+    debug!(
+        model = resp.model.as_str(),
+        data_count = resp.data.len(),
+        "llm-connector embed returned"
+    );
+    Ok(resp)
+}
+
+pub fn embed_response_to_openai_json(resp: &EmbedResponse) -> Value {
+    let data: Vec<Value> = resp
+        .data
+        .iter()
+        .map(|d| {
+            json!({
+                "object": "embedding",
+                "embedding": d.embedding,
+                "index": d.index,
+            })
+        })
+        .collect();
+
+    json!({
+        "object": "list",
+        "data": data,
+        "model": resp.model,
+        "usage": {
+            "prompt_tokens": resp.usage.prompt_tokens,
+            "total_tokens": resp.usage.total_tokens
+        }
+    })
 }

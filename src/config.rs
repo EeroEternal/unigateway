@@ -23,6 +23,12 @@ pub struct GatewayConfigFile {
 pub struct ServiceEntry {
     pub id: String,
     pub name: String,
+    #[serde(default = "default_round_robin")]
+    pub routing_strategy: String,
+}
+
+fn default_round_robin() -> String {
+    "round_robin".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,15 +41,10 @@ pub struct ProviderEntry {
     pub api_key: String,
     #[serde(default)]
     pub model_mapping: String,
-    #[serde(default = "one")]
-    pub weight: i64,
     #[serde(default = "default_true")]
     pub is_enabled: bool,
 }
 
-fn one() -> i64 {
-    1
-}
 fn default_true() -> bool {
     true
 }
@@ -52,6 +53,8 @@ fn default_true() -> bool {
 pub struct BindingEntry {
     pub service_id: String,
     pub provider_name: String,
+    #[serde(default)]
+    pub priority: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,6 +93,7 @@ pub struct RequestStats {
     pub total: u64,
     pub openai_total: u64,
     pub anthropic_total: u64,
+    pub embeddings_total: u64,
 }
 
 /// Full in-memory gateway state: file data + stats. Persist writes only file data.
@@ -109,6 +113,7 @@ impl Default for GatewayConfig {
                 total: 0,
                 openai_total: 0,
                 anthropic_total: 0,
+                embeddings_total: 0,
             },
             dirty: false,
         }
@@ -170,6 +175,7 @@ impl GatewayState {
                 total: 0,
                 openai_total: 0,
                 anthropic_total: 0,
+                embeddings_total: 0,
             },
             dirty: false,
         };
@@ -223,6 +229,66 @@ impl GatewayState {
             qps_limit: k.qps_limit,
             concurrency_limit: k.concurrency_limit,
         })
+    }
+
+    pub async fn get_routing_strategy(&self, service_id: &str) -> String {
+        let guard = self.inner.read().await;
+        guard
+            .file
+            .services
+            .iter()
+            .find(|s| s.id == service_id)
+            .map(|s| s.routing_strategy.clone())
+            .unwrap_or_else(default_round_robin)
+    }
+
+    /// Return all bound providers for a service sorted by binding priority (ascending).
+    pub async fn select_all_providers_for_service(
+        &self,
+        service_id: &str,
+        protocol: &str,
+    ) -> Vec<ServiceProvider> {
+        let guard = self.inner.read().await;
+        let mut binding_priorities: Vec<(String, i64)> = guard
+            .file
+            .bindings
+            .iter()
+            .filter(|b| b.service_id == service_id)
+            .map(|b| (b.provider_name.clone(), b.priority))
+            .collect();
+        binding_priorities.sort_by_key(|(_, prio)| *prio);
+
+        let mut result = Vec::new();
+        for (name, _) in &binding_priorities {
+            if let Some(p) = guard
+                .file
+                .providers
+                .iter()
+                .find(|p| p.is_enabled && p.provider_type == protocol && p.name == *name)
+            {
+                result.push(ServiceProvider {
+                    name: p.name.clone(),
+                    provider_type: p.provider_type.clone(),
+                    endpoint_id: if p.endpoint_id.is_empty() {
+                        None
+                    } else {
+                        Some(p.endpoint_id.clone())
+                    },
+                    base_url: if p.base_url.is_empty() {
+                        None
+                    } else {
+                        Some(p.base_url.clone())
+                    },
+                    api_key: Some(p.api_key.clone()),
+                    model_mapping: if p.model_mapping.is_empty() {
+                        None
+                    } else {
+                        Some(p.model_mapping.clone())
+                    },
+                });
+            }
+        }
+        result
     }
 
     pub async fn select_provider_for_service(
@@ -361,16 +427,19 @@ impl GatewayState {
             guard.request_stats.openai_total += 1;
         } else if endpoint == "/v1/messages" {
             guard.request_stats.anthropic_total += 1;
+        } else if endpoint == "/v1/embeddings" {
+            guard.request_stats.embeddings_total += 1;
         }
         // Optionally persist used_quota periodically; we don't persist request_stats.
     }
 
-    pub async fn metrics_snapshot(&self) -> (u64, u64, u64) {
+    pub async fn metrics_snapshot(&self) -> (u64, u64, u64, u64) {
         let guard = self.inner.read().await;
         (
             guard.request_stats.total,
             guard.request_stats.openai_total,
             guard.request_stats.anthropic_total,
+            guard.request_stats.embeddings_total,
         )
     }
 
@@ -386,7 +455,7 @@ impl GatewayState {
         if let Some(s) = guard.file.services.iter_mut().find(|s| s.id == id) {
             s.name = name.to_string();
         } else {
-            guard.file.services.push(ServiceEntry { id: id.to_string(), name: name.to_string() });
+            guard.file.services.push(ServiceEntry { id: id.to_string(), name: name.to_string(), routing_strategy: default_round_robin() });
         }
         guard.dirty = true;
     }
@@ -418,7 +487,6 @@ impl GatewayState {
             base_url: base_url.unwrap_or("").to_string(),
             api_key: api_key.to_string(),
             model_mapping: model_mapping.unwrap_or("").to_string(),
-            weight: 1,
             is_enabled: true,
         });
         guard.dirty = true;
@@ -437,7 +505,7 @@ impl GatewayState {
         let mut guard = self.inner.write().await;
         let exists = guard.file.bindings.iter().any(|b| b.service_id == service_id && b.provider_name == provider_name);
         if !exists {
-            guard.file.bindings.push(BindingEntry { service_id: service_id.to_string(), provider_name });
+            guard.file.bindings.push(BindingEntry { service_id: service_id.to_string(), provider_name, priority: 0 });
             guard.dirty = true;
         }
         Ok(())

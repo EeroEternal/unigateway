@@ -16,7 +16,6 @@ endpoint_id = "openai"
 base_url = "https://api.openai.com"
 api_key = "sk-..."
 model_mapping = ""
-weight = 1
 is_enabled = true
 
 [[bindings]]
@@ -35,9 +34,9 @@ concurrency_limit = 8
 
 ## Fields
 
-- **services**: `id` (string), `name` (string).
-- **providers**: `name`, `provider_type`, `endpoint_id`, `base_url`, `api_key`, `model_mapping` (optional), `weight` (default 1), `is_enabled` (default true). The order defines `provider_id` (0-based index) for bindings.
-- **bindings**: `service_id`, `provider_name` (must match a provider’s `name`).
+- **services**: `id` (string), `name` (string), `routing_strategy` (optional, default `"round_robin"`, can be `"fallback"`).
+- **providers**: `name`, `provider_type`, `endpoint_id`, `base_url`, `api_key`, `model_mapping` (optional), `is_enabled` (default true). The order defines `provider_id` (0-based index) for bindings.
+- **bindings**: `service_id`, `provider_name` (must match a provider’s `name`), `priority` (optional, default 0; lower = higher priority, used when `routing_strategy = "fallback"`).
 - **api_keys**: `key`, `service_id`, `quota_limit` (optional), `used_quota` (updated at runtime), `is_active`, `qps_limit` (optional), `concurrency_limit` (optional).
 
 You can edit the file by hand and restart the gateway, or use the CLI / Admin API to mutate and persist.

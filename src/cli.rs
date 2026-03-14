@@ -75,7 +75,7 @@ pub async fn quickstart(
 
 pub async fn print_metrics_snapshot(config_path: &str) -> Result<()> {
     let state = GatewayState::load(Path::new(config_path)).await?;
-    let (total, openai_total, anthropic_total) = state.metrics_snapshot().await;
+    let (total, openai_total, anthropic_total, embeddings_total) = state.metrics_snapshot().await;
     println!("unigateway_requests_total {}", total);
     println!(
         "unigateway_requests_by_endpoint_total{{endpoint=\"/v1/chat/completions\"}} {}",
@@ -84,6 +84,10 @@ pub async fn print_metrics_snapshot(config_path: &str) -> Result<()> {
     println!(
         "unigateway_requests_by_endpoint_total{{endpoint=\"/v1/messages\"}} {}",
         anthropic_total
+    );
+    println!(
+        "unigateway_requests_by_endpoint_total{{endpoint=\"/v1/embeddings\"}} {}",
+        embeddings_total
     );
     Ok(())
 }

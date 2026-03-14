@@ -1,12 +1,14 @@
 mod api_key;
-mod app;
+mod server;
 mod authz;
 mod cli;
 mod config;
 mod dto;
 mod gateway;
+mod middleware;
 mod provider;
 mod protocol;
+mod routing;
 mod sdk;
 mod service;
 mod storage;
@@ -129,7 +131,7 @@ async fn main() -> Result<()> {
             if no_ui {
                 app_config.enable_ui = false;
             }
-            app::run(app_config).await
+            server::run(app_config).await
         }
         Some(Commands::Metrics { config }) => cli::print_metrics_snapshot(&config).await,
         Some(Commands::CreateService { id, name, config }) => {
@@ -208,7 +210,7 @@ async fn main() -> Result<()> {
         }
         None => {
             let app_config = types::AppConfig::from_env();
-            app::run(app_config).await
+            server::run(app_config).await
         }
     }
 }
