@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: UniGateway API
-  version: 0.4.0
+  version: 0.5.0
   description: >
     Unified LLM gateway supporting OpenAI, Anthropic, DeepSeek, Groq, MiniMax,
     and any OpenAI-compatible provider. Provides chat completions, messages,

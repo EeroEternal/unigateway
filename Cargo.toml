@@ -1,6 +1,6 @@
 [package]
 name = "unigateway"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.92"
 description = "Scenario-oriented LLM gateway: rich CLI, JSON admin API, single binary. Supports skills install for Codex/Cursor to one-shot init and manage."
