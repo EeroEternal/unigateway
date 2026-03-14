@@ -4,204 +4,68 @@
     <strong>Scenario-oriented LLM gateway with OpenAI and Anthropic compatibility.</strong>
   </p>
   <p>
-    Rich CLI + JSON admin API, single binary. Install as a <strong>Skill</strong> in Codex/Cursor for one-shot init and management. No Web UI.
+    Rich CLI + JSON admin API, single binary. No Web UI. Install as a <strong>Skill</strong> in Codex/Cursor for one-shot init.
   </p>
   <p>
-    Built with Rust for fast startup and low overhead.
-  </p>
-
-  <p>
-    <a href="https://github.com/lipish/unigateway/actions/workflows/rust.yml"><img src="https://github.com/lipish/unigateway/actions/workflows/rust.yml/badge.svg" alt="Build Status"></a>
+    <a href="https://github.com/EeroEternal/unigateway/actions/workflows/rust.yml"><img src="https://github.com/EeroEternal/unigateway/actions/workflows/rust.yml/badge.svg" alt="Build Status"></a>
     <a href="https://crates.io/crates/unigateway"><img src="https://img.shields.io/crates/v/unigateway.svg" alt="Crate"></a>
-    <a href="https://github.com/lipish/unigateway/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+    <a href="https://github.com/EeroEternal/unigateway/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   </p>
 </div>
 
-<br />
-
-## Philosophy
-
-**UniGateway** is built around **scenarios**: single-provider proxy, multi-provider round-robin, local multi-model playground, team shared gateway, or cost-aware routing. You manage it via a **rich CLI** and a **JSON admin API**—no Web UI. Install it as a **Skill** in Codex or Cursor and let the AI one-shot create services, providers, bindings, and API keys for your project.
-
-It is a drop-in replacement for OpenAI/Anthropic clients, with request logging, latency tracking, service-based routing, and per-key quota/QPS/concurrency limits.
-
 ## Features
 
-- 🎯 **Scenario-Oriented**: Designed for single-provider proxy, multi-provider round-robin, local dev, and team/cost-control use cases; docs and CLI guide you by scenario.
-- 🧰 **Rich CLI**: Full management from the shell—`serve`, `init-admin`, `metrics`, `create-service`, `create-provider`, `bind-provider`, `create-api-key`; scriptable and AI-friendly output.
-- 🔌 **Skills Integration**: Install as a Skill in Codex/Cursor so the AI can init and manage the gateway (create provider, bind, create key) in one shot from chat or automation.
-- 🔄 **Unified Interface**:
-  - `POST /v1/chat/completions` (OpenAI compatible)
-  - `POST /v1/messages` (Anthropic compatible)
-- 📊 **Built-in Analytics**: Tracks request counts, status codes, and latency in a local SQLite database.
-- 📈 **Observability**: `GET /health`, `GET /metrics` (Prometheus), `GET /v1/models`.
-- 🧭 **Service Routing**: Service → provider binding with round-robin selection.
-- 🔐 **API Key Limits**: Per-key quota, QPS, and concurrency limits.
-- 📡 **JSON Admin API**: `/api/admin/*` for automation and remote management (optional `x-admin-token`).
-- 📦 **Single Binary**: One executable; no Web UI, no lib dependency.
+- **Unified API**: `POST /v1/chat/completions` (OpenAI), `POST /v1/messages` (Anthropic)
+- **CLI 管理**: `serve`, `init-admin`, `metrics`, `create-service`, `create-provider`, `bind-provider`, `create-api-key`
+- **Service → Provider** 绑定，round-robin 选路；API Key 支持 quota / QPS / concurrency 限制
+- **SQLite 统计**：请求数、状态码、延迟；`GET /health`, `GET /metrics`, `GET /v1/models`
+- **Admin API**: `/api/admin/*`（可选 `x-admin-token`）
 
-## Installation
-
-### From Source
-
-Ensure you have [Rust installed](https://rustup.rs/).
+## Install
 
 ```bash
-git clone https://github.com/lipish/unigateway.git
-cd unigateway
-cargo build --release
-```
-
-### From crates.io
-
-```bash
+git clone https://github.com/EeroEternal/unigateway.git && cd unigateway && cargo build --release
+# 或
 cargo install unigateway
 ```
 
 ## Usage
 
-### Running the Server
-
 ```bash
-# Run with default settings (no subcommand = start gateway)
-cargo run
-
-# Or explicitly
-cargo run -- serve --bind 127.0.0.1:3210 --db sqlite://unigateway.db
-```
-
-The server will start on `http://127.0.0.1:3210` by default.
-
-## Management (CLI + JSON API)
-
-UniGateway is managed **only** via the CLI and the JSON Admin API. There is no Web UI.
-
-- **Providers**: Register upstream vendors (OpenAI, Anthropic, DeepSeek, or custom-compatible backends) and bind them to services.
-- **Services**: Define the routing layer between API keys and providers (round-robin over bound providers).
-- **API Keys**: Create gateway keys tied to a service; each key can have quota, QPS, and concurrency limits.
-
-Use the CLI for one-off or scripted setup; use the Admin API when integrating with other systems or automation.
-
-### Skills (Codex / Cursor)
-
-UniGateway can be installed as a **Skill** in Codex or Cursor. Once installed, the AI assistant can create services, providers, bindings, and API keys in one shot from chat or from automation workflows—no need to run CLI commands by hand. Look for **UniGateway** in the skill catalog or install from this repo’s skill definition when available.
-
-### Configuration
-
-UniGateway is configured via environment variables. You can set these in a `.env` file or export them directly.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `UNIGATEWAY_BIND` | `127.0.0.1:3210` | The address to bind the server to. |
-| `UNIGATEWAY_DB` | `sqlite://unigateway.db` | Path to the SQLite database file. |
-| `UNIGATEWAY_ADMIN_TOKEN` | `""` | Optional token for admin APIs (`x-admin-token` header). If set, admin API requests must include it. |
-| `OPENAI_BASE_URL` | `https://api.openai.com` | Base URL for OpenAI API. |
-| `OPENAI_API_KEY` | `""` | Default OpenAI API key (optional). |
-| `OPENAI_MODEL` | `gpt-4o-mini` | Default model for OpenAI requests. |
-| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Base URL for Anthropic API. |
-| `ANTHROPIC_API_KEY` | `""` | Default Anthropic API key (optional). |
-| `ANTHROPIC_MODEL` | `claude-3-5-sonnet-latest` | Default model for Anthropic requests. |
-
-### CLI Operations
-
-```bash
-# Start gateway with optional overrides
+# 启动（无子命令即启动网关）
+unigateway
+# 或
 unigateway serve --bind 127.0.0.1:3210 --db sqlite://unigateway.db
 
-# Initialize/reset admin user (for DB schema; not used by HTTP admin API)
+# 初始化 admin、打印 metrics
 unigateway init-admin --username admin --password 'your-password' --db sqlite://unigateway.db
-
-# Print metrics snapshot to stdout
 unigateway metrics --db sqlite://unigateway.db
 
-# Create service
-unigateway create-service --id svc_openai --name "OpenAI Service" --db sqlite://unigateway.db
-
-# Create provider (returns provider_id)
-unigateway create-provider \
-  --name openai-prod \
-  --provider-type openai \
-  --endpoint-id openai \
-  --base-url https://api.openai.com \
-  --api-key sk-xxx \
-  --db sqlite://unigateway.db
-
-# Bind provider to service
+# 创建 service → provider → 绑定 → 创建 API Key
+unigateway create-service --id svc_openai --name "OpenAI" --db sqlite://unigateway.db
+unigateway create-provider --name openai-prod --provider-type openai --endpoint-id openai --base-url https://api.openai.com --api-key sk-xxx --db sqlite://unigateway.db
 unigateway bind-provider --service-id svc_openai --provider-id 1 --db sqlite://unigateway.db
-
-# Create gateway API key with limits
-unigateway create-api-key \
-  --key ugk_xxx \
-  --service-id svc_openai \
-  --qps-limit 20 \
-  --concurrency-limit 8 \
-  --quota-limit 100000 \
-  --db sqlite://unigateway.db
+unigateway create-api-key --key ugk_xxx --service-id svc_openai --qps-limit 20 --concurrency-limit 8 --db sqlite://unigateway.db
 ```
 
-## API Endpoints
+## Config (环境变量)
 
-### OpenAI Compatible
-```http
-POST /v1/chat/completions
-Authorization: Bearer <YOUR_OPENAI_KEY>
-Content-Type: application/json
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `UNIGATEWAY_BIND` | `127.0.0.1:3210` | 监听地址 |
+| `UNIGATEWAY_DB` | `sqlite://unigateway.db` | 数据库路径 |
+| `UNIGATEWAY_ADMIN_TOKEN` | `""` | Admin API 鉴权（`x-admin-token`） |
 
-{
-  "model": "gpt-4o-mini",
-  "messages": [{"role": "user", "content": "Hello!"}]
-}
-```
+## API 速览
 
-### Anthropic Compatible
-```http
-POST /v1/messages
-x-api-key: <YOUR_ANTHROPIC_KEY>
-anthropic-version: 2023-06-01
-Content-Type: application/json
-
-{
-  "model": "claude-3-5-sonnet-latest",
-  "messages": [{"role": "user", "content": "Hello!"}],
-  "max_tokens": 1024
-}
-```
-
-### Health & Metrics
-```http
-GET /health
-GET /metrics
-GET /v1/models
-```
-
-### Admin APIs (JSON only)
-
-Management is done via these endpoints. When `UNIGATEWAY_ADMIN_TOKEN` is set, include:
-
-```http
-x-admin-token: <YOUR_ADMIN_TOKEN>
-```
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/admin/services` | List services |
-| POST | `/api/admin/services` | Create service |
-| GET | `/api/admin/providers` | List providers |
-| POST | `/api/admin/providers` | Create provider |
-| POST | `/api/admin/bindings` | Bind provider to service |
-| GET | `/api/admin/api-keys` | List API keys |
-| POST | `/api/admin/api-keys` | Create/update API key |
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+- **OpenAI**: `POST /v1/chat/completions`，`Authorization: Bearer <key>`
+- **Anthropic**: `POST /v1/messages`，`x-api-key`, `anthropic-version: 2023-06-01`
+- **Admin**: `GET/POST /api/admin/services`, `GET/POST /api/admin/providers`, `POST /api/admin/bindings`, `GET/POST /api/admin/api-keys`
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT. See [LICENSE](LICENSE).
+
+## About
+
+Author: [EeroEternal](https://github.com/EeroEternal) · songmqq@proton.me

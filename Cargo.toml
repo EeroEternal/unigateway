@@ -1,15 +1,15 @@
 [package]
 name = "unigateway"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.92"
 description = "Scenario-oriented LLM gateway: rich CLI, JSON admin API, single binary. Supports skills install for Codex/Cursor to one-shot init and manage."
 license = "MIT"
-repository = "https://github.com/lipish/unigateway"
+repository = "https://github.com/EeroEternal/unigateway"
 readme = "README.md"
 keywords = ["llm", "openai", "anthropic", "gateway", "proxy", "cli"]
 categories = ["web-programming::http-server", "api-bindings", "command-line-utilities"]
-authors = ["lipi <lipicoder@qq.com>"]
+authors = ["EeroEternal <songmqq@proton.me>"]
 
 [[bin]]
 name = "unigateway"
