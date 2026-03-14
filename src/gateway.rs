@@ -15,11 +15,10 @@ use crate::protocol::{
     UpstreamProtocol, anthropic_payload_to_chat_request, chat_response_to_anthropic_json,
     chat_response_to_openai_json, invoke_with_connector, openai_payload_to_chat_request,
 };
-
-use super::{
-    storage::{find_gateway_api_key, map_model_name, record_stat, select_provider_for_service},
-    types::{AppState, GatewayApiKey, RuntimeRateState},
+use crate::storage::{
+    find_gateway_api_key, map_model_name, record_stat, select_provider_for_service,
 };
+use crate::types::{AppState, GatewayApiKey, RuntimeRateState};
 
 fn resolve_upstream_base_url(
     provider_base_url: Option<String>,

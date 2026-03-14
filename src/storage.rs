@@ -5,7 +5,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
-use super::types::{AppState, GatewayApiKey, ServiceProvider};
+use crate::types::{AppState, GatewayApiKey, ServiceProvider};
 
 pub(crate) async fn init_db(pool: &SqlitePool) -> Result<()> {
     sqlx::query(
@@ -71,7 +71,6 @@ pub(crate) async fn init_db(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await?;
 
-    // 旧库轻量迁移：补齐 endpoint_id 列
     let _ = sqlx::query("ALTER TABLE providers ADD COLUMN endpoint_id TEXT")
         .execute(pool)
         .await;

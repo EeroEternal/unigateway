@@ -1,5 +1,7 @@
 # Admin 模块优化路径
 
+> **说明**：本文为历史规划文档。当前已采用「去掉 UI + 扁平化 src」方案：无 `app/` 目录，管理仅保留 JSON API 与 CLI，详见 `refactor-summary.md` 与 `directory-structure.md`。
+
 ## 目标
 
 当前 `src/app/admin.rs` 同时承担了过多职责：

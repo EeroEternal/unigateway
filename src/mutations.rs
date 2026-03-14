@@ -102,7 +102,7 @@ pub(crate) async fn create_provider_and_bind_default(
 
     let provider_id = sqlx::query(
         "INSERT INTO providers(name, provider_type, endpoint_id, base_url, api_key, model_mapping, is_enabled)
-         VALUES(?, ?, ?, ?, ?, ?, 1) RETURNING id",
+         VALUES(?, ?, ?, ?, ?, ?, 1)",
     )
     .bind(name.trim())
     .bind(provider_type.trim())
@@ -110,14 +110,11 @@ pub(crate) async fn create_provider_and_bind_default(
     .bind(base_url.unwrap_or(""))
     .bind(api_key.trim())
     .bind(model_mapping.unwrap_or(""))
-    .fetch_one(pool)
-    .await
-    .map(|row: sqlx::sqlite::SqliteRow| {
-        use sqlx::Row;
-        row.get::<i64, _>(0)
-    });
+    .execute(pool)
+    .await;
 
-    if let Ok(pid) = provider_id {
+    if let Ok(result) = provider_id {
+        let pid = result.last_insert_rowid();
         let _ = sqlx::query(
             "INSERT OR IGNORE INTO services(id, name) VALUES('default', 'Default Service')",
         )

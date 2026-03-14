@@ -1,3 +1,19 @@
+mod api_key;
+mod app;
+mod authz;
+mod cli;
+mod dto;
+mod gateway;
+mod mutations;
+mod provider;
+mod queries;
+mod protocol;
+mod sdk;
+mod service;
+mod storage;
+mod system;
+mod types;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
@@ -87,11 +103,11 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let cli = Cli::parse();
+    let cli_args = Cli::parse();
 
-    match cli.command {
+    match cli_args.command {
         Some(Commands::Serve { bind, db, no_ui }) => {
-            let mut config = unigateway::AppConfig::from_env();
+            let mut config = types::AppConfig::from_env();
             if let Some(bind) = bind {
                 config.bind = bind;
             }
@@ -101,16 +117,16 @@ async fn main() -> Result<()> {
             if no_ui {
                 config.enable_ui = false;
             }
-            unigateway::run(config).await
+            app::run(config).await
         }
         Some(Commands::InitAdmin {
             username,
             password,
             db,
-        }) => unigateway::cli::init_admin(&db, &username, &password).await,
-        Some(Commands::Metrics { db }) => unigateway::cli::print_metrics_snapshot(&db).await,
+        }) => cli::init_admin(&db, &username, &password).await,
+        Some(Commands::Metrics { db }) => cli::print_metrics_snapshot(&db).await,
         Some(Commands::CreateService { id, name, db }) => {
-            unigateway::cli::create_service(&db, &id, &name).await
+            cli::create_service(&db, &id, &name).await
         }
         Some(Commands::CreateProvider {
             name,
@@ -121,7 +137,7 @@ async fn main() -> Result<()> {
             model_mapping,
             db,
         }) => {
-            let provider_id = unigateway::cli::create_provider(
+            let provider_id = cli::create_provider(
                 &db,
                 &name,
                 &provider_type,
@@ -138,7 +154,7 @@ async fn main() -> Result<()> {
             service_id,
             provider_id,
             db,
-        }) => unigateway::cli::bind_provider(&db, &service_id, provider_id).await,
+        }) => cli::bind_provider(&db, &service_id, provider_id).await,
         Some(Commands::CreateApiKey {
             key,
             service_id,
@@ -147,7 +163,7 @@ async fn main() -> Result<()> {
             concurrency_limit,
             db,
         }) => {
-            unigateway::cli::create_api_key(
+            cli::create_api_key(
                 &db,
                 &key,
                 &service_id,
@@ -158,8 +174,8 @@ async fn main() -> Result<()> {
             .await
         }
         None => {
-            let config = unigateway::AppConfig::from_env();
-            unigateway::run(config).await
+            let config = types::AppConfig::from_env();
+            app::run(config).await
         }
     }
 }

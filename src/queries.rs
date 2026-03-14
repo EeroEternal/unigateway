@@ -1,9 +1,9 @@
 use sqlx::SqlitePool;
 
-use super::dto::{
-    ApiKeyDetailRow, ApiKeyListRow, DashboardStats, LogRow, ProviderDetailRow, ProviderListRow,
-    ProviderOptionRow, ServiceDetailProviderRow, ServiceDetailRow, ServiceListRow,
-    ServiceOut, ServiceSummaryRow, ServiceTokenRow, ProviderOut, ApiKeyOut,
+use crate::dto::{
+    ApiKeyDetailRow, ApiKeyListRow, ApiKeyOut, DashboardStats, LogRow, ProviderDetailRow,
+    ProviderListRow, ProviderOptionRow, ProviderOut, ServiceDetailProviderRow, ServiceDetailRow,
+    ServiceListRow, ServiceOut, ServiceSummaryRow, ServiceTokenRow,
 };
 
 pub(crate) struct MetricsSnapshot {

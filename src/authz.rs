@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::http::HeaderMap;
 
-use crate::app::{auth::ensure_login, types::AppState};
+use crate::types::AppState;
 
 pub(crate) async fn is_admin_authorized(state: &Arc<AppState>, headers: &HeaderMap) -> bool {
     if !state.config.admin_token.is_empty() {
@@ -12,10 +12,5 @@ pub(crate) async fn is_admin_authorized(state: &Arc<AppState>, headers: &HeaderM
             .unwrap_or_default();
         return token == state.config.admin_token;
     }
-
-    if state.config.enable_ui {
-        return ensure_login(&state.pool, headers).await;
-    }
-
     true
 }

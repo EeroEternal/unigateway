@@ -1,10 +1,13 @@
 <div align="center">
   <h1>UniGateway</h1>
   <p>
-    <strong>A lightweight, open-source LLM gateway with OpenAI and Anthropic compatibility.</strong>
+    <strong>Scenario-oriented LLM gateway with OpenAI and Anthropic compatibility.</strong>
   </p>
   <p>
-    Built with Rust for fast startup, low overhead, and simple operations.
+    Rich CLI + JSON admin API, single binary. Install as a <strong>Skill</strong> in Codex/Cursor for one-shot init and management. No Web UI.
+  </p>
+  <p>
+    Built with Rust for fast startup and low overhead.
   </p>
 
   <p>
@@ -16,31 +19,26 @@
 
 <br />
 
-<p align="center">
-  <img src="docs/dashboard.jpg" alt="UniGateway dashboard" width="960" />
-</p>
-
 ## Philosophy
 
-Managing multiple LLM providers (OpenAI, Anthropic, etc.) in production can be complex. **UniGateway** solves this by providing a unified, lightweight proxy layer that sits between your application and the LLM providers.
+**UniGateway** is built around **scenarios**: single-provider proxy, multi-provider round-robin, local multi-model playground, team shared gateway, or cost-aware routing. You manage it via a **rich CLI** and a **JSON admin API**—no Web UI. Install it as a **Skill** in Codex or Cursor and let the AI one-shot create services, providers, bindings, and API keys for your project.
 
-It offers a **drop-in replacement** for standard OpenAI and Anthropic clients, while adding essential features like request logging, latency tracking, service-based routing, and a built-in admin dashboard without the overhead of a heavyweight API gateway.
+It is a drop-in replacement for OpenAI/Anthropic clients, with request logging, latency tracking, service-based routing, and per-key quota/QPS/concurrency limits.
 
 ## Features
 
-- 🚀 **High Performance**: Built on Rust and Axum for minimal latency and resource usage.
+- 🎯 **Scenario-Oriented**: Designed for single-provider proxy, multi-provider round-robin, local dev, and team/cost-control use cases; docs and CLI guide you by scenario.
+- 🧰 **Rich CLI**: Full management from the shell—`serve`, `init-admin`, `metrics`, `create-service`, `create-provider`, `bind-provider`, `create-api-key`; scriptable and AI-friendly output.
+- 🔌 **Skills Integration**: Install as a Skill in Codex/Cursor so the AI can init and manage the gateway (create provider, bind, create key) in one shot from chat or automation.
 - 🔄 **Unified Interface**:
   - `POST /v1/chat/completions` (OpenAI compatible)
   - `POST /v1/messages` (Anthropic compatible)
 - 📊 **Built-in Analytics**: Tracks request counts, status codes, and latency in a local SQLite database.
-- 📈 **Minimal Observability**: Exposes `GET /metrics` (Prometheus text format) for external observability integration.
-- 🧭 **Service Routing**: Supports `service -> provider` binding with round-robin selection.
-- 🔐 **API Key Limits (MVP)**: Supports per-key quota, QPS, and concurrency limits.
-- 🛡️ **Refined Admin UI**: A lightweight admin console built with HTMX + DaisyUI, including Providers, API Keys, Services, Request Logs, and Settings.
-- 🔎 **Detail Pages**: Providers, API keys, and services can be inspected from dedicated detail views with linked navigation between related resources.
-- 🧩 **Product-Oriented Information Architecture**: List pages are optimized for scanability while full relationships are available from detail pages.
-- 🧰 **CLI First Operations**: Supports no-UI/headless runtime and admin operations from CLI.
-- 📦 **Flexible Deployment**: Run as a standalone binary or embed it as a library in your Rust application.
+- 📈 **Observability**: `GET /health`, `GET /metrics` (Prometheus), `GET /v1/models`.
+- 🧭 **Service Routing**: Service → provider binding with round-robin selection.
+- 🔐 **API Key Limits**: Per-key quota, QPS, and concurrency limits.
+- 📡 **JSON Admin API**: `/api/admin/*` for automation and remote management (optional `x-admin-token`).
+- 📦 **Single Binary**: One executable; no Web UI, no lib dependency.
 
 ## Installation
 
@@ -65,37 +63,28 @@ cargo install unigateway
 ### Running the Server
 
 ```bash
-# Run with default settings
-cargo run --bin unigateway
+# Run with default settings (no subcommand = start gateway)
+cargo run
 
-# Headless mode (no admin UI routes)
-cargo run --bin unigateway -- serve --no-ui
+# Or explicitly
+cargo run -- serve --bind 127.0.0.1:3210 --db sqlite://unigateway.db
 ```
 
 The server will start on `http://127.0.0.1:3210` by default.
 
-## Admin Experience
+## Management (CLI + JSON API)
 
-The built-in admin UI is designed for operational clarity and lightweight day-to-day management.
+UniGateway is managed **only** via the CLI and the JSON Admin API. There is no Web UI.
 
-- **Providers**
-  - Register upstream vendors such as OpenAI, Anthropic, DeepSeek, or custom-compatible backends.
-  - Review provider settings from a detail page.
-  - Inspect all services currently bound to a provider.
+- **Providers**: Register upstream vendors (OpenAI, Anthropic, DeepSeek, or custom-compatible backends) and bind them to services.
+- **Services**: Define the routing layer between API keys and providers (round-robin over bound providers).
+- **API Keys**: Create gateway keys tied to a service; each key can have quota, QPS, and concurrency limits.
 
-- **API Keys**
-  - Create gateway access keys from the UI.
-  - Automatically route each key through a service.
-  - Inspect an API key and jump to its linked service.
+Use the CLI for one-off or scripted setup; use the Admin API when integrating with other systems or automation.
 
-- **Services**
-  - Manage the routing layer between API keys and providers.
-  - Inspect all bound providers and all API keys using a service.
+### Skills (Codex / Cursor)
 
-- **Request Logs**
-  - Review recent requests with path, latency, and status.
-
-This makes UniGateway suitable for small teams that want a practical gateway without adding a separate control plane.
+UniGateway can be installed as a **Skill** in Codex or Cursor. Once installed, the AI assistant can create services, providers, bindings, and API keys in one shot from chat or from automation workflows—no need to run CLI commands by hand. Look for **UniGateway** in the skill catalog or install from this repo’s skill definition when available.
 
 ### Configuration
 
@@ -105,8 +94,7 @@ UniGateway is configured via environment variables. You can set these in a `.env
 |----------|---------|-------------|
 | `UNIGATEWAY_BIND` | `127.0.0.1:3210` | The address to bind the server to. |
 | `UNIGATEWAY_DB` | `sqlite://unigateway.db` | Path to the SQLite database file. |
-| `UNIGATEWAY_ENABLE_UI` | `true` | Enable/disable web admin UI routes. |
-| `UNIGATEWAY_ADMIN_TOKEN` | `""` | Optional token for admin APIs (`x-admin-token` header). |
+| `UNIGATEWAY_ADMIN_TOKEN` | `""` | Optional token for admin APIs (`x-admin-token` header). If set, admin API requests must include it. |
 | `OPENAI_BASE_URL` | `https://api.openai.com` | Base URL for OpenAI API. |
 | `OPENAI_API_KEY` | `""` | Default OpenAI API key (optional). |
 | `OPENAI_MODEL` | `gpt-4o-mini` | Default model for OpenAI requests. |
@@ -114,22 +102,13 @@ UniGateway is configured via environment variables. You can set these in a `.env
 | `ANTHROPIC_API_KEY` | `""` | Default Anthropic API key (optional). |
 | `ANTHROPIC_MODEL` | `claude-3-5-sonnet-latest` | Default model for Anthropic requests. |
 
-### Admin Dashboard
-
-Access the admin dashboard at `http://127.0.0.1:3210/admin`.
-
-- **Username**: `admin`
-- **Password**: `admin123` (Default)
-
-> **Note**: The dashboard provides a lightweight operations surface for providers, API keys, services, request logs, and runtime stats.
-
 ### CLI Operations
 
 ```bash
-# Start service with optional overrides
+# Start gateway with optional overrides
 unigateway serve --bind 127.0.0.1:3210 --db sqlite://unigateway.db
 
-# Initialize/reset admin account in DB
+# Initialize/reset admin user (for DB schema; not used by HTTP admin API)
 unigateway init-admin --username admin --password 'your-password' --db sqlite://unigateway.db
 
 # Print metrics snapshot to stdout
@@ -188,27 +167,30 @@ Content-Type: application/json
 }
 ```
 
-### Metrics
+### Health & Metrics
 ```http
+GET /health
 GET /metrics
+GET /v1/models
 ```
 
-### Admin APIs (Headless)
-```http
-GET  /api/admin/services
-POST /api/admin/services
-GET  /api/admin/providers
-POST /api/admin/providers
-POST /api/admin/bindings
-GET  /api/admin/api-keys
-POST /api/admin/api-keys
-```
+### Admin APIs (JSON only)
 
-When `UNIGATEWAY_ADMIN_TOKEN` is set, send header:
+Management is done via these endpoints. When `UNIGATEWAY_ADMIN_TOKEN` is set, include:
 
 ```http
 x-admin-token: <YOUR_ADMIN_TOKEN>
 ```
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/services` | List services |
+| POST | `/api/admin/services` | Create service |
+| GET | `/api/admin/providers` | List providers |
+| POST | `/api/admin/providers` | Create provider |
+| POST | `/api/admin/bindings` | Bind provider to service |
+| GET | `/api/admin/api-keys` | List API keys |
+| POST | `/api/admin/api-keys` | Create/update API key |
 
 ## Contributing
 

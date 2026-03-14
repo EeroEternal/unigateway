@@ -1,0 +1,56 @@
+use std::sync::Arc;
+
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+};
+use serde_json::json;
+
+use crate::authz::is_admin_authorized;
+use crate::dto::{ApiResponse, CreateServiceReq, ServiceOut};
+use crate::mutations::upsert_service;
+use crate::queries::list_service_out;
+use crate::types::AppState;
+
+pub(crate) async fn api_list_services(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !is_admin_authorized(&state, &headers).await {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+
+    let rows: Vec<ServiceOut> = list_service_out(&state.pool).await;
+
+    axum::Json(ApiResponse {
+        success: true,
+        data: rows,
+    })
+    .into_response()
+}
+
+pub(crate) async fn api_create_service(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::Json(req): axum::Json<CreateServiceReq>,
+) -> impl IntoResponse {
+    if !is_admin_authorized(&state, &headers).await {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+
+    let result = upsert_service(&state.pool, &req.id, &req.name).await;
+
+    match result {
+        Ok(_) => axum::Json(ApiResponse {
+            success: true,
+            data: json!({"id": req.id, "name": req.name}),
+        })
+        .into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            axum::Json(json!({"success": false, "error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
