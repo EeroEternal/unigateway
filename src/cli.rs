@@ -151,7 +151,7 @@ pub async fn print_metrics_snapshot(db_url: &str) -> Result<()> {
 }
 
 async fn connect(db_url: &str) -> Result<SqlitePool> {
-    // 如果数据库文件不存在，自动创建
+    // Create DB file if it does not exist
     if db_url.starts_with("sqlite://") {
         let db_path = db_url.strip_prefix("sqlite://").unwrap();
         if !Path::new(db_path).exists() {
