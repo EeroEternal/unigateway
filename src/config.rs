@@ -197,6 +197,9 @@ impl GatewayState {
             guard.file.clone()
         };
         let s = toml::to_string_pretty(&to_write).context("serialize config")?;
+        if let Some(parent) = self.config_path.parent() {
+            tokio::fs::create_dir_all(parent).await.ok();
+        }
         let tmp = self.config_path.with_extension("tmp");
         tokio::fs::write(&tmp, s)
             .await

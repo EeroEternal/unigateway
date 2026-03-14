@@ -76,13 +76,13 @@ ug create-api-key --key ugk_xxx --service-id svc_openai --qps-limit 20 --concurr
 
 ## Config
 
-- **File**: `unigateway.toml` (created on first write). Services, providers, bindings, and API keys are stored here; runtime state (e.g. `used_quota`) is persisted on structural changes.
+- **File**: `~/.config/unigateway/config.toml` (auto-created on first write). Override with `--config <path>` or `UNIGATEWAY_CONFIG` env.
 - **Env**:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `UNIGATEWAY_BIND` | `127.0.0.1:3210` | Bind address |
-| `UNIGATEWAY_CONFIG` | `unigateway.toml` | Config file path |
+| `UNIGATEWAY_CONFIG` | `~/.config/unigateway/config.toml` | Config file path |
 | `UNIGATEWAY_ADMIN_TOKEN` | `""` | Admin API auth (`x-admin-token`) |
 
 ## API overview

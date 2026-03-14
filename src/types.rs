@@ -4,6 +4,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::GatewayState;
 
+pub fn default_config_path() -> String {
+    let dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("unigateway");
+    dir.join("config.toml").to_string_lossy().into_owned()
+}
+
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub bind: String,
@@ -29,7 +36,7 @@ impl AppConfig {
         Self {
             bind,
             config_path: std::env::var("UNIGATEWAY_CONFIG")
-                .unwrap_or_else(|_| "unigateway.toml".to_string()),
+                .unwrap_or_else(|_| default_config_path()),
             enable_ui: std::env::var("UNIGATEWAY_ENABLE_UI")
                 .map(|v| v != "0" && v.to_lowercase() != "false")
                 .unwrap_or(false),

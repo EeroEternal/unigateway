@@ -18,6 +18,10 @@ mod types;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+fn config_default() -> String {
+    types::default_config_path()
+}
+
 #[derive(Parser, Debug)]
 #[command(name = "ug", version, about = "UniGateway – lightweight LLM gateway")]
 struct Cli {
@@ -36,7 +40,7 @@ enum Commands {
         no_ui: bool,
     },
     Metrics {
-        #[arg(long, default_value = "unigateway.toml")]
+        #[arg(long, default_value_t = config_default())]
         config: String,
     },
     CreateService {
@@ -44,7 +48,7 @@ enum Commands {
         id: String,
         #[arg(long)]
         name: String,
-        #[arg(long, default_value = "unigateway.toml")]
+        #[arg(long, default_value_t = config_default())]
         config: String,
     },
     CreateProvider {
@@ -60,7 +64,7 @@ enum Commands {
         api_key: String,
         #[arg(long)]
         model_mapping: Option<String>,
-        #[arg(long, default_value = "unigateway.toml")]
+        #[arg(long, default_value_t = config_default())]
         config: String,
     },
     BindProvider {
@@ -68,7 +72,7 @@ enum Commands {
         service_id: String,
         #[arg(long)]
         provider_id: i64,
-        #[arg(long, default_value = "unigateway.toml")]
+        #[arg(long, default_value_t = config_default())]
         config: String,
     },
     CreateApiKey {
@@ -82,7 +86,7 @@ enum Commands {
         qps_limit: Option<f64>,
         #[arg(long)]
         concurrency_limit: Option<i64>,
-        #[arg(long, default_value = "unigateway.toml")]
+        #[arg(long, default_value_t = config_default())]
         config: String,
     },
     /// One-shot init: create service, provider, bind, and API key; print the key.
@@ -103,7 +107,7 @@ enum Commands {
         api_key: String,
         #[arg(long)]
         model_mapping: Option<String>,
-        #[arg(long, default_value = "unigateway.toml")]
+        #[arg(long, default_value_t = config_default())]
         config: String,
     },
 }
