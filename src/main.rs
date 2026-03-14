@@ -14,6 +14,7 @@ mod service;
 mod storage;
 mod system;
 mod types;
+mod upgrade;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -95,6 +96,8 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Self-upgrade to the latest release.
+    Upgrade,
     /// Interactive setup: create service, provider, bind, and API key.
     Quickstart {
         #[arg(long)]
@@ -238,6 +241,9 @@ async fn main() -> Result<()> {
                     Ok(())
                 }
             }
+        }
+        Some(Commands::Upgrade) => {
+            upgrade::run_upgrade().await
         }
         Some(Commands::Quickstart {
             service_id,
