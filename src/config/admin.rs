@@ -242,4 +242,25 @@ impl GatewayState {
         }
         guard.dirty = true;
     }
+
+    pub async fn set_provider_model_options(
+        &self,
+        provider_id: i64,
+        options: ProviderModelOptions<'_>,
+    ) -> Result<()> {
+        let mut guard = self.inner.write().await;
+        let p = guard
+            .file
+            .providers
+            .get_mut(provider_id as usize)
+            .ok_or_else(|| anyhow::anyhow!("provider not found"))?;
+        if let Some(m) = options.default_model {
+            p.default_model = m.to_string();
+        }
+        if let Some(m) = options.model_mapping {
+            p.model_mapping = m.to_string();
+        }
+        guard.dirty = true;
+        Ok(())
+    }
 }

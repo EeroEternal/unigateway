@@ -1,11 +1,31 @@
 ## UniGateway Architecture
 
-UniGateway is a lightweight, single-binary LLM gateway. No database, no Redis, no Kubernetes — just a TOML config file and one process.
+UniGateway is a lightweight, single-binary LLM gateway designed for individual developers and AI power users. It provides a unified, stable entry point for multiple AI tools (like Cursor, Claude Code, and OpenClaw) and upstream providers.
+
+### Product Positioning
+
+UniGateway is a **local-first, tool-friendly, unified access, and multi-upstream switchable model entry layer**. It prioritizes:
+
+1. **Unified Entry Point**: One base URL for all your tools.
+2. **Mode Switching**: Abstracting providers into logical modes like `default`, `fast`, or `strong`.
+3. **Stable Fallback**: Automatic upstream failover to minimize workflow interruptions.
+4. **Low Friction**: extremely fast installation and configuration.
+5. **Observability**: Clear diagnostics on where requests are going and why they fail.
+
+### User Mental Model
+
+While internally UniGateway manages services and providers, the external interaction is simplified:
+
+`tool -> mode -> route -> upstream`
+
+- **Modes**: The core abstraction representing access intent (e.g., `default`).
+- **Upstreams**: Real providers (OpenAI, Anthropic, DeepSeek, etc.).
+- **Integrations**: Templates for tools like Cursor, Zed, and Claude Code.
 
 ### Request Processing Pipeline
 
 ```
-Client Request
+Client Request (via Mode API Key)
     │
     ▼
 ┌──────────────────────────────────────────────────────┐
@@ -20,8 +40,8 @@ Client Request
 ┌──────────────────────────────────────────────────────┐
 │  middleware.rs — Authentication Layer                 │
 │  GatewayAuth::try_authenticate(token)                │
-│  → Find API Key → check active/quota → rate limit    │
-│  → Returns Some(auth) or None (fall through to env)  │
+│  → Find API Key → Resolve Mode (Service)             │
+│  → Check active/quota → rate limit                   │
 └───────────────────┬──────────────────────────────────┘
                     ▼
 ┌──────────────────────────────────────────────────────┐
@@ -30,8 +50,6 @@ Client Request
 │    routing_strategy:                                 │
 │      "round_robin" → returns 1 provider              │
 │      "fallback"    → returns all, sorted by priority │
-│      target_hint   → returns the named provider      │
-│  Each provider is fully resolved (base_url, api_key) │
 └───────────────────┬──────────────────────────────────┘
                     ▼
 ┌──────────────────────────────────────────────────────┐
@@ -40,160 +58,42 @@ Client Request
 │    apply model_mapping → call upstream → return      │
 │    on error → try next provider (fallback)           │
 │                                                      │
-│  protocol.rs — Request/response format conversion    │
+│  protocol.rs — Format Conversion                     │
 │    OpenAI ↔ ChatRequest, Anthropic ↔ ChatRequest     │
-│    EmbedRequest ↔ OpenAI embeddings format            │
 │    Upstream calls via llm-connector                  │
 └──────────────────────────────────────────────────────┘
 ```
 
 ### Data Model
 
-All configuration lives in a single TOML file (`unigateway.toml`), loaded into memory at startup, persisted on change.
+Configuration lives in `unigateway.toml`.
 
-```
-Service ──1:N── Binding(priority) ──N:1── Provider
-   │                                        │
-   └── routing_strategy                     ├── provider_type (openai, anthropic, …)
-       (round_robin | fallback)             ├── endpoint_id, base_url, api_key
-                                            └── model_mapping
-API Key ──N:1── Service
-   └── quota_limit, qps_limit, concurrency_limit
-```
-
-- **Service**: A logical downstream-facing unit. Clients don't interact with providers directly; they call a Service via an API Key.
-- **Provider**: An upstream LLM endpoint (OpenAI, Anthropic, DeepSeek, etc.) with credentials and optional model mapping.
-- **Binding**: Links a Service to a Provider. The `priority` field controls fallback order (lower = tried first).
-- **API Key**: A gateway-issued credential bound to a Service, with per-key quota, QPS, and concurrency limits.
+- **Service (Mode)**: A logical downstream unit.
+- **Provider (Upstream)**: An upstream LLM endpoint.
+- **Binding (Route)**: Links a Service to a Provider with a `priority`.
+- **API Key**: A credential bound to a Service/Mode.
 
 ### Source File Layout
 
 ```
 src/
-  main.rs          CLI entry point (clap)
-  server.rs        HTTP server startup, route registration, background tasks
-  config.rs        TOML config file loading, in-memory state, persistence
-  types.rs         AppConfig, AppState, shared types
-
-  middleware.rs     Auth lifecycle (GatewayAuth), token extraction, error helpers
-  routing.rs        Provider resolution, routing strategy, upstream URL resolution
-  gateway.rs        HTTP handlers (openai_chat, anthropic_messages, openai_embeddings)
-  protocol.rs       Request/response conversion, llm-connector integration
-
-  cli.rs            CLI subcommands (quickstart, create-service, metrics, …)
-  service.rs        Admin API: list/create services
-  provider.rs       Admin API: list/create providers, bind to service
-  api_key.rs        Admin API: list/create API keys
-  system.rs         /health, /metrics, /v1/models endpoints
-  storage.rs        Utility functions (hash, model name mapping)
-  authz.rs          Admin token authorization
-  sdk.rs            Rust SDK client for testing
+  main.rs          CLI entry point & setup logic
+  server.rs        HTTP server & route registration
+  config/          Configuration schema, store, and admin Handlers
+  gateway/         Chat and streaming handlers
+  protocol/        Request/response conversion & client logic
+  cli/             Modes, integrations, diagnostics, and rendering
+  routing.rs       Provider resolution & fallback logic
+  system.rs        Health, metrics, and models endpoints
 ```
 
-### How the Architecture Adapts to Multiple Scenarios
+### Design Principles
 
-The same four concepts (Service, Provider, Binding, API Key) cover a wide range of use cases without any code changes — only configuration differs.
-
-#### Single-Provider Direct Proxy
-
-One Service, one Provider, one Binding, one API Key. The simplest setup: put any LLM behind the gateway.
-
-```toml
-[[services]]
-id = "my-svc"
-name = "My LLM"
-
-[[providers]]
-name = "openai-main"
-provider_type = "openai"
-endpoint_id = ""
-base_url = "https://api.openai.com"
-api_key = "sk-..."
-
-[[bindings]]
-service_id = "my-svc"
-provider_name = "openai-main"
-
-[[api_keys]]
-key = "ugk_xxx"
-service_id = "my-svc"
-```
-
-#### Multi-Provider Load Balancing (Round-Robin)
-
-Bind multiple providers to one service. Requests are distributed across them automatically.
-
-```toml
-[[bindings]]
-service_id = "my-svc"
-provider_name = "openai-a"
-
-[[bindings]]
-service_id = "my-svc"
-provider_name = "openai-b"
-```
-
-#### Primary + Automatic Fallback
-
-Set `routing_strategy = "fallback"` on the service. Providers are tried in `priority` order. If the primary fails (5xx / connection error), the next one is tried automatically within the same request.
-
-```toml
-[[services]]
-id = "my-svc"
-name = "Resilient LLM"
-routing_strategy = "fallback"
-
-[[bindings]]
-service_id = "my-svc"
-provider_name = "primary-openai"
-priority = 0
-
-[[bindings]]
-service_id = "my-svc"
-provider_name = "backup-openai"
-priority = 1
-```
-
-#### Chat + Embeddings (RAG)
-
-One gateway, one API key, two endpoints. Both `/v1/chat/completions` and `/v1/embeddings` route through the same Service → Provider chain. Use `model_mapping` to map downstream model names to upstream models.
-
-```bash
-# Chat
-curl -X POST http://localhost:3210/v1/chat/completions \
-  -H "Authorization: Bearer ugk_xxx" \
-  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]}'
-
-# Embeddings
-curl -X POST http://localhost:3210/v1/embeddings \
-  -H "Authorization: Bearer ugk_xxx" \
-  -d '{"model":"text-embedding-3-small","input":"Hello world"}'
-```
-
-#### Multi-Tenant with Per-Key Limits
-
-Multiple API keys on the same service, each with independent quotas. Useful for team gateways.
-
-```toml
-[[api_keys]]
-key = "ugk_team_alice"
-service_id = "shared-svc"
-quota_limit = 1000
-qps_limit = 10.0
-
-[[api_keys]]
-key = "ugk_team_bob"
-service_id = "shared-svc"
-quota_limit = 500
-qps_limit = 5.0
-```
-
-#### Pinning a Specific Provider
-
-Override routing for a single request by specifying the provider via header or body field:
-
-```bash
-curl -X POST http://localhost:3210/v1/chat/completions \
+- **No external dependencies**: Single binary, TOML config.
+- **Scenario-driven**: Abstractions shaped by real developer needs.
+- **Layered separation**: Clear boundaries between auth, routing, and protocol.
+- **Explainable Routing**: Users can always know why a specific upstream was chosen.
+tp://localhost:3210/v1/chat/completions \
   -H "Authorization: Bearer ugk_xxx" \
   -H "x-unigateway-provider: deepseek" \
   -d '{"model":"deepseek-chat","messages":[...]}'

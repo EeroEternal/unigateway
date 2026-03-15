@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn planned_modes_defaults_to_single_mode() {
-        let modes = planned_modes(None, None);
+        let modes = planned_modes(None, None, None, None);
         assert_eq!(modes.len(), 1);
         assert_eq!(modes[0].0, "default");
     }
@@ -119,6 +119,8 @@ mod tests {
                 provider_type: "openai",
                 endpoint_id: "deepseek:global",
                 default_model: Some("deepseek-chat"),
+                fast_model: None,
+                strong_model: None,
                 base_url: Some("https://api.deepseek.com"),
                 api_key: "sk-test",
                 model_mapping: None,
@@ -164,6 +166,8 @@ mod tests {
                 provider_type: "openai",
                 endpoint_id: "deepseek:global",
                 default_model: Some("deepseek-chat"),
+                fast_model: None,
+                strong_model: None,
                 base_url: Some("https://api.deepseek.com"),
                 api_key: "sk-primary",
                 model_mapping: None,

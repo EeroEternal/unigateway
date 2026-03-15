@@ -1,6 +1,6 @@
 [package]
 name = "unigateway"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.92"
 description = "Unified LLM gateway with CLI, Admin API, MCP server, single binary. OpenAI/Anthropic compatible routing, fallback, rate limiting."
