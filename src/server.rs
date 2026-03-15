@@ -44,7 +44,10 @@ pub async fn run(config: AppConfig) -> Result<()> {
             "/api/admin/providers",
             get(crate::provider::api_list_providers).post(crate::provider::api_create_provider),
         )
-        .route("/api/admin/bindings", post(crate::provider::api_bind_provider))
+        .route(
+            "/api/admin/bindings",
+            post(crate::provider::api_bind_provider),
+        )
         .route(
             "/api/admin/api-keys",
             get(crate::api_key::api_list_api_keys).post(crate::api_key::api_create_api_key),

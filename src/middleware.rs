@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use axum::extract::Json;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::extract::Json;
 use serde_json::json;
 
 use crate::config::{GatewayApiKey, RuntimeRateState};
@@ -31,13 +31,13 @@ impl GatewayAuth {
         if gk.is_active == 0 {
             return Err(error_json(StatusCode::UNAUTHORIZED, "api key is inactive"));
         }
-        if let Some(limit) = gk.quota_limit {
-            if gk.used_quota >= limit {
-                return Err(error_json(
-                    StatusCode::TOO_MANY_REQUESTS,
-                    "api key quota exceeded",
-                ));
-            }
+        if let Some(limit) = gk.quota_limit
+            && gk.used_quota >= limit
+        {
+            return Err(error_json(
+                StatusCode::TOO_MANY_REQUESTS,
+                "api key quota exceeded",
+            ));
         }
         acquire_runtime_limit(state, &gk).await?;
         Ok(Some(Self { key: gk }))
@@ -87,11 +87,7 @@ pub fn extract_x_api_key(headers: &HeaderMap, env_api_key: &str) -> String {
 
 /// JSON error response helper.
 pub fn error_json(status: StatusCode, message: &str) -> Response {
-    (
-        status,
-        Json(json!({"error":{"message": message}})),
-    )
-        .into_response()
+    (status, Json(json!({"error":{"message": message}}))).into_response()
 }
 
 /// Record a stat and return the latency.
@@ -120,13 +116,11 @@ async fn acquire_runtime_limit(
     let concurrency_limit = gateway_key.concurrency_limit;
     {
         let mut runtime = state.gateway.api_key_runtime.lock().await;
-        let entry = runtime
-            .entry(key)
-            .or_insert_with(|| RuntimeRateState {
-                window_started_at: Instant::now(),
-                request_count: 0,
-                in_flight: 0,
-            });
+        let entry = runtime.entry(key).or_insert_with(|| RuntimeRateState {
+            window_started_at: Instant::now(),
+            request_count: 0,
+            in_flight: 0,
+        });
 
         if entry.window_started_at.elapsed() >= Duration::from_secs(1) {
             entry.window_started_at = Instant::now();

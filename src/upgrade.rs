@@ -21,7 +21,9 @@ pub async fn run_upgrade() -> Result<()> {
 
     let client = Client::new();
     let release: Value = client
-        .get(format!("https://api.github.com/repos/{REPO}/releases/latest"))
+        .get(format!(
+            "https://api.github.com/repos/{REPO}/releases/latest"
+        ))
         .header("User-Agent", "ug-upgrade")
         .send()
         .await?
@@ -44,9 +46,8 @@ pub async fn run_upgrade() -> Result<()> {
 
     let target = detect_target()?;
     let archive_name = format!("{BIN}-{target}.tar.gz");
-    let download_url = format!(
-        "https://github.com/{REPO}/releases/download/{latest_tag}/{archive_name}"
-    );
+    let download_url =
+        format!("https://github.com/{REPO}/releases/download/{latest_tag}/{archive_name}");
 
     println!("Downloading {archive_name}...");
     let bytes = client
@@ -63,7 +64,12 @@ pub async fn run_upgrade() -> Result<()> {
     std::fs::write(&archive_path, &bytes)?;
 
     let status = std::process::Command::new("tar")
-        .args(["xzf", &archive_path.to_string_lossy(), "-C", &tmpdir.path().to_string_lossy()])
+        .args([
+            "xzf",
+            &archive_path.to_string_lossy(),
+            "-C",
+            &tmpdir.path().to_string_lossy(),
+        ])
         .status()
         .context("tar failed")?;
     if !status.success() {

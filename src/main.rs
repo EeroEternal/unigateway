@@ -1,5 +1,4 @@
 mod api_key;
-mod server;
 mod authz;
 mod cli;
 mod config;
@@ -7,10 +6,11 @@ mod dto;
 mod gateway;
 mod mcp;
 mod middleware;
-mod provider;
 mod protocol;
+mod provider;
 mod routing;
 mod sdk;
+mod server;
 mod service;
 mod storage;
 mod system;
@@ -43,6 +43,45 @@ enum Commands {
         no_ui: bool,
     },
     Metrics {
+        #[arg(long, default_value_t = config_default())]
+        config: String,
+    },
+    /// Explore user-facing modes (semantic alias over services).
+    Mode {
+        #[command(subcommand)]
+        action: ModeAction,
+    },
+    /// Explain how a mode routes requests to providers.
+    Route {
+        #[command(subcommand)]
+        action: RouteAction,
+    },
+    /// Print tool integration hints for a configured mode.
+    Integrations {
+        #[arg(long)]
+        mode: Option<String>,
+        #[arg(long)]
+        bind: Option<String>,
+        #[arg(long, default_value_t = config_default())]
+        config: String,
+    },
+    /// Run a smoke test against the local gateway for a mode.
+    Test {
+        #[arg(long)]
+        mode: Option<String>,
+        #[arg(long)]
+        protocol: Option<String>,
+        #[arg(long)]
+        bind: Option<String>,
+        #[arg(long, default_value_t = config_default())]
+        config: String,
+    },
+    /// Inspect current config and local gateway readiness.
+    Doctor {
+        #[arg(long)]
+        mode: Option<String>,
+        #[arg(long)]
+        bind: Option<String>,
         #[arg(long, default_value_t = config_default())]
         config: String,
     },
@@ -143,6 +182,37 @@ enum ConfigAction {
     },
 }
 
+#[derive(Subcommand, Debug)]
+enum ModeAction {
+    /// List all configured modes.
+    List {
+        #[arg(long, default_value_t = config_default())]
+        config: String,
+    },
+    /// Show providers and keys for a mode.
+    Show {
+        mode: String,
+        #[arg(long, default_value_t = config_default())]
+        config: String,
+    },
+    /// Set the default mode used by commands that omit --mode.
+    Use {
+        mode: String,
+        #[arg(long, default_value_t = config_default())]
+        config: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum RouteAction {
+    /// Explain provider selection for a mode.
+    Explain {
+        mode: Option<String>,
+        #[arg(long, default_value_t = config_default())]
+        config: String,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -155,7 +225,11 @@ async fn main() -> Result<()> {
     let cli_args = Cli::parse();
 
     match cli_args.command {
-        Some(Commands::Serve { bind, config: config_path, no_ui }) => {
+        Some(Commands::Serve {
+            bind,
+            config: config_path,
+            no_ui,
+        }) => {
             let mut app_config = types::AppConfig::from_env();
             if let Some(bind) = bind {
                 app_config.bind = bind;
@@ -169,6 +243,36 @@ async fn main() -> Result<()> {
             server::run(app_config).await
         }
         Some(Commands::Metrics { config }) => cli::print_metrics_snapshot(&config).await,
+        Some(Commands::Mode { action }) => match action {
+            ModeAction::List { config } => cli::list_modes(&config).await,
+            ModeAction::Show { mode, config } => cli::show_mode(&config, &mode).await,
+            ModeAction::Use { mode, config } => cli::use_mode(&config, &mode).await,
+        },
+        Some(Commands::Route { action }) => match action {
+            RouteAction::Explain { mode, config } => {
+                cli::explain_route(&config, mode.as_deref()).await
+            }
+        },
+        Some(Commands::Integrations { mode, bind, config }) => {
+            cli::print_integrations(&config, mode.as_deref(), bind.as_deref()).await
+        }
+        Some(Commands::Test {
+            mode,
+            protocol,
+            bind,
+            config,
+        }) => {
+            cli::test_mode(
+                &config,
+                mode.as_deref(),
+                protocol.as_deref(),
+                bind.as_deref(),
+            )
+            .await
+        }
+        Some(Commands::Doctor { mode, bind, config }) => {
+            cli::doctor(&config, mode.as_deref(), bind.as_deref()).await
+        }
         Some(Commands::CreateService { id, name, config }) => {
             cli::create_service(&config, &id, &name).await
         }
@@ -217,43 +321,40 @@ async fn main() -> Result<()> {
             )
             .await
         }
-        Some(Commands::Config { action }) => {
-            match action {
-                ConfigAction::Path => {
-                    println!("{}", config_default());
-                    Ok(())
-                }
-                ConfigAction::Show { config } => {
-                    let path = std::path::Path::new(&config);
-                    if path.exists() {
-                        let contents = std::fs::read_to_string(path)?;
-                        print!("{}", contents);
-                    } else {
-                        println!("Config file not found: {}", config);
-                        println!("Run `ug quickstart` to create one.");
-                    }
-                    Ok(())
-                }
-                ConfigAction::Edit { config } => {
-                    let path = std::path::Path::new(&config);
-                    if !path.exists() {
-                        anyhow::bail!("Config file not found: {}. Run `ug quickstart` first.", config);
-                    }
-                    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
-                    let status = std::process::Command::new(&editor).arg(path).status()?;
-                    if !status.success() {
-                        anyhow::bail!("Editor exited with status: {}", status);
-                    }
-                    Ok(())
-                }
+        Some(Commands::Config { action }) => match action {
+            ConfigAction::Path => {
+                println!("{}", config_default());
+                Ok(())
             }
-        }
-        Some(Commands::Mcp { config }) => {
-            mcp::run(&config).await
-        }
-        Some(Commands::Upgrade) => {
-            upgrade::run_upgrade().await
-        }
+            ConfigAction::Show { config } => {
+                let path = std::path::Path::new(&config);
+                if path.exists() {
+                    let contents = std::fs::read_to_string(path)?;
+                    print!("{}", contents);
+                } else {
+                    println!("Config file not found: {}", config);
+                    println!("Run `ug quickstart` to create one.");
+                }
+                Ok(())
+            }
+            ConfigAction::Edit { config } => {
+                let path = std::path::Path::new(&config);
+                if !path.exists() {
+                    anyhow::bail!(
+                        "Config file not found: {}. Run `ug quickstart` first.",
+                        config
+                    );
+                }
+                let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+                let status = std::process::Command::new(&editor).arg(path).status()?;
+                if !status.success() {
+                    anyhow::bail!("Editor exited with status: {}", status);
+                }
+                Ok(())
+            }
+        },
+        Some(Commands::Mcp { config }) => mcp::run(&config).await,
+        Some(Commands::Upgrade) => upgrade::run_upgrade().await,
         Some(Commands::Quickstart {
             service_id,
             service_name,
@@ -269,14 +370,44 @@ async fn main() -> Result<()> {
 
             // Known providers: (display_name, provider_type, default_base_url, default_model)
             let known_providers: &[(&str, &str, &str, &str)] = &[
-                ("OpenAI",      "openai",    "https://api.openai.com",       "gpt-4o"),
-                ("Anthropic",   "anthropic", "https://api.anthropic.com",    "claude-sonnet-4-20250514"),
-                ("DeepSeek",    "openai",    "https://api.deepseek.com",     "deepseek-chat"),
-                ("Groq",        "openai",    "https://api.groq.com/openai",  "llama-3.3-70b-versatile"),
-                ("MiniMax",     "openai",    "https://api.minimax.chat/v1",  "MiniMax-Text-01"),
-                ("Ollama",      "openai",    "http://localhost:11434",       "llama3"),
-                ("OpenRouter",  "openai",    "https://openrouter.ai/api",    "openai/gpt-4o"),
-                ("Together AI", "openai",    "https://api.together.xyz",     "meta-llama/Llama-3-70b-chat-hf"),
+                ("OpenAI", "openai", "https://api.openai.com", "gpt-4o"),
+                (
+                    "Anthropic",
+                    "anthropic",
+                    "https://api.anthropic.com",
+                    "claude-sonnet-4-20250514",
+                ),
+                (
+                    "DeepSeek",
+                    "openai",
+                    "https://api.deepseek.com",
+                    "deepseek-chat",
+                ),
+                (
+                    "Groq",
+                    "openai",
+                    "https://api.groq.com/openai",
+                    "llama-3.3-70b-versatile",
+                ),
+                (
+                    "MiniMax",
+                    "openai",
+                    "https://api.minimax.chat/v1",
+                    "MiniMax-Text-01",
+                ),
+                ("Ollama", "openai", "http://localhost:11434", "llama3"),
+                (
+                    "OpenRouter",
+                    "openai",
+                    "https://openrouter.ai/api",
+                    "openai/gpt-4o",
+                ),
+                (
+                    "Together AI",
+                    "openai",
+                    "https://api.together.xyz",
+                    "meta-llama/Llama-3-70b-chat-hf",
+                ),
                 ("Other (OpenAI-compatible)", "openai", "", ""),
             ];
 
@@ -284,13 +415,18 @@ async fn main() -> Result<()> {
                 let theme = ColorfulTheme::default();
                 println!("\n  Welcome to UniGateway quickstart!\n");
 
-                let display_names: Vec<&str> = known_providers.iter().map(|(name, _, _, _)| *name).collect();
+                let display_names: Vec<&str> = known_providers
+                    .iter()
+                    .map(|(name, _, _, _)| *name)
+                    .collect();
                 let selected = provider_type.as_deref().and_then(|pt| {
-                    known_providers.iter().position(|(_, _, url, _)| url.contains(pt) || display_names.iter().position(|n| n.to_lowercase() == pt).is_some())
+                    known_providers.iter().position(|(_, _, url, _)| {
+                        url.contains(pt) || display_names.iter().any(|n| n.to_lowercase() == pt)
+                    })
                 });
 
-                let idx = if selected.is_some() {
-                    selected.unwrap()
+                let idx = if let Some(selected) = selected {
+                    selected
                 } else if provider_type.is_none() {
                     Select::with_theme(&theme)
                         .with_prompt("Provider")
@@ -345,30 +481,62 @@ async fn main() -> Result<()> {
 
                 (pt.to_string(), eid, bu, ak)
             } else {
-                (provider_type.unwrap(), endpoint_id.unwrap(), base_url, api_key.unwrap())
+                (
+                    provider_type.unwrap(),
+                    endpoint_id.unwrap(),
+                    base_url,
+                    api_key.unwrap(),
+                )
             };
 
-            let service_id = service_id.unwrap_or_else(|| "default".to_string());
-            let service_name = service_name.unwrap_or_else(|| "Default".to_string());
             let provider_name = provider_name.unwrap_or_else(|| provider_type.clone());
 
-            let key = cli::quickstart(
+            let result = cli::quickstart(
                 &config,
-                &service_id,
-                &service_name,
-                &provider_name,
-                &provider_type,
-                &endpoint_id,
-                base_url.as_deref(),
-                &api_key,
-                model_mapping.as_deref(),
+                cli::QuickstartParams {
+                    service_id: service_id.as_deref(),
+                    service_name: service_name.as_deref(),
+                    provider_name: &provider_name,
+                    provider_type: &provider_type,
+                    endpoint_id: &endpoint_id,
+                    base_url: base_url.as_deref(),
+                    api_key: &api_key,
+                    model_mapping: model_mapping.as_deref(),
+                },
             )
             .await?;
 
-            println!("\n  Done! Your gateway API key:\n");
-            println!("    {}\n", key);
+            let created_ids = result
+                .modes
+                .iter()
+                .map(|mode| mode.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            println!("\n  Done! Created mode(s): {}.\n", created_ids);
             println!("  Start the gateway:\n");
             println!("    ug serve\n");
+            println!("  Inspect the created modes:\n");
+            println!("    ug mode list\n");
+            if let Some(default_mode) = result.modes.first() {
+                println!("  Default mode:\n");
+                println!("    {}\n", default_mode.id);
+            }
+
+            for mode in &result.modes {
+                println!("  Integration hints for mode `{}`:\n", mode.id);
+                cli::print_integrations_with_key(&config, Some(&mode.id), Some(&mode.key), None)
+                    .await?;
+                println!("\n  Explain routing:\n");
+                println!("    ug route explain {}\n", mode.id);
+                println!("  Run diagnostics:\n");
+                println!("    ug doctor --mode {}\n", mode.id);
+                println!("\n  Smoke test after starting the gateway:\n");
+                println!("    ug test --mode {}\n", mode.id);
+            }
+
+            println!("  You can reprint these hints later with:\n");
+            println!("    ug integrations --mode <mode>\n");
             Ok(())
         }
         None => {

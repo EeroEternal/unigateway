@@ -12,11 +12,19 @@ use tokio::sync::{Mutex, RwLock};
 /// What we persist to TOML (and load from).
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct GatewayConfigFile {
+    #[serde(default)]
+    pub preferences: GatewayPreferences,
     pub services: Vec<ServiceEntry>,
     pub providers: Vec<ProviderEntry>,
     /// (service_id, provider_name)
     pub bindings: Vec<BindingEntry>,
     pub api_keys: Vec<ApiKeyEntry>,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct GatewayPreferences {
+    #[serde(default)]
+    pub default_mode: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -450,7 +458,37 @@ impl GatewayState {
 
     pub async fn list_services(&self) -> Vec<(String, String)> {
         let guard = self.inner.read().await;
-        guard.file.services.iter().map(|s| (s.id.clone(), s.name.clone())).collect()
+        guard
+            .file
+            .services
+            .iter()
+            .map(|s| (s.id.clone(), s.name.clone()))
+            .collect()
+    }
+
+    pub async fn get_default_mode(&self) -> Option<String> {
+        let guard = self.inner.read().await;
+        let default_mode = guard.file.preferences.default_mode.trim();
+        if default_mode.is_empty() {
+            None
+        } else {
+            Some(default_mode.to_string())
+        }
+    }
+
+    pub async fn set_default_mode(&self, mode_id: &str) -> Result<()> {
+        let mut guard = self.inner.write().await;
+        if !guard
+            .file
+            .services
+            .iter()
+            .any(|service| service.id == mode_id)
+        {
+            anyhow::bail!("mode '{}' not found", mode_id);
+        }
+        guard.file.preferences.default_mode = mode_id.to_string();
+        guard.dirty = true;
+        Ok(())
     }
 
     pub async fn create_service(&self, id: &str, name: &str) {
@@ -458,18 +496,42 @@ impl GatewayState {
         if let Some(s) = guard.file.services.iter_mut().find(|s| s.id == id) {
             s.name = name.to_string();
         } else {
-            guard.file.services.push(ServiceEntry { id: id.to_string(), name: name.to_string(), routing_strategy: default_round_robin() });
+            guard.file.services.push(ServiceEntry {
+                id: id.to_string(),
+                name: name.to_string(),
+                routing_strategy: default_round_robin(),
+            });
         }
         guard.dirty = true;
     }
 
-    pub async fn list_providers(&self) -> Vec<(i64, String, String, Option<String>, Option<String>)> {
+    pub async fn list_providers(
+        &self,
+    ) -> Vec<(i64, String, String, Option<String>, Option<String>)> {
         let guard = self.inner.read().await;
-        guard.file.providers.iter().enumerate().map(|(i, p)| {
-            (i as i64, p.name.clone(), p.provider_type.clone(),
-             if p.endpoint_id.is_empty() { None } else { Some(p.endpoint_id.clone()) },
-             if p.base_url.is_empty() { None } else { Some(p.base_url.clone()) })
-        }).collect()
+        guard
+            .file
+            .providers
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                (
+                    i as i64,
+                    p.name.clone(),
+                    p.provider_type.clone(),
+                    if p.endpoint_id.is_empty() {
+                        None
+                    } else {
+                        Some(p.endpoint_id.clone())
+                    },
+                    if p.base_url.is_empty() {
+                        None
+                    } else {
+                        Some(p.base_url.clone())
+                    },
+                )
+            })
+            .collect()
     }
 
     pub async fn create_provider(
@@ -491,7 +553,13 @@ impl GatewayState {
             model_mapping: model_mapping.unwrap_or("").to_string(),
             is_enabled: true,
         };
-        let idx = if let Some((i, p)) = guard.file.providers.iter_mut().enumerate().find(|(_, p)| p.name == name) {
+        let idx = if let Some((i, p)) = guard
+            .file
+            .providers
+            .iter_mut()
+            .enumerate()
+            .find(|(_, p)| p.name == name)
+        {
             *p = entry;
             i as i64
         } else {
@@ -513,9 +581,17 @@ impl GatewayState {
             anyhow::bail!("provider_id {} not found", provider_id);
         };
         let mut guard = self.inner.write().await;
-        let exists = guard.file.bindings.iter().any(|b| b.service_id == service_id && b.provider_name == provider_name);
+        let exists = guard
+            .file
+            .bindings
+            .iter()
+            .any(|b| b.service_id == service_id && b.provider_name == provider_name);
         if !exists {
-            guard.file.bindings.push(BindingEntry { service_id: service_id.to_string(), provider_name, priority: 0 });
+            guard.file.bindings.push(BindingEntry {
+                service_id: service_id.to_string(),
+                provider_name,
+                priority: 0,
+            });
             guard.dirty = true;
         }
         Ok(())
@@ -535,7 +611,13 @@ impl GatewayState {
         concurrency_limit: Option<i64>,
     ) {
         let mut guard = self.inner.write().await;
-        let used = guard.file.api_keys.iter().find(|a| a.key == key).map(|a| a.used_quota).unwrap_or(0);
+        let used = guard
+            .file
+            .api_keys
+            .iter()
+            .find(|a| a.key == key)
+            .map(|a| a.used_quota)
+            .unwrap_or(0);
         let entry = ApiKeyEntry {
             key: key.to_string(),
             service_id: service_id.to_string(),

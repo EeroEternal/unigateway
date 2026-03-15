@@ -180,7 +180,7 @@ pub(crate) async fn anthropic_messages(
         match anthropic_payload_to_chat_request(&payload, &state.config.anthropic_model) {
             Ok(req) => req,
             Err(err) => {
-                return error_json(StatusCode::BAD_REQUEST, &format!("invalid request: {err}"))
+                return error_json(StatusCode::BAD_REQUEST, &format!("invalid request: {err}"));
             }
         };
 
@@ -293,7 +293,7 @@ pub(crate) async fn openai_embeddings(
         match openai_payload_to_embed_request(&payload, &state.config.openai_model) {
             Ok(req) => req,
             Err(err) => {
-                return error_json(StatusCode::BAD_REQUEST, &format!("invalid request: {err}"))
+                return error_json(StatusCode::BAD_REQUEST, &format!("invalid request: {err}"));
             }
         };
 
@@ -305,20 +305,14 @@ pub(crate) async fn openai_embeddings(
     };
 
     if let Some(ref auth) = auth {
-        let providers = match resolve_providers(
-            &state.gateway,
-            &auth.key.service_id,
-            "openai",
-            None,
-        )
-        .await
-        {
-            Ok(p) => p,
-            Err(msg) => {
-                auth.release(&state).await;
-                return error_json(StatusCode::SERVICE_UNAVAILABLE, &msg);
-            }
-        };
+        let providers =
+            match resolve_providers(&state.gateway, &auth.key.service_id, "openai", None).await {
+                Ok(p) => p,
+                Err(msg) => {
+                    auth.release(&state).await;
+                    return error_json(StatusCode::SERVICE_UNAVAILABLE, &msg);
+                }
+            };
 
         let original_model = embed_request.model.clone();
         let mut last_err = String::from("unknown");
@@ -406,18 +400,14 @@ async fn try_openai_stream_raw(
 ) -> Result<Response, anyhow::Error> {
     let stream = invoke_with_connector_stream(base_url, api_key, request, family_id).await?;
     type BoxErr = Box<dyn std::error::Error + Send + Sync>;
-    let sse_stream = stream.map(
-        |r: Result<_, llm_connector::error::LlmConnectorError>| {
-            r.map_err(|e| -> BoxErr {
-                Box::new(std::io::Error::other(e.to_string()))
-            })
+    let sse_stream = stream.map(|r: Result<_, llm_connector::error::LlmConnectorError>| {
+        r.map_err(|e| -> BoxErr { Box::new(std::io::Error::other(e.to_string())) })
             .and_then(|resp| {
                 StreamChunk::from_openai(&resp, StreamFormat::SSE)
                     .map(|c| Bytes::from(c.to_sse()))
                     .map_err(|e: serde_json::Error| -> BoxErr { Box::new(e) })
             })
-        },
-    );
+    });
     Ok((
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/event-stream")],

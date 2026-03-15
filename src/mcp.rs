@@ -5,7 +5,7 @@ use rmcp::handler::server::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::*;
 use rmcp::transport::stdio;
-use rmcp::{tool, tool_handler, tool_router, ServerHandler, ServiceExt};
+use rmcp::{ServerHandler, ServiceExt, tool, tool_handler, tool_router};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -102,7 +102,9 @@ impl McpServer {
         format!("Service created: id={}, name={}", p.id, p.name)
     }
 
-    #[tool(description = "List all configured providers (index, name, type, endpoint_id, base_url)")]
+    #[tool(
+        description = "List all configured providers (index, name, type, endpoint_id, base_url)"
+    )]
     async fn list_providers(&self) -> String {
         let providers = self.gateway.list_providers().await;
         if providers.is_empty() {
@@ -142,7 +144,9 @@ impl McpServer {
         format!("Provider created: name={}, provider_id={idx}", p.name)
     }
 
-    #[tool(description = "Bind a provider to a service so the service can route requests through it")]
+    #[tool(
+        description = "Bind a provider to a service so the service can route requests through it"
+    )]
     async fn bind_provider(&self, params: Parameters<BindProviderParams>) -> String {
         let p = params.0;
         match self
