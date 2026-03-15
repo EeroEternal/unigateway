@@ -1,15 +1,14 @@
+mod chat;
+mod streaming;
+
 use std::sync::Arc;
 use std::time::Instant;
 
 use axum::{
-    body::Body,
     extract::{Json, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use bytes::Bytes;
-use futures_util::StreamExt;
-use llm_connector::types::{StreamChunk, StreamFormat};
 use tracing::debug;
 
 use crate::middleware::{
@@ -18,11 +17,12 @@ use crate::middleware::{
 use crate::protocol::{
     UpstreamProtocol, anthropic_payload_to_chat_request, chat_response_to_anthropic_json,
     chat_response_to_openai_json, embed_response_to_openai_json, invoke_embeddings,
-    invoke_with_connector, invoke_with_connector_stream, openai_payload_to_chat_request,
-    openai_payload_to_embed_request,
+    openai_payload_to_chat_request, openai_payload_to_embed_request,
 };
-use crate::routing::{ResolvedProvider, resolve_providers, target_provider_hint};
+use crate::routing::{resolve_providers, target_provider_hint};
 use crate::types::AppState;
+
+use self::chat::{invoke_direct_chat, invoke_provider_chat};
 
 // ---------------------------------------------------------------------------
 // OpenAI Chat
@@ -72,7 +72,6 @@ pub(crate) async fn openai_chat(
 
         let original_model = request.model.clone();
         let mut last_err = String::from("unknown");
-        let is_stream = request.stream == Some(true);
 
         for provider in &providers {
             request.model = provider.map_model(&original_model);
@@ -84,40 +83,23 @@ pub(crate) async fn openai_chat(
                 "routing openai request to provider"
             );
 
-            if is_stream {
-                match try_chat_stream(UpstreamProtocol::OpenAi, provider, &request).await {
-                    Ok(resp) => {
-                        auth.finalize(&state).await;
-                        record_stat(&state, endpoint, 200, &start).await;
-                        return resp;
-                    }
-                    Err(err) => {
-                        tracing::warn!(provider = provider.name.as_str(), error = %err, "upstream error, trying next");
-                        last_err = format!("{err:#}");
-                        continue;
-                    }
+            match invoke_provider_chat(
+                UpstreamProtocol::OpenAi,
+                provider,
+                &request,
+                chat_response_to_openai_json,
+            )
+            .await
+            {
+                Ok(resp) => {
+                    auth.finalize(&state).await;
+                    record_stat(&state, endpoint, 200, &start).await;
+                    return resp;
                 }
-            } else {
-                match invoke_with_connector(
-                    UpstreamProtocol::OpenAi,
-                    &provider.base_url,
-                    &provider.api_key,
-                    &request,
-                    provider.family_id.as_deref(),
-                )
-                .await
-                {
-                    Ok(resp) => {
-                        auth.finalize(&state).await;
-                        record_stat(&state, endpoint, 200, &start).await;
-                        return (StatusCode::OK, Json(chat_response_to_openai_json(&resp)))
-                            .into_response();
-                    }
-                    Err(err) => {
-                        tracing::warn!(provider = provider.name.as_str(), error = %err, "upstream error, trying next");
-                        last_err = format!("{err:#}");
-                        continue;
-                    }
+                Err(err) => {
+                    tracing::warn!(provider = provider.name.as_str(), error = %err, "upstream error, trying next");
+                    last_err = format!("{err:#}");
+                    continue;
                 }
             }
         }
@@ -137,31 +119,23 @@ pub(crate) async fn openai_chat(
     }
 
     let base_url = &state.config.openai_base_url;
-    if request.stream == Some(true) {
-        match try_chat_stream_raw(UpstreamProtocol::OpenAi, base_url, &api_key, &request, None)
-            .await
-        {
-            Ok(resp) => {
-                record_stat(&state, endpoint, 200, &start).await;
-                resp
-            }
-            Err(err) => {
-                record_stat(&state, endpoint, 500, &start).await;
-                error_json(StatusCode::BAD_GATEWAY, &format!("upstream error: {err:#}"))
-            }
+    match invoke_direct_chat(
+        UpstreamProtocol::OpenAi,
+        base_url,
+        &api_key,
+        &request,
+        None,
+        chat_response_to_openai_json,
+    )
+    .await
+    {
+        Ok(resp) => {
+            record_stat(&state, endpoint, 200, &start).await;
+            resp
         }
-    } else {
-        match invoke_with_connector(UpstreamProtocol::OpenAi, base_url, &api_key, &request, None)
-            .await
-        {
-            Ok(resp) => {
-                record_stat(&state, endpoint, 200, &start).await;
-                (StatusCode::OK, Json(chat_response_to_openai_json(&resp))).into_response()
-            }
-            Err(err) => {
-                record_stat(&state, endpoint, 500, &start).await;
-                error_json(StatusCode::BAD_GATEWAY, &format!("upstream error: {err:#}"))
-            }
+        Err(err) => {
+            record_stat(&state, endpoint, 500, &start).await;
+            error_json(StatusCode::BAD_GATEWAY, &format!("upstream error: {err:#}"))
         }
     }
 }
@@ -211,7 +185,6 @@ pub(crate) async fn anthropic_messages(
 
         let original_model = request.model.clone();
         let mut last_err = String::from("unknown");
-        let is_stream = request.stream == Some(true);
 
         for provider in &providers {
             request.model = provider.map_model(&original_model);
@@ -223,40 +196,23 @@ pub(crate) async fn anthropic_messages(
                 "routing anthropic request to provider"
             );
 
-            if is_stream {
-                match try_chat_stream(UpstreamProtocol::Anthropic, provider, &request).await {
-                    Ok(resp) => {
-                        auth.finalize(&state).await;
-                        record_stat(&state, endpoint, 200, &start).await;
-                        return resp;
-                    }
-                    Err(err) => {
-                        tracing::warn!(provider = provider.name.as_str(), error = %err, "upstream error, trying next");
-                        last_err = format!("{err:#}");
-                        continue;
-                    }
+            match invoke_provider_chat(
+                UpstreamProtocol::Anthropic,
+                provider,
+                &request,
+                chat_response_to_anthropic_json,
+            )
+            .await
+            {
+                Ok(resp) => {
+                    auth.finalize(&state).await;
+                    record_stat(&state, endpoint, 200, &start).await;
+                    return resp;
                 }
-            } else {
-                match invoke_with_connector(
-                    UpstreamProtocol::Anthropic,
-                    &provider.base_url,
-                    &provider.api_key,
-                    &request,
-                    None,
-                )
-                .await
-                {
-                    Ok(resp) => {
-                        auth.finalize(&state).await;
-                        record_stat(&state, endpoint, 200, &start).await;
-                        return (StatusCode::OK, Json(chat_response_to_anthropic_json(&resp)))
-                            .into_response();
-                    }
-                    Err(err) => {
-                        tracing::warn!(provider = provider.name.as_str(), error = %err, "upstream error, trying next");
-                        last_err = format!("{err:#}");
-                        continue;
-                    }
+                Err(err) => {
+                    tracing::warn!(provider = provider.name.as_str(), error = %err, "upstream error, trying next");
+                    last_err = format!("{err:#}");
+                    continue;
                 }
             }
         }
@@ -275,43 +231,23 @@ pub(crate) async fn anthropic_messages(
         return error_json(StatusCode::BAD_REQUEST, "missing upstream api key");
     }
 
-    if request.stream == Some(true) {
-        match try_chat_stream_raw(
-            UpstreamProtocol::Anthropic,
-            &state.config.anthropic_base_url,
-            &api_key,
-            &request,
-            None,
-        )
-        .await
-        {
-            Ok(resp) => {
-                record_stat(&state, endpoint, 200, &start).await;
-                resp
-            }
-            Err(err) => {
-                record_stat(&state, endpoint, 500, &start).await;
-                error_json(StatusCode::BAD_GATEWAY, &format!("upstream error: {err:#}"))
-            }
+    match invoke_direct_chat(
+        UpstreamProtocol::Anthropic,
+        &state.config.anthropic_base_url,
+        &api_key,
+        &request,
+        None,
+        chat_response_to_anthropic_json,
+    )
+    .await
+    {
+        Ok(resp) => {
+            record_stat(&state, endpoint, 200, &start).await;
+            resp
         }
-    } else {
-        match invoke_with_connector(
-            UpstreamProtocol::Anthropic,
-            &state.config.anthropic_base_url,
-            &api_key,
-            &request,
-            None,
-        )
-        .await
-        {
-            Ok(resp) => {
-                record_stat(&state, endpoint, 200, &start).await;
-                (StatusCode::OK, Json(chat_response_to_anthropic_json(&resp))).into_response()
-            }
-            Err(err) => {
-                record_stat(&state, endpoint, 500, &start).await;
-                error_json(StatusCode::BAD_GATEWAY, &format!("upstream error: {err:#}"))
-            }
+        Err(err) => {
+            record_stat(&state, endpoint, 500, &start).await;
+            error_json(StatusCode::BAD_GATEWAY, &format!("upstream error: {err:#}"))
         }
     }
 }
@@ -416,45 +352,4 @@ fn fallback_api_key(token: &str, env_key: &str) -> String {
     } else {
         env_key.to_string()
     }
-}
-
-async fn try_chat_stream(
-    protocol: UpstreamProtocol,
-    provider: &ResolvedProvider,
-    request: &llm_connector::types::ChatRequest,
-) -> Result<Response, anyhow::Error> {
-    try_chat_stream_raw(
-        protocol,
-        &provider.base_url,
-        &provider.api_key,
-        request,
-        provider.family_id.as_deref(),
-    )
-    .await
-}
-
-async fn try_chat_stream_raw(
-    protocol: UpstreamProtocol,
-    base_url: &str,
-    api_key: &str,
-    request: &llm_connector::types::ChatRequest,
-    family_id: Option<&str>,
-) -> Result<Response, anyhow::Error> {
-    let stream =
-        invoke_with_connector_stream(protocol, base_url, api_key, request, family_id).await?;
-    type BoxErr = Box<dyn std::error::Error + Send + Sync>;
-    let sse_stream = stream.map(|r: Result<_, llm_connector::error::LlmConnectorError>| {
-        r.map_err(|e| -> BoxErr { Box::new(std::io::Error::other(e.to_string())) })
-            .and_then(|resp| {
-                StreamChunk::from_openai(&resp, StreamFormat::SSE)
-                    .map(|c| Bytes::from(c.to_sse()))
-                    .map_err(|e: serde_json::Error| -> BoxErr { Box::new(e) })
-            })
-    });
-    Ok((
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, "text/event-stream")],
-        Body::from_stream(sse_stream),
-    )
-        .into_response())
 }

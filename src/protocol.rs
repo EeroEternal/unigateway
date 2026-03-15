@@ -1,23 +1,19 @@
-use anyhow::{Context, Result, anyhow};
+mod client;
+mod messages;
+
+use anyhow::{Result, anyhow};
 use llm_connector::{
-    ChatResponse, LlmClient,
+    ChatResponse,
     types::{ChatRequest, EmbedRequest, EmbedResponse, Message, Role},
 };
 use serde_json::{Value, json};
-use tracing::debug;
+
+pub(crate) use client::{invoke_embeddings, invoke_with_connector, invoke_with_connector_stream};
+use messages::{chat_messages, stream_flag};
 
 pub enum UpstreamProtocol {
     OpenAi,
     Anthropic,
-}
-
-fn stream_flag(payload: &Value, default: bool) -> Option<bool> {
-    Some(
-        payload
-            .get("stream")
-            .and_then(Value::as_bool)
-            .unwrap_or(default),
-    )
 }
 
 pub fn openai_payload_to_chat_request(payload: &Value, default_model: &str) -> Result<ChatRequest> {
@@ -29,7 +25,7 @@ pub fn openai_payload_to_chat_request(payload: &Value, default_model: &str) -> R
             .to_string(),
     );
 
-    req.messages = openai_messages(payload)?;
+    req.messages = chat_messages(payload)?;
     req.temperature = payload
         .get("temperature")
         .and_then(Value::as_f64)
@@ -63,7 +59,7 @@ pub fn anthropic_payload_to_chat_request(
     if let Some(system) = payload.get("system").and_then(Value::as_str) {
         messages.push(Message::text(Role::System, system));
     }
-    messages.extend(anthropic_messages(payload)?);
+    messages.extend(chat_messages(payload)?);
     req.messages = messages;
 
     req.temperature = payload
@@ -81,95 +77,6 @@ pub fn anthropic_payload_to_chat_request(
     req.stream = stream_flag(payload, true);
 
     Ok(req)
-}
-
-/// Build OpenAI-compatible client. When family_id is Some("minimax"), uses llm_providers-derived
-/// base_url with MiniMax chat path (/v1/text/chatcompletion_v2) via ConfigurableProtocol.
-pub async fn invoke_with_connector(
-    protocol: UpstreamProtocol,
-    base_url: &str,
-    api_key: &str,
-    req: &ChatRequest,
-    family_id: Option<&str>,
-) -> Result<ChatResponse> {
-    debug!(
-        protocol = match protocol {
-            UpstreamProtocol::OpenAi => "openai",
-            UpstreamProtocol::Anthropic => "anthropic",
-        },
-        base_url,
-        family_id = family_id.unwrap_or(""),
-        model = req.model.as_str(),
-        stream = req.stream.unwrap_or(false),
-        message_count = req.messages.len(),
-        "invoking llm-connector"
-    );
-    let client = match protocol {
-        UpstreamProtocol::OpenAi => build_openai_client(base_url, api_key, family_id)?,
-        UpstreamProtocol::Anthropic => {
-            if api_key.is_empty() {
-                return Err(anyhow!("missing upstream api key"));
-            }
-            LlmClient::anthropic_with_config(api_key, base_url, None, None)
-                .context("failed to create anthropic client")?
-        }
-    };
-    let resp = client
-        .chat(req)
-        .await
-        .context("llm-connector chat failed")?;
-    debug!(
-        response_id = resp.id.as_str(),
-        response_model = resp.model.as_str(),
-        response_created = resp.created,
-        choices = resp.choices.len(),
-        usage_present = resp.usage.is_some(),
-        first_content_len = resp
-            .choices
-            .first()
-            .map(|c| c.message.content_as_text().len())
-            .unwrap_or(0),
-        "llm-connector chat returned"
-    );
-    Ok(resp)
-}
-
-/// Build the same client as invoke_with_connector (OpenAI path only). Used for streaming.
-/// MiniMax supports the standard OpenAI-compatible /v1/chat/completions endpoint,
-/// so all providers use the same standard OpenAI client.
-fn build_openai_client(
-    base_url: &str,
-    api_key: &str,
-    _family_id: Option<&str>,
-) -> Result<LlmClient, anyhow::Error> {
-    if api_key.is_empty() {
-        return Err(anyhow!("missing upstream api key"));
-    }
-    LlmClient::openai(api_key, base_url).context("failed to create openai client")
-}
-
-/// Streaming chat for supported protocols. Returns a unified llm-connector stream.
-pub async fn invoke_with_connector_stream(
-    protocol: UpstreamProtocol,
-    base_url: &str,
-    api_key: &str,
-    req: &ChatRequest,
-    family_id: Option<&str>,
-) -> Result<llm_connector::types::ChatStream, anyhow::Error> {
-    let client = match protocol {
-        UpstreamProtocol::OpenAi => build_openai_client(base_url, api_key, family_id)?,
-        UpstreamProtocol::Anthropic => {
-            if api_key.is_empty() {
-                return Err(anyhow!("missing upstream api key"));
-            }
-            LlmClient::anthropic_with_config(api_key, base_url, None, None)
-                .context("failed to create anthropic client")?
-        }
-    };
-    client
-        .chat_stream(req)
-        .await
-        .context("llm-connector chat_stream failed")
 }
 
 pub fn chat_response_to_openai_json(resp: &ChatResponse) -> Value {
@@ -228,81 +135,6 @@ pub fn chat_response_to_anthropic_json(resp: &ChatResponse) -> Value {
     })
 }
 
-fn openai_messages(payload: &Value) -> Result<Vec<Message>> {
-    let Some(messages) = payload.get("messages").and_then(Value::as_array) else {
-        return Err(anyhow!("messages must be an array"));
-    };
-
-    messages
-        .iter()
-        .map(|message| {
-            let role = parse_role(
-                message
-                    .get("role")
-                    .and_then(Value::as_str)
-                    .unwrap_or("user"),
-            );
-            let content = extract_text_content(
-                message
-                    .get("content")
-                    .ok_or_else(|| anyhow!("message.content is required"))?,
-            );
-            Ok(Message::text(role, content))
-        })
-        .collect()
-}
-
-fn anthropic_messages(payload: &Value) -> Result<Vec<Message>> {
-    let Some(messages) = payload.get("messages").and_then(Value::as_array) else {
-        return Err(anyhow!("messages must be an array"));
-    };
-
-    messages
-        .iter()
-        .map(|message| {
-            let role = parse_role(
-                message
-                    .get("role")
-                    .and_then(Value::as_str)
-                    .unwrap_or("user"),
-            );
-            let content = extract_text_content(
-                message
-                    .get("content")
-                    .ok_or_else(|| anyhow!("message.content is required"))?,
-            );
-            Ok(Message::text(role, content))
-        })
-        .collect()
-}
-
-fn parse_role(role: &str) -> Role {
-    match role {
-        "system" => Role::System,
-        "assistant" => Role::Assistant,
-        "tool" => Role::Tool,
-        _ => Role::User,
-    }
-}
-
-fn extract_text_content(value: &Value) -> String {
-    if let Some(text) = value.as_str() {
-        return text.to_string();
-    }
-
-    if let Some(blocks) = value.as_array() {
-        let mut parts = Vec::new();
-        for block in blocks {
-            if let Some(text) = block.get("text").and_then(Value::as_str) {
-                parts.push(text.to_string());
-            }
-        }
-        return parts.join("\n");
-    }
-
-    String::new()
-}
-
 // --- Embeddings ---
 
 pub fn openai_payload_to_embed_request(
@@ -329,30 +161,6 @@ pub fn openai_payload_to_embed_request(
         req = req.with_encoding_format(fmt);
     }
     Ok(req)
-}
-
-pub async fn invoke_embeddings(
-    base_url: &str,
-    api_key: &str,
-    req: &EmbedRequest,
-) -> Result<EmbedResponse> {
-    debug!(
-        base_url,
-        model = req.model.as_str(),
-        input_count = req.input.len(),
-        "invoking llm-connector embed"
-    );
-    let client = build_openai_client(base_url, api_key, None)?;
-    let resp = client
-        .embed(req)
-        .await
-        .context("llm-connector embed failed")?;
-    debug!(
-        model = resp.model.as_str(),
-        data_count = resp.data.len(),
-        "llm-connector embed returned"
-    );
-    Ok(resp)
 }
 
 pub fn embed_response_to_openai_json(resp: &EmbedResponse) -> Value {
