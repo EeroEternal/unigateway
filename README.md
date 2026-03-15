@@ -1,10 +1,10 @@
 <div align="center">
   <h1>UniGateway</h1>
   <p>
-    <strong>Unified LLM gateway for OpenAI, Anthropic, DeepSeek, Groq, MiniMax, and any OpenAI-compatible provider.</strong>
+    <strong>Unified AI Entry Point for Personal Developers & Power Users.</strong>
   </p>
   <p>
-    Single binary, interactive CLI, JSON admin API, MCP server. Routing, fallback, rate limiting, embeddings.
+    Connect all your AI tools to any LLM provider through a single, stable local endpoint.
   </p>
   <p>
     <a href="https://github.com/EeroEternal/unigateway/actions/workflows/rust.yml"><img src="https://github.com/EeroEternal/unigateway/actions/workflows/rust.yml/badge.svg" alt="Build Status"></a>
@@ -13,129 +13,84 @@
   </p>
 </div>
 
-## Features
+UniGateway is a lightweight, high-performance LLM gateway designed for developers who use multiple AI tools (Cursor, Zed, Claude Code, etc.) and multiple providers (OpenAI, Anthropic, DeepSeek, Groq, etc.).
 
-- **Unified API**: `POST /v1/chat/completions` (OpenAI), `POST /v1/messages` (Anthropic), `POST /v1/embeddings`
-- **Multi-provider**: OpenAI, Anthropic, DeepSeek, Groq, MiniMax, Ollama, Azure OpenAI, Together AI, OpenRouter — anything OpenAI-compatible
-- **Routing**: round-robin load balancing, fallback with priority, provider pinning via header
-- **Interactive CLI**: `ug quickstart` wizard, `ug config show/edit`, and full management commands
-- **Rate limiting**: quota / QPS / concurrency limits per API key
-- **Model mapping**: translate downstream model names to upstream provider models
-- **Observability**: `GET /health`, `GET /metrics` (Prometheus), `GET /v1/models`
-- **Admin API**: `/api/admin/*` for programmatic management
-- **MCP server**: `ug mcp` exposes gateway management as MCP tools for Cursor, Claude Desktop, and other AI assistants
-- **AI-ready**: ships with [Skill file](skills/SKILL.md) and [OpenAPI spec](skills/openapi.yaml) for AI agent integration
+## 🚀 Key Features
 
-## Install
+- **Unified Interface**: OpenAI-compatible API for all providers, including Anthropic and local models.
+- **Mode-Based Routing**: Group providers into semantic "modes" (e.g., `fast`, `strong`, `backup`) for easy switching.
+- **Pre-configured Integrations**: Get instant setup snippets for Cursor, Zed, Claude Code, and more.
+- **Failover & Stability**: Built-in fallback strategies to ensure your AI tools keep working even if a provider goes down.
+- **Deep Visibility**: Use `ug route explain` and `ug doctor` to understand exactly how requests are routed and debug connection issues.
+- **MCP Server**: Built-in Model Context Protocol server for AI assistants to manage the gateway.
+
+## 📦 Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/EeroEternal/unigateway/main/install.sh | sh
 ```
 
-Or via Homebrew / Cargo / source:
+Or via Homebrew / Cargo:
 
 ```bash
 brew install EeroEternal/tap/ug          # macOS (Homebrew)
 cargo install unigateway                 # Rust toolchain
-git clone https://github.com/EeroEternal/unigateway.git && cd unigateway && cargo build --release  # from source
 ```
 
-## Usage
+## 🛠️ Usage
 
-### Quick start
-
-Run the interactive wizard — select provider, enter model and API key:
+### 1. Quick Start
+Run the interactive wizard to set up your first provider and generate a default configuration:
 
 ```bash
 ug quickstart
 ug serve
 ```
 
-Or non-interactive:
+### 2. Managing Modes
+UniGateway organizes providers into **Modes**. Use the CLI to manage them:
 
 ```bash
-ug quickstart --provider-type openai --endpoint-id gpt-4o --api-key "sk-..."
-ug serve
+ug mode list          # See all available modes
+ug mode show fast     # Inspect providers/keys for a specific mode
+ug mode use strong    # Set 'strong' as the default mode
 ```
 
-### Manual setup
-
-All commands default to config file `unigateway.toml`; use `--config <path>` or `UNIGATEWAY_CONFIG` to override.
+### 3. Tool Integrations
+Get ready-to-use configuration snippets for your favorite AI tools:
 
 ```bash
-# Start gateway (no subcommand = serve)
-ug
-# or with options:
-ug serve --bind 127.0.0.1:3210
-
-# Print metrics (in-memory counts; 0 if server not running)
-ug metrics
-
-# Create service → provider → bind → create API key (use provider_id from create-provider output)
-ug create-service --id svc_openai --name "OpenAI"
-ug create-provider --name openai-prod --provider-type openai --endpoint-id openai --base-url https://api.openai.com --api-key sk-xxx
-ug bind-provider --service-id svc_openai --provider-id 0
-ug create-api-key --key ugk_xxx --service-id svc_openai --qps-limit 20 --concurrency-limit 8
+ug integrations --tool cursor
+ug integrations --tool zed
+ug integrations --tool claudecode
 ```
 
-**Multi-provider round-robin**: bind multiple providers to the same service; traffic is round-robin across them.
-
-## Config
-
-- **File**: `~/.config/unigateway/config.toml` (auto-created on first write). Override with `--config <path>` or `UNIGATEWAY_CONFIG` env.
-- **Env**:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `UNIGATEWAY_BIND` | `127.0.0.1:3210` | Bind address |
-| `UNIGATEWAY_CONFIG` | `~/.config/unigateway/config.toml` | Config file path |
-| `UNIGATEWAY_ADMIN_TOKEN` | `""` | Admin API auth (`x-admin-token`) |
-
-## API overview
-
-- **OpenAI**: `POST /v1/chat/completions`, `Authorization: Bearer <key>`. Optional: `x-target-vendor` or `x-unigateway-provider` (e.g. `minimax`) to route to a specific provider.
-- **Anthropic**: `POST /v1/messages`, `x-api-key`, `anthropic-version: 2023-06-01`
-- **Admin**: `GET/POST /api/admin/services`, `GET/POST /api/admin/providers`, `POST /api/admin/bindings`, `GET/POST /api/admin/api-keys`
-
-## MCP Server
-
-UniGateway can run as an [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server, letting AI assistants manage the gateway through natural language.
+### 4. Diagnostics & Testing
+Understand routing and verify connectivity:
 
 ```bash
-ug mcp                           # start MCP server over stdio
-ug mcp --config /path/to/config  # custom config path
+ug route explain      # Explain how the current mode routes requests
+ug test               # Send a smoke test request to the gateway
+ug doctor             # Run a full diagnostic check on your setup
 ```
 
-**Available tools**: `list_services`, `create_service`, `list_providers`, `create_provider`, `bind_provider`, `list_api_keys`, `create_api_key`, `show_config`, `get_metrics`
+## 🔌 AI Integrations
 
-### Cursor / Claude Desktop config
+UniGateway is designed for the modern AI ecosystem.
 
-```json
-{
-  "mcpServers": {
-    "unigateway": {
-      "command": "ug",
-      "args": ["mcp"]
-    }
-  }
-}
+### MCP (Model Context Protocol)
+Manage your gateway through natural language in Cursor or Claude Desktop:
+```bash
+ug mcp
 ```
 
-## AI Integration
+### AI Agent Skills
+Ships with a [Skill file](skills/SKILL.md) and [OpenAPI spec](skills/openapi.yaml) to help AI agents automate your LLM infrastructure.
 
-UniGateway ships with ready-to-use files for AI agents in the [`skills/`](skills/) directory:
-
-| File | Purpose |
-|------|---------|
-| [`SKILL.md`](skills/SKILL.md) | Full operational guide for AI agents — install, configure, manage, and use all features |
-| [`openapi.yaml`](skills/openapi.yaml) | OpenAPI 3.1 spec covering all gateway and admin endpoints |
-
-Any AI tool (Codex, Cursor, ChatGPT, Claude, custom agents) can read these files to automate UniGateway setup and interact with the API programmatically.
-
-## License
+## 📄 License
 
 MIT. See [LICENSE](LICENSE).
 
-## About
+## 👥 About
 
 Author: [EeroEternal](https://github.com/EeroEternal) · songmqq@proton.me
