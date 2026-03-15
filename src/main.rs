@@ -5,6 +5,7 @@ mod cli;
 mod config;
 mod dto;
 mod gateway;
+mod mcp;
 mod middleware;
 mod provider;
 mod protocol;
@@ -95,6 +96,11 @@ enum Commands {
     Config {
         #[command(subcommand)]
         action: ConfigAction,
+    },
+    /// Start as an MCP (Model Context Protocol) server over stdio.
+    Mcp {
+        #[arg(long, default_value_t = config_default())]
+        config: String,
     },
     /// Self-upgrade to the latest release.
     Upgrade,
@@ -241,6 +247,9 @@ async fn main() -> Result<()> {
                     Ok(())
                 }
             }
+        }
+        Some(Commands::Mcp { config }) => {
+            mcp::run(&config).await
         }
         Some(Commands::Upgrade) => {
             upgrade::run_upgrade().await

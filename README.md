@@ -4,7 +4,7 @@
     <strong>Unified LLM gateway for OpenAI, Anthropic, DeepSeek, Groq, MiniMax, and any OpenAI-compatible provider.</strong>
   </p>
   <p>
-    Single binary, interactive CLI, JSON admin API. Routing, fallback, rate limiting, embeddings.
+    Single binary, interactive CLI, JSON admin API, MCP server. Routing, fallback, rate limiting, embeddings.
   </p>
   <p>
     <a href="https://github.com/EeroEternal/unigateway/actions/workflows/rust.yml"><img src="https://github.com/EeroEternal/unigateway/actions/workflows/rust.yml/badge.svg" alt="Build Status"></a>
@@ -23,6 +23,7 @@
 - **Model mapping**: translate downstream model names to upstream provider models
 - **Observability**: `GET /health`, `GET /metrics` (Prometheus), `GET /v1/models`
 - **Admin API**: `/api/admin/*` for programmatic management
+- **MCP server**: `ug mcp` exposes gateway management as MCP tools for Cursor, Claude Desktop, and other AI assistants
 - **AI-ready**: ships with [Skill file](skills/SKILL.md) and [OpenAPI spec](skills/openapi.yaml) for AI agent integration
 
 ## Install
@@ -95,6 +96,30 @@ ug create-api-key --key ugk_xxx --service-id svc_openai --qps-limit 20 --concurr
 - **OpenAI**: `POST /v1/chat/completions`, `Authorization: Bearer <key>`. Optional: `x-target-vendor` or `x-unigateway-provider` (e.g. `minimax`) to route to a specific provider.
 - **Anthropic**: `POST /v1/messages`, `x-api-key`, `anthropic-version: 2023-06-01`
 - **Admin**: `GET/POST /api/admin/services`, `GET/POST /api/admin/providers`, `POST /api/admin/bindings`, `GET/POST /api/admin/api-keys`
+
+## MCP Server
+
+UniGateway can run as an [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server, letting AI assistants manage the gateway through natural language.
+
+```bash
+ug mcp                           # start MCP server over stdio
+ug mcp --config /path/to/config  # custom config path
+```
+
+**Available tools**: `list_services`, `create_service`, `list_providers`, `create_provider`, `bind_provider`, `list_api_keys`, `create_api_key`, `show_config`, `get_metrics`
+
+### Cursor / Claude Desktop config
+
+```json
+{
+  "mcpServers": {
+    "unigateway": {
+      "command": "ug",
+      "args": ["mcp"]
+    }
+  }
+}
+```
 
 ## AI Integration
 

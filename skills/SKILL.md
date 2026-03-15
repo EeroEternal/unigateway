@@ -1,6 +1,6 @@
 ---
 name: unigateway
-version: 0.5.0
+version: 0.6.0
 description: >
   Set up and manage UniGateway — a unified LLM gateway that proxies
   OpenAI, Anthropic, DeepSeek, Groq, MiniMax, and any OpenAI-compatible
@@ -223,6 +223,7 @@ Default location: `~/.config/unigateway/config.toml` (macOS: `~/Library/Applicat
 | `ug create-api-key` | Create or update an API key |
 | `ug metrics` | Print request counters |
 | `ug config path/show/edit` | Manage config file |
+| `ug mcp` | Start MCP server over stdio |
 
 ## 8. Admin API
 
@@ -246,4 +247,28 @@ curl http://localhost:3210/health
 
 # Prometheus-style metrics
 curl http://localhost:3210/metrics
+```
+
+## 10. MCP Server
+
+`ug mcp` starts a Model Context Protocol server over stdio. AI assistants (Cursor, Claude Desktop, etc.) can manage the gateway via natural language.
+
+```bash
+ug mcp                           # default config
+ug mcp --config /path/to/config  # custom config
+```
+
+Exposed tools: `list_services`, `create_service`, `list_providers`, `create_provider`, `bind_provider`, `list_api_keys`, `create_api_key`, `show_config`, `get_metrics`.
+
+Cursor / Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "unigateway": {
+      "command": "ug",
+      "args": ["mcp"]
+    }
+  }
+}
 ```
