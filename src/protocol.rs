@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 pub(crate) use client::{invoke_embeddings, invoke_with_connector, invoke_with_connector_stream};
 use messages::{chat_messages, stream_flag};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpstreamProtocol {
     OpenAi,
     Anthropic,

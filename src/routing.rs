@@ -9,6 +9,7 @@ use crate::storage::map_model_name;
 #[derive(Debug, Clone)]
 pub struct ResolvedProvider {
     pub name: String,
+    pub provider_type: String,
     pub base_url: String,
     pub api_key: String,
     pub family_id: Option<String>,
@@ -32,6 +33,7 @@ fn resolve_service_provider(sp: &ServiceProvider) -> Option<ResolvedProvider> {
     }
     Some(ResolvedProvider {
         name: sp.name.clone(),
+        provider_type: sp.provider_type.clone(),
         base_url,
         api_key,
         family_id,
@@ -96,12 +98,12 @@ pub fn target_provider_hint(headers: &HeaderMap, payload: &Value) -> Option<Stri
 pub async fn resolve_providers(
     gateway: &GatewayState,
     service_id: &str,
-    protocol: &str,
+    protocol_hint: &str, // The protocol requested by the client
     target_hint: Option<&str>,
 ) -> Result<Vec<ResolvedProvider>, String> {
     if let Some(hint) = target_hint {
         let sp = gateway
-            .select_provider_for_service_with_hint(service_id, protocol, hint)
+            .select_provider_for_service_with_hint(service_id, protocol_hint, hint)
             .await
             .ok_or_else(|| format!("no provider matches target '{hint}'"))?;
         let rp = resolve_service_provider(&sp)
@@ -112,11 +114,17 @@ pub async fn resolve_providers(
     let strategy = gateway.get_routing_strategy(service_id).await;
 
     if strategy == "fallback" {
-        let all = gateway
-            .select_all_providers_for_service(service_id, protocol)
+        let mut all = gateway
+            .select_all_providers_for_service(service_id, protocol_hint)
             .await;
+        
+        // If no providers for the requested protocol, try cross-protocol
         if all.is_empty() {
-            return Err(format!("no provider bound for service/{protocol}"));
+            all = gateway.select_all_providers_for_service(service_id, "").await;
+        }
+
+        if all.is_empty() {
+            return Err(format!("no provider bound for service/{protocol_hint}"));
         }
         let resolved: Vec<ResolvedProvider> =
             all.iter().filter_map(resolve_service_provider).collect();
@@ -127,10 +135,16 @@ pub async fn resolve_providers(
     }
 
     // round-robin
-    let sp = gateway
-        .select_provider_for_service(service_id, protocol)
-        .await
-        .ok_or_else(|| format!("no provider bound for service/{protocol}"))?;
+    let mut sp = gateway
+        .select_provider_for_service(service_id, protocol_hint)
+        .await;
+    
+    // If no provider for the requested protocol, try cross-protocol
+    if sp.is_none() {
+        sp = gateway.select_provider_for_service(service_id, "").await;
+    }
+
+    let sp = sp.ok_or_else(|| format!("no provider bound for service/{protocol_hint}"))?;
     let rp = resolve_service_provider(&sp)
         .ok_or_else(|| format!("provider '{}': base_url or api_key missing", sp.name))?;
     Ok(vec![rp])

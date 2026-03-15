@@ -76,15 +76,21 @@ pub(crate) async fn openai_chat(
         for provider in &providers {
             request.model = provider.map_model(&original_model);
 
+            let upstream_protocol = match provider.provider_type.as_str() {
+                "anthropic" => UpstreamProtocol::Anthropic,
+                _ => UpstreamProtocol::OpenAi,
+            };
+
             debug!(
                 provider_name = provider.name.as_str(),
                 base_url = provider.base_url.as_str(),
                 model = request.model.as_str(),
+                upstream_protocol = ?upstream_protocol,
                 "routing openai request to provider"
             );
 
             match invoke_provider_chat(
-                UpstreamProtocol::OpenAi,
+                upstream_protocol,
                 provider,
                 &request,
                 chat_response_to_openai_json,
@@ -189,15 +195,21 @@ pub(crate) async fn anthropic_messages(
         for provider in &providers {
             request.model = provider.map_model(&original_model);
 
+            let upstream_protocol = match provider.provider_type.as_str() {
+                "anthropic" => UpstreamProtocol::Anthropic,
+                _ => UpstreamProtocol::OpenAi,
+            };
+
             debug!(
                 provider_name = provider.name.as_str(),
                 base_url = provider.base_url.as_str(),
                 model = request.model.as_str(),
+                upstream_protocol = ?upstream_protocol,
                 "routing anthropic request to provider"
             );
 
             match invoke_provider_chat(
-                UpstreamProtocol::Anthropic,
+                upstream_protocol,
                 provider,
                 &request,
                 chat_response_to_anthropic_json,

@@ -920,9 +920,9 @@ checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
 
 [[package]]
 name = "llm-connector"
-version = "1.1.5"
+version = "1.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1934eed3e14c785667bc45ad916d480a34141197f848b1b9fe5acc25abc96eb5"
+checksum = "b498482225f23d0a62326cdc251284fc17c9ccf00bb88bdea963dca0484b919c"
 dependencies = [
  "async-trait",
  "base64",
@@ -2004,7 +2004,7 @@ checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
 
 [[package]]
 name = "unigateway"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "axum",

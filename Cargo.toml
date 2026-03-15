@@ -1,6 +1,6 @@
 [package]
 name = "unigateway"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2024"
 rust-version = "1.92"
 description = "Unified LLM gateway with CLI, Admin API, MCP server, single binary. OpenAI/Anthropic compatible routing, fallback, rate limiting."
@@ -32,7 +32,7 @@ sha2 = "0.10"
 hex = "0.4"
 rand = "0.8"
 url = "2"
-llm-connector = { version = "1.1.5", features = ["streaming"] }
+llm-connector = { version = "1.1.8", features = ["streaming"] }
 llm_providers = "0.8.1"
 futures-util = "0.3"
 bytes = "1"

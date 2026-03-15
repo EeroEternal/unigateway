@@ -75,7 +75,11 @@ impl GatewayState {
                 .file
                 .providers
                 .iter()
-                .find(|p| p.is_enabled && p.provider_type == protocol && p.name == *name)
+                .find(|p| {
+                    p.is_enabled
+                        && (protocol.is_empty() || p.provider_type == protocol)
+                        && p.name == *name
+                })
                 .cloned()
             {
                 result.push(to_service_provider(p));
@@ -102,7 +106,11 @@ impl GatewayState {
                 .file
                 .providers
                 .iter()
-                .filter(|p| p.is_enabled && p.provider_type == protocol && names.contains(&p.name))
+                .filter(|p| {
+                    p.is_enabled
+                        && (protocol.is_empty() || p.provider_type == protocol)
+                        && names.contains(&p.name)
+                })
                 .cloned()
                 .collect()
         };
