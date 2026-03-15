@@ -31,6 +31,7 @@ target/
 # Config (may contain API keys)
 unigateway.toml
 unigateway.toml.tmp
+config.toml
 
 # macOS
 .DS_Store
