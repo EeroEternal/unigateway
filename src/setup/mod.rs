@@ -3,7 +3,7 @@ mod registry;
 
 use anyhow::Result;
 use clap::Args;
-use dialoguer::{Confirm, theme::ColorfulTheme};
+use dialoguer::{Confirm, Select, theme::ColorfulTheme};
 
 use crate::cli;
 
@@ -32,6 +32,10 @@ pub struct QuickstartCommand {
     #[arg(long)]
     pub model_mapping: Option<String>,
     #[arg(long)]
+    pub fast_model: Option<String>,
+    #[arg(long)]
+    pub strong_model: Option<String>,
+    #[arg(long)]
     pub backup_provider_name: Option<String>,
     #[arg(long)]
     pub backup_provider_type: Option<String>,
@@ -57,6 +61,8 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
         base_url,
         api_key,
         model_mapping,
+        fast_model: _,
+        strong_model: _,
         backup_provider_name,
         backup_provider_type,
         backup_endpoint_id,
@@ -162,6 +168,57 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
 
     let provider_name = provider_name.unwrap_or_else(|| provider_setup.provider_type.clone());
 
+    let (fast_model, strong_model) = if interactive {
+        let options = ["Simple (single `default` mode)", "Multi-model (separate `fast` and `strong` modes)"];
+        let selection = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("Choose setup type")
+            .items(&options)
+            .default(0)
+            .interact()
+            .unwrap();
+
+        if selection == 1 {
+            println!("\n  Choose models for multi-model setup:");
+            let fast = resolve_provider_setup(
+                ProviderPromptLabels {
+                    provider: "Provider (Fast)",
+                    model: "Fast model",
+                    base_url: "Base URL",
+                    api_key: "API Key",
+                },
+                ProviderSetupInput {
+                    provider_type: Some(provider_setup.provider_type.clone()),
+                    endpoint_id: Some(provider_setup.endpoint_id.clone()),
+                    default_model: None,
+                    base_url: provider_setup.base_url.clone(),
+                    api_key: Some(provider_setup.api_key.clone()),
+                },
+            ).default_model;
+
+            let strong = resolve_provider_setup(
+                ProviderPromptLabels {
+                    provider: "Provider (Strong)",
+                    model: "Strong model",
+                    base_url: "Base URL",
+                    api_key: "API Key",
+                },
+                ProviderSetupInput {
+                    provider_type: Some(provider_setup.provider_type.clone()),
+                    endpoint_id: Some(provider_setup.endpoint_id.clone()),
+                    default_model: None,
+                    base_url: provider_setup.base_url.clone(),
+                    api_key: Some(provider_setup.api_key.clone()),
+                },
+            ).default_model;
+
+            (fast, strong)
+        } else {
+            (None, None)
+        }
+    } else {
+        (command.fast_model, command.strong_model)
+    };
+
     let result = cli::quickstart(
         &config,
         cli::QuickstartParams {
@@ -171,6 +228,8 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
             provider_type: &provider_setup.provider_type,
             endpoint_id: &provider_setup.endpoint_id,
             default_model: provider_setup.default_model.as_deref(),
+            fast_model: fast_model.as_deref(),
+            strong_model: strong_model.as_deref(),
             base_url: provider_setup.base_url.as_deref(),
             api_key: &provider_setup.api_key,
             model_mapping: model_mapping.as_deref(),

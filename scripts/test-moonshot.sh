@@ -26,7 +26,7 @@ echo "=== 3. Moonshot (moonshot-v1-8k) ==="
 R=$(curl -s -X POST "http://${BIND}/v1/chat/completions" \
   -H "Authorization: Bearer ${KEY}" \
   -H "Content-Type: application/json" \
-  -d '{"model":"moonshot-v1-8k","messages":[{"role":"user","content":"说一个字"}],"max_tokens":20}')
+  -d '{"model":"moonshot-v1-8k","messages":[{"role":"user","content":"Say one word"}],"max_tokens":20}')
 CONTENT=$(echo "$R" | jq -r 'if .choices then .choices[0].message.content // empty else .error.message end')
 echo "$CONTENT"
 if [ -z "$CONTENT" ]; then echo "Raw: $R"; fi

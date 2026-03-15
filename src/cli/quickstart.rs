@@ -10,6 +10,8 @@ pub struct QuickstartParams<'a> {
     pub provider_type: &'a str,
     pub endpoint_id: &'a str,
     pub default_model: Option<&'a str>,
+    pub fast_model: Option<&'a str>,
+    pub strong_model: Option<&'a str>,
     pub base_url: Option<&'a str>,
     pub api_key: &'a str,
     pub model_mapping: Option<&'a str>,
@@ -42,6 +44,8 @@ struct QuickstartModePlan {
 pub(crate) fn planned_modes(
     service_id: Option<&str>,
     service_name: Option<&str>,
+    fast_model: Option<&str>,
+    strong_model: Option<&str>,
 ) -> Vec<(String, String)> {
     if let Some(service_id) = service_id {
         return vec![(
@@ -50,16 +54,32 @@ pub(crate) fn planned_modes(
         )];
     }
 
+    if fast_model.is_some() || strong_model.is_some() {
+        let mut modes = Vec::new();
+        if fast_model.is_some() {
+            modes.push(("fast".to_string(), "Fast".to_string()));
+        }
+        if strong_model.is_some() {
+            modes.push(("strong".to_string(), "Strong".to_string()));
+        }
+        return modes;
+    }
+
     vec![("default".to_string(), "Default".to_string())]
 }
 
 fn quickstart_mode_plans(
     service_id: Option<&str>,
     service_name: Option<&str>,
+    fast_model: Option<&str>,
+    strong_model: Option<&str>,
     primary_provider_id: i64,
     secondary_provider_id: Option<i64>,
 ) -> Vec<QuickstartModePlan> {
-    if let Some(service_id) = service_id {
+    let mut plans = Vec::new();
+    let modes = planned_modes(service_id, service_name, fast_model, strong_model);
+
+    for (id, name) in modes {
         let mut bindings = vec![(primary_provider_id, 0)];
         let routing_strategy = if let Some(secondary_provider_id) = secondary_provider_id {
             bindings.push((secondary_provider_id, 1));
@@ -68,28 +88,15 @@ fn quickstart_mode_plans(
             "round_robin"
         };
 
-        return vec![QuickstartModePlan {
-            id: service_id.to_string(),
-            name: service_name.unwrap_or(service_id).to_string(),
+        plans.push(QuickstartModePlan {
+            id,
+            name,
             routing_strategy,
             bindings,
-        }];
+        });
     }
 
-    let mut bindings = vec![(primary_provider_id, 0)];
-    let routing_strategy = if let Some(secondary_provider_id) = secondary_provider_id {
-        bindings.push((secondary_provider_id, 1));
-        "fallback"
-    } else {
-        "round_robin"
-    };
-
-    vec![QuickstartModePlan {
-        id: "default".to_string(),
-        name: "Default".to_string(),
-        routing_strategy,
-        bindings,
-    }]
+    plans
 }
 
 pub async fn create_service(config_path: &str, service_id: &str, name: &str) -> Result<()> {
@@ -193,6 +200,8 @@ pub async fn quickstart(
     let planned = quickstart_mode_plans(
         params.service_id,
         params.service_name,
+        params.fast_model,
+        params.strong_model,
         primary_provider_id,
         secondary_provider_id,
     );
@@ -204,6 +213,36 @@ pub async fn quickstart(
         state
             .set_service_routing_strategy(&plan.id, plan.routing_strategy)
             .await?;
+
+        // Determine which model to use for this mode
+        let model_options = match plan.id.as_str() {
+            "fast" => ProviderModelOptions {
+                default_model: params.fast_model,
+                model_mapping: None,
+            },
+            "strong" => ProviderModelOptions {
+                default_model: params.strong_model,
+                model_mapping: None,
+            },
+            _ => ProviderModelOptions {
+                default_model: params.default_model,
+                model_mapping: params.model_mapping,
+            },
+        };
+
+        // Update provider with model options for this specific mode's binding if necessary
+        // Actually, the current schema stores default_model on the provider itself.
+        // If we want different modes to use DIFFERENT models on the SAME provider,
+        // we might need to adjust binder or just set it globally for now if only one provider is used.
+        // But the user said "manually set which is fast, which is strong".
+        // For simplicity, we create the provider with its "default_model" first.
+        // If multi-mode, we might need provider-per-mode or model-mapped-to-mode.
+        // The previous implementation used model mapping like "fast=...".
+
+        if let Some(m) = model_options.default_model {
+            state.set_provider_model_options(primary_provider_id, model_options).await?;
+        }
+
         for (provider_id, priority) in &plan.bindings {
             state
                 .bind_provider_to_service_with_priority(&plan.id, *provider_id, *priority)

@@ -15,15 +15,6 @@
 
 UniGateway is a lightweight, high-performance LLM gateway designed for developers who use multiple AI tools (Cursor, Zed, Claude Code, etc.) and multiple providers (OpenAI, Anthropic, DeepSeek, Groq, etc.).
 
-## 🚀 Key Features
-
-- **Unified Interface**: OpenAI-compatible API for all providers, including Anthropic and local models.
-- **Mode-Based Routing**: Group providers into semantic "modes" (e.g., `fast`, `strong`, `backup`) for easy switching.
-- **Pre-configured Integrations**: Get instant setup snippets for Cursor, Zed, Claude Code, and more.
-- **Failover & Stability**: Built-in fallback strategies to ensure your AI tools keep working even if a provider goes down.
-- **Deep Visibility**: Use `ug route explain` and `ug doctor` to understand exactly how requests are routed and debug connection issues.
-- **MCP Server**: Built-in Model Context Protocol server for AI assistants to manage the gateway.
-
 ## 📦 Install
 
 ```bash
@@ -78,6 +69,35 @@ ug doctor             # Run a full diagnostic check on your setup
 
 UniGateway is designed for the modern AI ecosystem.
 
+### Popular Tool Configs
+
+#### 🦞 OpenClaw
+Connect OpenClaw to UniGateway as a unified local OpenAI-compatible entry point. See [OpenClaw Integration Example](docs/openclaw-integration-example.md) for full details.
+
+Add to `~/.openclaw/openclaw.json`:
+```json
+{
+  "agents": { "defaults": { "model": { "primary": "unigateway/deepseek-chat" } } },
+  "models": {
+    "providers": {
+      "unigateway": {
+        "baseUrl": "http://127.0.0.1:3210/v1",
+        "apiKey": "${UNIGATEWAY_API_KEY}",
+        "api": "openai-completions",
+        "models": [{ "id": "deepseek-chat", "name": "UniGateway Chat" }]
+      }
+    }
+  }
+}
+```
+
+#### 🛠️ Claude Code
+Configure Claude Code to use UniGateway as its OpenAI endpoint:
+```bash
+export CLAUDE_BASE_URL="http://127.0.0.1:3210/v1"
+export CLAUDE_API_KEY="ugk_your_key"
+```
+
 ### MCP (Model Context Protocol)
 Manage your gateway through natural language in Cursor or Claude Desktop:
 ```bash
@@ -87,10 +107,16 @@ ug mcp
 ### AI Agent Skills
 Ships with a [Skill file](skills/SKILL.md) and [OpenAPI spec](skills/openapi.yaml) to help AI agents automate your LLM infrastructure.
 
+## 🚀 Key Features
+
+- **Unified Interface**: OpenAI-compatible API for all providers, including Anthropic and local models.
+- **Mode-Based Routing**: Group providers into semantic "modes" (e.g., `fast`, `strong`, `backup`) for easy switching.
+- **Pre-configured Integrations**: Get instant setup snippets for Cursor, Zed, Claude Code, and more.
+- **Failover & Stability**: Built-in fallback strategies to ensure your AI tools keep working even if a provider goes down.
+- **Deep Visibility**: Use `ug route explain` and `ug doctor` to understand exactly how requests are routed and debug connection issues.
+- **MCP Server**: Built-in Model Context Protocol server for AI assistants to manage the gateway.
+
 ## 📄 License
 
 MIT. See [LICENSE](LICENSE).
 
-## 👥 About
-
-Author: [EeroEternal](https://github.com/EeroEternal) · songmqq@proton.me
