@@ -8,7 +8,7 @@ use axum::{
 use serde_json::json;
 
 use crate::authz::is_admin_authorized;
-use crate::dto::{ApiResponse, ApiKeyOut, CreateApiKeyReq};
+use crate::dto::{ApiKeyOut, ApiResponse, CreateApiKeyReq};
 use crate::types::AppState;
 
 pub(crate) async fn api_list_api_keys(

@@ -6,7 +6,6 @@ use llm_connector::{
 use serde_json::{Value, json};
 use tracing::debug;
 
-
 pub enum UpstreamProtocol {
     OpenAi,
     Anthropic,
@@ -106,7 +105,10 @@ pub async fn invoke_with_connector(
                 .context("failed to create anthropic client")?
         }
     };
-    let resp = client.chat(req).await.context("llm-connector chat failed")?;
+    let resp = client
+        .chat(req)
+        .await
+        .context("llm-connector chat failed")?;
     debug!(
         response_id = resp.id.as_str(),
         response_model = resp.model.as_str(),
@@ -284,7 +286,10 @@ fn extract_text_content(value: &Value) -> String {
 
 // --- Embeddings ---
 
-pub fn openai_payload_to_embed_request(payload: &Value, default_model: &str) -> Result<EmbedRequest> {
+pub fn openai_payload_to_embed_request(
+    payload: &Value,
+    default_model: &str,
+) -> Result<EmbedRequest> {
     let model = payload
         .get("model")
         .and_then(Value::as_str)
@@ -319,7 +324,10 @@ pub async fn invoke_embeddings(
         "invoking llm-connector embed"
     );
     let client = build_openai_client(base_url, api_key, None)?;
-    let resp = client.embed(req).await.context("llm-connector embed failed")?;
+    let resp = client
+        .embed(req)
+        .await
+        .context("llm-connector embed failed")?;
     debug!(
         model = resp.model.as_str(),
         data_count = resp.data.len(),

@@ -118,10 +118,8 @@ pub async fn resolve_providers(
         if all.is_empty() {
             return Err(format!("no provider bound for service/{protocol}"));
         }
-        let resolved: Vec<ResolvedProvider> = all
-            .iter()
-            .filter_map(resolve_service_provider)
-            .collect();
+        let resolved: Vec<ResolvedProvider> =
+            all.iter().filter_map(resolve_service_provider).collect();
         if resolved.is_empty() {
             return Err("all bound providers have missing base_url or api_key".to_string());
         }

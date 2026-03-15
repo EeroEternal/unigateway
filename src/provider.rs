@@ -24,13 +24,15 @@ pub(crate) async fn api_list_providers(
         .list_providers()
         .await
         .into_iter()
-        .map(|(id, name, provider_type, endpoint_id, base_url)| ProviderOut {
-            id,
-            name,
-            provider_type,
-            endpoint_id,
-            base_url,
-        })
+        .map(
+            |(id, name, provider_type, endpoint_id, base_url)| ProviderOut {
+                id,
+                name,
+                provider_type,
+                endpoint_id,
+                base_url,
+            },
+        )
         .collect();
 
     axum::Json(ApiResponse {
