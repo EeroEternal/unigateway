@@ -7,7 +7,7 @@ description = "Unified LLM gateway with CLI, Admin API, MCP server, single binar
 license = "MIT"
 repository = "https://github.com/EeroEternal/unigateway"
 readme = "README.md"
-keywords = ["llm", "openai", "anthropic", "gateway", "proxy", "cli"]
+keywords = ["llm", "gateway", "openai", "anthropic", "proxy"]
 categories = ["web-programming::http-server", "api-bindings", "command-line-utilities"]
 authors = ["EeroEternal <songmqq@proton.me>"]
 
