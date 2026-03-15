@@ -23,9 +23,13 @@ pub use quickstart::{
 };
 #[cfg(test)]
 pub(crate) use render::{
-    IntegrationTool, render_integration_output_for_tool, render_route_explanation,
+    integrations::{IntegrationTool, render_integration_output_for_tool},
+    routes::render_route_explanation,
 };
-pub use render::{explain_route, print_integrations, print_integrations_with_key};
+pub use render::{
+    integrations::{print_integrations, print_integrations_with_key},
+    routes::explain_route,
+};
 
 pub async fn print_metrics_snapshot(config_path: &str) -> Result<()> {
     let state = GatewayState::load(Path::new(config_path)).await?;

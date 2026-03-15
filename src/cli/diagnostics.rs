@@ -11,7 +11,7 @@ use super::{
         pick_mode_key, pick_mode_protocol, provider_default_model, select_mode,
         supported_protocols, user_anthropic_base_url, user_bind_address, user_openai_base_url,
     },
-    render::route_strategy_summary,
+    render::routes::route_strategy_summary,
 };
 
 pub(crate) fn summarize_response_text(body: &str) -> String {
