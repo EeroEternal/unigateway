@@ -81,9 +81,27 @@ ug config show     # print current config
 ug config edit     # open in $EDITOR
 ```
 
+## MCP server
+
+`ug mcp` starts a Model Context Protocol server over stdio. Cursor / Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "unigateway": {
+      "command": "ug",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Tools: `list_services`, `create_service`, `list_providers`, `create_provider`, `bind_provider`, `list_api_keys`, `create_api_key`, `show_config`, `get_metrics`.
+
 ## Other commands
 
 - **Metrics**: `ug metrics`
+- **MCP server**: `ug mcp` (stdio transport for AI assistants)
 - **Multi-provider round-robin**: bind multiple providers to the same service.
 - **Fallback routing**: set `routing_strategy = "fallback"` on the service, use `priority` on bindings.
 
