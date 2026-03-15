@@ -1,9 +1,9 @@
 [package]
 name = "unigateway"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2024"
 rust-version = "1.92"
-description = "Unified LLM gateway with CLI, Admin API, MCP server, single binary. OpenAI/Anthropic compatible routing, fallback, rate limiting."
+description = "Lightweight, local-first LLM gateway for developers. A stable, single-binary unified entry point for all your AI tools and models."
 license = "MIT"
 repository = "https://github.com/EeroEternal/unigateway"
 readme = "README.md"
