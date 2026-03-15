@@ -191,11 +191,23 @@ mod tests {
 
         assert_eq!(default_providers.len(), 2);
         assert_eq!(default_providers[0].name, "deepseek-main");
-        assert_eq!(default_providers[0].endpoint_id.as_deref(), Some("deepseek:global"));
-        assert_eq!(default_providers[0].default_model.as_deref(), Some("deepseek-chat"));
+        assert_eq!(
+            default_providers[0].endpoint_id.as_deref(),
+            Some("deepseek:global")
+        );
+        assert_eq!(
+            default_providers[0].default_model.as_deref(),
+            Some("deepseek-chat")
+        );
         assert_eq!(default_providers[1].name, "openai-backup");
-        assert_eq!(default_providers[1].endpoint_id.as_deref(), Some("openai:global"));
-        assert_eq!(default_providers[1].default_model.as_deref(), Some("gpt-4o"));
+        assert_eq!(
+            default_providers[1].endpoint_id.as_deref(),
+            Some("openai:global")
+        );
+        assert_eq!(
+            default_providers[1].default_model.as_deref(),
+            Some("gpt-4o")
+        );
     }
 
     #[test]

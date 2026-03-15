@@ -50,10 +50,7 @@ pub(crate) fn planned_modes(
         )];
     }
 
-    vec![(
-        "default".to_string(),
-        "Default".to_string(),
-    )]
+    vec![("default".to_string(), "Default".to_string())]
 }
 
 fn quickstart_mode_plans(
