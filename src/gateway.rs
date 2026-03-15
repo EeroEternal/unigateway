@@ -85,7 +85,7 @@ pub(crate) async fn openai_chat(
             );
 
             if is_stream {
-                match try_openai_stream(provider, &request).await {
+                match try_chat_stream(UpstreamProtocol::OpenAi, provider, &request).await {
                     Ok(resp) => {
                         auth.finalize(&state).await;
                         record_stat(&state, endpoint, 200, &start).await;
@@ -138,7 +138,9 @@ pub(crate) async fn openai_chat(
 
     let base_url = &state.config.openai_base_url;
     if request.stream == Some(true) {
-        match try_openai_stream_raw(base_url, &api_key, &request, None).await {
+        match try_chat_stream_raw(UpstreamProtocol::OpenAi, base_url, &api_key, &request, None)
+            .await
+        {
             Ok(resp) => {
                 record_stat(&state, endpoint, 200, &start).await;
                 resp
@@ -209,6 +211,7 @@ pub(crate) async fn anthropic_messages(
 
         let original_model = request.model.clone();
         let mut last_err = String::from("unknown");
+        let is_stream = request.stream == Some(true);
 
         for provider in &providers {
             request.model = provider.map_model(&original_model);
@@ -220,25 +223,40 @@ pub(crate) async fn anthropic_messages(
                 "routing anthropic request to provider"
             );
 
-            match invoke_with_connector(
-                UpstreamProtocol::Anthropic,
-                &provider.base_url,
-                &provider.api_key,
-                &request,
-                None,
-            )
-            .await
-            {
-                Ok(resp) => {
-                    auth.finalize(&state).await;
-                    record_stat(&state, endpoint, 200, &start).await;
-                    return (StatusCode::OK, Json(chat_response_to_anthropic_json(&resp)))
-                        .into_response();
+            if is_stream {
+                match try_chat_stream(UpstreamProtocol::Anthropic, provider, &request).await {
+                    Ok(resp) => {
+                        auth.finalize(&state).await;
+                        record_stat(&state, endpoint, 200, &start).await;
+                        return resp;
+                    }
+                    Err(err) => {
+                        tracing::warn!(provider = provider.name.as_str(), error = %err, "upstream error, trying next");
+                        last_err = format!("{err:#}");
+                        continue;
+                    }
                 }
-                Err(err) => {
-                    tracing::warn!(provider = provider.name.as_str(), error = %err, "upstream error, trying next");
-                    last_err = format!("{err:#}");
-                    continue;
+            } else {
+                match invoke_with_connector(
+                    UpstreamProtocol::Anthropic,
+                    &provider.base_url,
+                    &provider.api_key,
+                    &request,
+                    None,
+                )
+                .await
+                {
+                    Ok(resp) => {
+                        auth.finalize(&state).await;
+                        record_stat(&state, endpoint, 200, &start).await;
+                        return (StatusCode::OK, Json(chat_response_to_anthropic_json(&resp)))
+                            .into_response();
+                    }
+                    Err(err) => {
+                        tracing::warn!(provider = provider.name.as_str(), error = %err, "upstream error, trying next");
+                        last_err = format!("{err:#}");
+                        continue;
+                    }
                 }
             }
         }
@@ -257,22 +275,43 @@ pub(crate) async fn anthropic_messages(
         return error_json(StatusCode::BAD_REQUEST, "missing upstream api key");
     }
 
-    match invoke_with_connector(
-        UpstreamProtocol::Anthropic,
-        &state.config.anthropic_base_url,
-        &api_key,
-        &request,
-        None,
-    )
-    .await
-    {
-        Ok(resp) => {
-            record_stat(&state, endpoint, 200, &start).await;
-            (StatusCode::OK, Json(chat_response_to_anthropic_json(&resp))).into_response()
+    if request.stream == Some(true) {
+        match try_chat_stream_raw(
+            UpstreamProtocol::Anthropic,
+            &state.config.anthropic_base_url,
+            &api_key,
+            &request,
+            None,
+        )
+        .await
+        {
+            Ok(resp) => {
+                record_stat(&state, endpoint, 200, &start).await;
+                resp
+            }
+            Err(err) => {
+                record_stat(&state, endpoint, 500, &start).await;
+                error_json(StatusCode::BAD_GATEWAY, &format!("upstream error: {err:#}"))
+            }
         }
-        Err(err) => {
-            record_stat(&state, endpoint, 500, &start).await;
-            error_json(StatusCode::BAD_GATEWAY, &format!("upstream error: {err:#}"))
+    } else {
+        match invoke_with_connector(
+            UpstreamProtocol::Anthropic,
+            &state.config.anthropic_base_url,
+            &api_key,
+            &request,
+            None,
+        )
+        .await
+        {
+            Ok(resp) => {
+                record_stat(&state, endpoint, 200, &start).await;
+                (StatusCode::OK, Json(chat_response_to_anthropic_json(&resp))).into_response()
+            }
+            Err(err) => {
+                record_stat(&state, endpoint, 500, &start).await;
+                error_json(StatusCode::BAD_GATEWAY, &format!("upstream error: {err:#}"))
+            }
         }
     }
 }
@@ -379,11 +418,13 @@ fn fallback_api_key(token: &str, env_key: &str) -> String {
     }
 }
 
-async fn try_openai_stream(
+async fn try_chat_stream(
+    protocol: UpstreamProtocol,
     provider: &ResolvedProvider,
     request: &llm_connector::types::ChatRequest,
 ) -> Result<Response, anyhow::Error> {
-    try_openai_stream_raw(
+    try_chat_stream_raw(
+        protocol,
         &provider.base_url,
         &provider.api_key,
         request,
@@ -392,13 +433,15 @@ async fn try_openai_stream(
     .await
 }
 
-async fn try_openai_stream_raw(
+async fn try_chat_stream_raw(
+    protocol: UpstreamProtocol,
     base_url: &str,
     api_key: &str,
     request: &llm_connector::types::ChatRequest,
     family_id: Option<&str>,
 ) -> Result<Response, anyhow::Error> {
-    let stream = invoke_with_connector_stream(base_url, api_key, request, family_id).await?;
+    let stream =
+        invoke_with_connector_stream(protocol, base_url, api_key, request, family_id).await?;
     type BoxErr = Box<dyn std::error::Error + Send + Sync>;
     let sse_stream = stream.map(|r: Result<_, llm_connector::error::LlmConnectorError>| {
         r.map_err(|e| -> BoxErr { Box::new(std::io::Error::other(e.to_string())) })

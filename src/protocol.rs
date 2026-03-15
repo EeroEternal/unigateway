@@ -11,6 +11,15 @@ pub enum UpstreamProtocol {
     Anthropic,
 }
 
+fn stream_flag(payload: &Value, default: bool) -> Option<bool> {
+    Some(
+        payload
+            .get("stream")
+            .and_then(Value::as_bool)
+            .unwrap_or(default),
+    )
+}
+
 pub fn openai_payload_to_chat_request(payload: &Value, default_model: &str) -> Result<ChatRequest> {
     let mut req = ChatRequest::new(
         payload
@@ -33,7 +42,7 @@ pub fn openai_payload_to_chat_request(payload: &Value, default_model: &str) -> R
         .get("max_tokens")
         .and_then(Value::as_u64)
         .map(|v| v as u32);
-    req.stream = payload.get("stream").and_then(Value::as_bool);
+    req.stream = stream_flag(payload, true);
 
     Ok(req)
 }
@@ -69,7 +78,7 @@ pub fn anthropic_payload_to_chat_request(
         .get("max_tokens")
         .and_then(Value::as_u64)
         .map(|v| v as u32);
-    req.stream = payload.get("stream").and_then(Value::as_bool);
+    req.stream = stream_flag(payload, true);
 
     Ok(req)
 }
@@ -139,14 +148,24 @@ fn build_openai_client(
     LlmClient::openai(api_key, base_url).context("failed to create openai client")
 }
 
-/// Streaming chat: OpenAI protocol only. Returns a stream of SSE chunks.
+/// Streaming chat for supported protocols. Returns a unified llm-connector stream.
 pub async fn invoke_with_connector_stream(
+    protocol: UpstreamProtocol,
     base_url: &str,
     api_key: &str,
     req: &ChatRequest,
     family_id: Option<&str>,
 ) -> Result<llm_connector::types::ChatStream, anyhow::Error> {
-    let client = build_openai_client(base_url, api_key, family_id)?;
+    let client = match protocol {
+        UpstreamProtocol::OpenAi => build_openai_client(base_url, api_key, family_id)?,
+        UpstreamProtocol::Anthropic => {
+            if api_key.is_empty() {
+                return Err(anyhow!("missing upstream api key"));
+            }
+            LlmClient::anthropic_with_config(api_key, base_url, None, None)
+                .context("failed to create anthropic client")?
+        }
+    };
     client
         .chat_stream(req)
         .await
@@ -358,4 +377,64 @@ pub fn embed_response_to_openai_json(resp: &EmbedResponse) -> Value {
             "total_tokens": resp.usage.total_tokens
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{anthropic_payload_to_chat_request, openai_payload_to_chat_request};
+    use serde_json::json;
+
+    #[test]
+    fn openai_requests_default_to_streaming() {
+        let req = openai_payload_to_chat_request(
+            &json!({
+                "messages": [{"role": "user", "content": "hello"}]
+            }),
+            "gpt-4o-mini",
+        )
+        .expect("request");
+
+        assert_eq!(req.stream, Some(true));
+    }
+
+    #[test]
+    fn openai_requests_can_disable_streaming_explicitly() {
+        let req = openai_payload_to_chat_request(
+            &json!({
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": false
+            }),
+            "gpt-4o-mini",
+        )
+        .expect("request");
+
+        assert_eq!(req.stream, Some(false));
+    }
+
+    #[test]
+    fn anthropic_requests_default_to_streaming() {
+        let req = anthropic_payload_to_chat_request(
+            &json!({
+                "messages": [{"role": "user", "content": "hello"}]
+            }),
+            "claude-3-5-sonnet-latest",
+        )
+        .expect("request");
+
+        assert_eq!(req.stream, Some(true));
+    }
+
+    #[test]
+    fn anthropic_requests_can_disable_streaming_explicitly() {
+        let req = anthropic_payload_to_chat_request(
+            &json!({
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": false
+            }),
+            "claude-3-5-sonnet-latest",
+        )
+        .expect("request");
+
+        assert_eq!(req.stream, Some(false));
+    }
 }

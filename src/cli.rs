@@ -3,7 +3,11 @@ use reqwest::Client;
 use serde_json::Value;
 use std::{fmt::Write as _, path::Path};
 
-use crate::{config::GatewayState, routing::resolve_upstream, types::AppConfig};
+use crate::{
+    config::{GatewayState, ProviderModelOptions},
+    routing::resolve_upstream,
+    types::AppConfig,
+};
 
 pub struct QuickstartParams<'a> {
     pub service_id: Option<&'a str>,
@@ -11,9 +15,17 @@ pub struct QuickstartParams<'a> {
     pub provider_name: &'a str,
     pub provider_type: &'a str,
     pub endpoint_id: &'a str,
+    pub default_model: Option<&'a str>,
     pub base_url: Option<&'a str>,
     pub api_key: &'a str,
     pub model_mapping: Option<&'a str>,
+    pub backup_provider_name: Option<&'a str>,
+    pub backup_provider_type: Option<&'a str>,
+    pub backup_endpoint_id: Option<&'a str>,
+    pub backup_default_model: Option<&'a str>,
+    pub backup_base_url: Option<&'a str>,
+    pub backup_api_key: Option<&'a str>,
+    pub backup_model_mapping: Option<&'a str>,
 }
 
 pub struct QuickstartModeOutput {
@@ -25,12 +37,20 @@ pub struct QuickstartResult {
     pub modes: Vec<QuickstartModeOutput>,
 }
 
+struct QuickstartModePlan {
+    id: String,
+    name: String,
+    routing_strategy: &'static str,
+    bindings: Vec<(i64, i64)>,
+}
+
 #[derive(Clone)]
 struct ModeProvider {
     name: String,
     provider_type: String,
     endpoint_id: Option<String>,
     base_url: Option<String>,
+    default_model: Option<String>,
     model_mapping: Option<String>,
     has_api_key: bool,
     is_enabled: bool,
@@ -54,6 +74,19 @@ struct ModeView {
     routing_strategy: String,
     providers: Vec<ModeProvider>,
     keys: Vec<ModeKey>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IntegrationTool {
+    All,
+    Cursor,
+    Codex,
+    ClaudeCode,
+    Env,
+    Python,
+    Node,
+    Curl,
+    Anthropic,
 }
 
 fn mask_key(key: &str) -> String {
@@ -136,6 +169,13 @@ async fn load_mode_views(config_path: &str) -> Result<Vec<ModeView>> {
                             None
                         } else {
                             Some(provider.base_url.clone())
+                        }
+                    }),
+                    default_model: provider.and_then(|provider| {
+                        if provider.default_model.is_empty() {
+                            None
+                        } else {
+                            Some(provider.default_model.clone())
                         }
                     }),
                     model_mapping: provider.and_then(|provider| {
@@ -257,10 +297,123 @@ fn select_mode<'a>(modes: &'a [ModeView], requested_mode: Option<&str>) -> Resul
     bail!("multiple modes configured ({ids}); use --mode")
 }
 
-fn render_integration_output(
+fn parse_integration_tool(tool: Option<&str>) -> Result<IntegrationTool> {
+    match tool.map(|tool| tool.trim().to_ascii_lowercase()) {
+        None => Ok(IntegrationTool::All),
+        Some(tool) if tool.is_empty() || tool == "all" => Ok(IntegrationTool::All),
+        Some(tool) if tool == "cursor" => Ok(IntegrationTool::Cursor),
+        Some(tool) if tool == "codex" => Ok(IntegrationTool::Codex),
+        Some(tool) if tool == "claude-code" || tool == "claudecode" => {
+            Ok(IntegrationTool::ClaudeCode)
+        }
+        Some(tool) if tool == "env" || tool == "shell" => Ok(IntegrationTool::Env),
+        Some(tool) if tool == "python" => Ok(IntegrationTool::Python),
+        Some(tool) if tool == "node" || tool == "javascript" => Ok(IntegrationTool::Node),
+        Some(tool) if tool == "curl" => Ok(IntegrationTool::Curl),
+        Some(tool) if tool == "anthropic" => Ok(IntegrationTool::Anthropic),
+        Some(tool) => bail!(
+            "unknown integration target '{}'; use one of: cursor, codex, claude-code, env, python, node, curl, anthropic",
+            tool
+        ),
+    }
+}
+
+fn provider_default_model<'a>(provider: &'a ModeProvider, fallback: &'a str) -> &'a str {
+    provider
+        .default_model
+        .as_deref()
+        .filter(|model| !model.is_empty())
+        .unwrap_or(fallback)
+}
+
+fn render_openai_tool_settings(
+    out: &mut String,
+    title: &str,
+    base_url: &str,
+    key: Option<&str>,
+    model: &str,
+) {
+    let _ = writeln!(out, "{}:", title);
+    let _ = writeln!(out, "  Base URL: {}", base_url);
+    let _ = writeln!(out, "  API Key: {}", key.unwrap_or("<gateway api key>"));
+    let _ = writeln!(out, "  Model: {}", model);
+}
+
+fn render_openai_env_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
+    let _ = writeln!(out, "Shell environment:");
+    let _ = writeln!(out, "  export OPENAI_BASE_URL={}", base_url);
+    let _ = writeln!(
+        out,
+        "  export OPENAI_API_KEY={}",
+        key.unwrap_or("<gateway api key>")
+    );
+    let _ = writeln!(out, "  export OPENAI_MODEL={}", model);
+}
+
+fn render_openai_python_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
+    let _ = writeln!(out, "Python (openai SDK):");
+    let _ = writeln!(out, "  from openai import OpenAI");
+    let _ = writeln!(
+        out,
+        "  client = OpenAI(base_url=\"{}\", api_key=\"{}\")",
+        base_url,
+        key.unwrap_or("<gateway api key>")
+    );
+    let _ = writeln!(
+        out,
+        "  print(client.chat.completions.create(model=\"{}\", messages=[{{\"role\": \"user\", \"content\": \"hello\"}}]).choices[0].message.content)",
+        model
+    );
+}
+
+fn render_openai_node_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
+    let _ = writeln!(out, "Node (openai SDK):");
+    let _ = writeln!(out, "  import OpenAI from \"openai\";");
+    let _ = writeln!(
+        out,
+        "  const client = new OpenAI({{ baseURL: \"{}\", apiKey: \"{}\" }});",
+        base_url,
+        key.unwrap_or("<gateway api key>")
+    );
+    let _ = writeln!(
+        out,
+        "  const response = await client.chat.completions.create({{ model: \"{}\", messages: [{{ role: \"user\", content: \"hello\" }}] }});",
+        model
+    );
+    let _ = writeln!(out, "  console.log(response.choices[0].message.content);");
+}
+
+fn render_openai_curl_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
+    let _ = writeln!(out, "curl:");
+    let _ = writeln!(
+        out,
+        "  curl -s {}/chat/completions -H \"Authorization: Bearer {}\" -H \"Content-Type: application/json\" -d '{{\"model\":\"{}\",\"messages\":[{{\"role\":\"user\",\"content\":\"hello\"}}]}}'",
+        base_url,
+        key.unwrap_or("<gateway api key>"),
+        model
+    );
+}
+
+fn render_anthropic_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
+    let _ = writeln!(out, "Anthropic-compatible clients:");
+    let _ = writeln!(out, "  Base URL: {}", base_url);
+    let _ = writeln!(out, "  x-api-key: {}", key.unwrap_or("<gateway api key>"));
+    let _ = writeln!(out, "  Model: {}", model);
+    let _ = writeln!(out, "  curl:");
+    let _ = writeln!(
+        out,
+        "    curl -s {}/v1/messages -H \"x-api-key: {}\" -H \"anthropic-version: 2023-06-01\" -H \"Content-Type: application/json\" -d '{{\"model\":\"{}\",\"max_tokens\":64,\"messages\":[{{\"role\":\"user\",\"content\":\"hello\"}}]}}'",
+        base_url,
+        key.unwrap_or("<gateway api key>"),
+        model
+    );
+}
+
+fn render_integration_output_for_tool(
     mode: &ModeView,
     key: Option<&str>,
     bind_override: Option<&str>,
+    tool: IntegrationTool,
 ) -> String {
     let openai_provider = mode
         .providers
@@ -296,75 +449,123 @@ fn render_integration_output(
     }
 
     if let Some(provider) = openai_provider {
-        let model = provider.endpoint_id.as_deref().unwrap_or("your-model");
+        let model = provider_default_model(provider, "your-model");
         let base_url = user_openai_base_url(bind_override);
+        let _ = writeln!(&mut out);
+        let wants_openai = matches!(
+            tool,
+            IntegrationTool::All
+                | IntegrationTool::Cursor
+                | IntegrationTool::Codex
+                | IntegrationTool::ClaudeCode
+                | IntegrationTool::Env
+                | IntegrationTool::Python
+                | IntegrationTool::Node
+                | IntegrationTool::Curl
+        );
+
+        if wants_openai {
+            let _ = writeln!(&mut out, "OpenAI-compatible integrations:");
+            match tool {
+                IntegrationTool::All => {
+                    render_openai_tool_settings(
+                        &mut out,
+                        "  Cursor (OpenAI-compatible provider)",
+                        &base_url,
+                        key,
+                        model,
+                    );
+                    let _ = writeln!(&mut out);
+                    render_openai_tool_settings(
+                        &mut out,
+                        "  Codex / codex-cli",
+                        &base_url,
+                        key,
+                        model,
+                    );
+                    let _ = writeln!(&mut out);
+                    render_openai_tool_settings(
+                        &mut out,
+                        "  Claude Code custom OpenAI endpoint",
+                        &base_url,
+                        key,
+                        model,
+                    );
+                    let _ = writeln!(&mut out);
+                    render_openai_env_block(&mut out, &base_url, key, model);
+                    let _ = writeln!(&mut out);
+                    render_openai_python_block(&mut out, &base_url, key, model);
+                    let _ = writeln!(&mut out);
+                    render_openai_node_block(&mut out, &base_url, key, model);
+                    let _ = writeln!(&mut out);
+                    render_openai_curl_block(&mut out, &base_url, key, model);
+                }
+                IntegrationTool::Cursor => render_openai_tool_settings(
+                    &mut out,
+                    "  Cursor (OpenAI-compatible provider)",
+                    &base_url,
+                    key,
+                    model,
+                ),
+                IntegrationTool::Codex => render_openai_tool_settings(
+                    &mut out,
+                    "  Codex / codex-cli",
+                    &base_url,
+                    key,
+                    model,
+                ),
+                IntegrationTool::ClaudeCode => render_openai_tool_settings(
+                    &mut out,
+                    "  Claude Code custom OpenAI endpoint",
+                    &base_url,
+                    key,
+                    model,
+                ),
+                IntegrationTool::Env => render_openai_env_block(&mut out, &base_url, key, model),
+                IntegrationTool::Python => {
+                    render_openai_python_block(&mut out, &base_url, key, model)
+                }
+                IntegrationTool::Node => render_openai_node_block(&mut out, &base_url, key, model),
+                IntegrationTool::Curl => render_openai_curl_block(&mut out, &base_url, key, model),
+                IntegrationTool::Anthropic => {}
+            }
+        }
+    } else if matches!(
+        tool,
+        IntegrationTool::Cursor
+            | IntegrationTool::Codex
+            | IntegrationTool::ClaudeCode
+            | IntegrationTool::Env
+            | IntegrationTool::Python
+            | IntegrationTool::Node
+            | IntegrationTool::Curl
+    ) {
         let _ = writeln!(&mut out);
         let _ = writeln!(
             &mut out,
-            "OpenAI-compatible tools (Cursor / Codex / Claude Code custom endpoints):"
+            "No enabled OpenAI-compatible provider is bound to this mode."
         );
-        let _ = writeln!(&mut out, "  Base URL: {}", base_url);
-        let _ = writeln!(
-            &mut out,
-            "  Suggested model: {}",
-            if model.is_empty() {
-                "your-model"
-            } else {
-                model
-            }
-        );
-        if let Some(key) = key {
-            let _ = writeln!(&mut out, "  API Key: {}", key);
-            let _ = writeln!(&mut out, "  Quick test:");
-            let _ = writeln!(
-                &mut out,
-                "    curl -s {}/chat/completions -H \"Authorization: Bearer {}\" -H \"Content-Type: application/json\" -d '{{\"model\":\"{}\",\"messages\":[{{\"role\":\"user\",\"content\":\"hello\"}}]}}'",
-                base_url,
-                key,
-                if model.is_empty() {
-                    "your-model"
-                } else {
-                    model
-                }
-            );
-        }
     }
 
     if let Some(provider) = anthropic_provider {
-        let model = provider.endpoint_id.as_deref().unwrap_or("your-model");
+        let model = provider_default_model(provider, "your-model");
         let base_url = user_anthropic_base_url(bind_override);
+        if matches!(tool, IntegrationTool::All | IntegrationTool::Anthropic) {
+            let _ = writeln!(&mut out);
+            render_anthropic_block(&mut out, &base_url, key, model);
+        }
+    } else if matches!(tool, IntegrationTool::Anthropic) {
         let _ = writeln!(&mut out);
-        let _ = writeln!(&mut out, "Anthropic-compatible clients:");
-        let _ = writeln!(&mut out, "  Base URL: {}", base_url);
         let _ = writeln!(
             &mut out,
-            "  Suggested model: {}",
-            if model.is_empty() {
-                "your-model"
-            } else {
-                model
-            }
+            "No enabled Anthropic-compatible provider is bound to this mode."
         );
-        if let Some(key) = key {
-            let _ = writeln!(&mut out, "  x-api-key: {}", key);
-            let _ = writeln!(&mut out, "  Quick test:");
-            let _ = writeln!(
-                &mut out,
-                "    curl -s {}/v1/messages -H \"x-api-key: {}\" -H \"anthropic-version: 2023-06-01\" -H \"Content-Type: application/json\" -d '{{\"model\":\"{}\",\"max_tokens\":64,\"messages\":[{{\"role\":\"user\",\"content\":\"hello\"}}]}}'",
-                base_url,
-                key,
-                if model.is_empty() {
-                    "your-model"
-                } else {
-                    model
-                }
-            );
-        }
     }
 
     out.trim_end().to_string()
 }
 
+#[cfg(test)]
 fn planned_modes(service_id: Option<&str>, service_name: Option<&str>) -> Vec<(String, String)> {
     if let Some(service_id) = service_id {
         return vec![(
@@ -377,6 +578,60 @@ fn planned_modes(service_id: Option<&str>, service_name: Option<&str>) -> Vec<(S
         ("fast".to_string(), "Fast".to_string()),
         ("strong".to_string(), "Strong".to_string()),
         ("backup".to_string(), "Backup".to_string()),
+    ]
+}
+
+fn quickstart_mode_plans(
+    service_id: Option<&str>,
+    service_name: Option<&str>,
+    primary_provider_id: i64,
+    secondary_provider_id: Option<i64>,
+) -> Vec<QuickstartModePlan> {
+    if let Some(service_id) = service_id {
+        let mut bindings = vec![(primary_provider_id, 0)];
+        let routing_strategy = if let Some(secondary_provider_id) = secondary_provider_id {
+            bindings.push((secondary_provider_id, 1));
+            "fallback"
+        } else {
+            "round_robin"
+        };
+
+        return vec![QuickstartModePlan {
+            id: service_id.to_string(),
+            name: service_name.unwrap_or(service_id).to_string(),
+            routing_strategy,
+            bindings,
+        }];
+    }
+
+    let strong_bindings = secondary_provider_id
+        .map(|provider_id| vec![(provider_id, 0)])
+        .unwrap_or_else(|| vec![(primary_provider_id, 0)]);
+
+    let mut backup_bindings = vec![(primary_provider_id, 0)];
+    if let Some(secondary_provider_id) = secondary_provider_id {
+        backup_bindings.push((secondary_provider_id, 1));
+    }
+
+    vec![
+        QuickstartModePlan {
+            id: "fast".to_string(),
+            name: "Fast".to_string(),
+            routing_strategy: "round_robin",
+            bindings: vec![(primary_provider_id, 0)],
+        },
+        QuickstartModePlan {
+            id: "strong".to_string(),
+            name: "Strong".to_string(),
+            routing_strategy: "round_robin",
+            bindings: strong_bindings,
+        },
+        QuickstartModePlan {
+            id: "backup".to_string(),
+            name: "Backup".to_string(),
+            routing_strategy: "fallback",
+            bindings: backup_bindings,
+        },
     ]
 }
 
@@ -488,6 +743,11 @@ fn render_route_explanation(mode: &ModeView) -> String {
                 "     endpoint_id: {}",
                 provider.endpoint_id.as_deref().unwrap_or("-")
             );
+            let _ = writeln!(
+                &mut out,
+                "     default_model: {}",
+                provider.default_model.as_deref().unwrap_or("-")
+            );
             let _ = writeln!(&mut out, "     resolved_base_url: {}", resolved_base_url);
             let _ = writeln!(
                 &mut out,
@@ -524,6 +784,32 @@ fn render_route_explanation(mode: &ModeView) -> String {
 }
 
 fn summarize_response_text(body: &str) -> String {
+    let streamed = body
+        .lines()
+        .filter_map(|line| line.strip_prefix("data: "))
+        .filter(|line| !line.trim().is_empty() && *line != "[DONE]")
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter_map(|value| {
+            value
+                .pointer("/choices/0/delta/content")
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    value
+                        .pointer("/choices/0/message/content")
+                        .and_then(Value::as_str)
+                })
+                .or_else(|| value.pointer("/content/0/text").and_then(Value::as_str))
+                .map(ToOwned::to_owned)
+        })
+        .collect::<String>();
+    if !streamed.trim().is_empty() {
+        return if streamed.len() > 160 {
+            format!("{}...", &streamed[..160])
+        } else {
+            streamed
+        };
+    }
+
     let parsed = serde_json::from_str::<Value>(body).ok();
     let text = parsed
         .as_ref()
@@ -655,33 +941,66 @@ pub async fn quickstart(
     params: QuickstartParams<'_>,
 ) -> Result<QuickstartResult> {
     let state = GatewayState::load(Path::new(config_path)).await?;
-    let provider_id = state
-        .create_provider(
+    let primary_provider_id = state
+        .create_provider_with_models(
             params.provider_name,
             params.provider_type,
             params.endpoint_id,
             params.base_url,
             params.api_key,
-            params.model_mapping,
+            ProviderModelOptions {
+                default_model: params.default_model,
+                model_mapping: params.model_mapping,
+            },
         )
         .await;
 
-    let planned = planned_modes(params.service_id, params.service_name);
-    let default_mode = planned.first().map(|(mode_id, _)| mode_id.clone());
+    let secondary_provider_id = match (
+        params.backup_provider_name,
+        params.backup_provider_type,
+        params.backup_endpoint_id,
+        params.backup_api_key,
+    ) {
+        (Some(name), Some(provider_type), Some(endpoint_id), Some(api_key)) => Some(
+            state
+                .create_provider_with_models(
+                    name,
+                    provider_type,
+                    endpoint_id,
+                    params.backup_base_url,
+                    api_key,
+                    ProviderModelOptions {
+                        default_model: params.backup_default_model,
+                        model_mapping: params.backup_model_mapping,
+                    },
+                )
+                .await,
+        ),
+        (None, None, None, None) => None,
+        _ => bail!("backup provider requires name, provider_type, endpoint_id, and api_key"),
+    };
+
+    let planned = quickstart_mode_plans(
+        params.service_id,
+        params.service_name,
+        primary_provider_id,
+        secondary_provider_id,
+    );
+    let default_mode = planned.first().map(|mode| mode.id.clone());
     let mut modes = Vec::new();
-    for (service_id, service_name) in planned {
+    for plan in planned {
         let key = format!("ugk_{}", hex::encode(rand::random::<[u8; 16]>()));
-        state.create_service(&service_id, &service_name).await;
+        state.create_service(&plan.id, &plan.name).await;
         state
-            .bind_provider_to_service(&service_id, provider_id)
+            .set_service_routing_strategy(&plan.id, plan.routing_strategy)
             .await?;
-        state
-            .create_api_key(&key, &service_id, None, None, None)
-            .await;
-        modes.push(QuickstartModeOutput {
-            id: service_id,
-            key,
-        });
+        for (provider_id, priority) in &plan.bindings {
+            state
+                .bind_provider_to_service_with_priority(&plan.id, *provider_id, *priority)
+                .await?;
+        }
+        state.create_api_key(&key, &plan.id, None, None, None).await;
+        modes.push(QuickstartModeOutput { id: plan.id, key });
     }
 
     if let Some(default_mode) = default_mode {
@@ -774,12 +1093,13 @@ pub async fn show_mode(config_path: &str, mode_id: &str) -> Result<()> {
         println!("Providers:");
         for provider in &mode.providers {
             println!(
-                "  - name={} type={} enabled={} priority={} endpoint={} base_url={}",
+                "  - name={} type={} enabled={} priority={} endpoint={} default_model={} base_url={}",
                 provider.name,
                 provider.provider_type,
                 provider.is_enabled,
                 provider.priority,
                 provider.endpoint_id.as_deref().unwrap_or("-"),
+                provider.default_model.as_deref().unwrap_or("-"),
                 provider.base_url.as_deref().unwrap_or("(default)"),
             );
         }
@@ -933,19 +1253,22 @@ pub async fn doctor(
 pub async fn print_integrations(
     config_path: &str,
     mode_id: Option<&str>,
+    tool: Option<&str>,
     bind_override: Option<&str>,
 ) -> Result<()> {
-    print_integrations_with_key(config_path, mode_id, None, bind_override).await
+    print_integrations_with_key(config_path, mode_id, tool, None, bind_override).await
 }
 
 pub async fn print_integrations_with_key(
     config_path: &str,
     mode_id: Option<&str>,
+    tool: Option<&str>,
     preferred_key: Option<&str>,
     bind_override: Option<&str>,
 ) -> Result<()> {
     let modes = load_mode_views(config_path).await?;
     let mode = select_mode(&modes, mode_id)?;
+    let tool = parse_integration_tool(tool)?;
     let key = preferred_key.map(ToOwned::to_owned).or_else(|| {
         mode.keys
             .iter()
@@ -956,7 +1279,7 @@ pub async fn print_integrations_with_key(
 
     println!(
         "{}",
-        render_integration_output(mode, key.as_deref(), bind_override)
+        render_integration_output_for_tool(mode, key.as_deref(), bind_override, tool)
     );
     Ok(())
 }
@@ -979,7 +1302,7 @@ pub async fn test_mode(
                 .into_iter()
                 .next()
                 .with_context(|| format!("mode '{}' has no openai provider", mode.id))?;
-            let model = provider.endpoint_id.as_deref().unwrap_or("gpt-4o-mini");
+            let model = provider_default_model(provider, "gpt-4o-mini");
             (
                 format!("{}/chat/completions", user_openai_base_url(bind_override)),
                 client
@@ -991,7 +1314,8 @@ pub async fn test_mode(
                     .json(&serde_json::json!({
                         "model": model,
                         "messages": [{"role": "user", "content": "reply with ok"}],
-                        "max_tokens": 16
+                        "max_tokens": 16,
+                        "stream": true
                     })),
             )
         }
@@ -1000,10 +1324,7 @@ pub async fn test_mode(
                 .into_iter()
                 .next()
                 .with_context(|| format!("mode '{}' has no anthropic provider", mode.id))?;
-            let model = provider
-                .endpoint_id
-                .as_deref()
-                .unwrap_or("claude-3-5-sonnet-latest");
+            let model = provider_default_model(provider, "claude-3-5-sonnet-latest");
             (
                 format!("{}/v1/messages", user_anthropic_base_url(bind_override)),
                 client
@@ -1016,7 +1337,8 @@ pub async fn test_mode(
                     .json(&serde_json::json!({
                         "model": model,
                         "max_tokens": 32,
-                        "messages": [{"role": "user", "content": "reply with ok"}]
+                        "messages": [{"role": "user", "content": "reply with ok"}],
+                        "stream": true
                     })),
             )
         }
@@ -1058,8 +1380,9 @@ pub async fn test_mode(
 #[cfg(test)]
 mod tests {
     use super::{
-        ModeKey, ModeProvider, ModeView, QuickstartParams, effective_default_mode_id,
-        planned_modes, quickstart, render_route_explanation, user_bind_address,
+        IntegrationTool, ModeKey, ModeProvider, ModeView, QuickstartParams,
+        effective_default_mode_id, planned_modes, quickstart, render_integration_output_for_tool,
+        render_route_explanation, summarize_response_text, user_bind_address,
     };
     use crate::config::GatewayState;
     use std::path::Path;
@@ -1122,10 +1445,18 @@ mod tests {
                 service_name: None,
                 provider_name: "deepseek-main",
                 provider_type: "openai",
-                endpoint_id: "deepseek-chat",
+                endpoint_id: "deepseek:global",
+                default_model: Some("deepseek-chat"),
                 base_url: Some("https://api.deepseek.com"),
                 api_key: "sk-test",
                 model_mapping: None,
+                backup_provider_name: None,
+                backup_provider_type: None,
+                backup_endpoint_id: None,
+                backup_default_model: None,
+                backup_base_url: None,
+                backup_api_key: None,
+                backup_model_mapping: None,
             },
         )
         .await
@@ -1148,6 +1479,67 @@ mod tests {
         assert!(services.iter().any(|(id, _)| id == "backup"));
     }
 
+    #[tokio::test]
+    async fn quickstart_uses_secondary_provider_for_strong_and_backup_modes() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let config_path_str = config_path.to_str().expect("utf8 path");
+
+        quickstart(
+            config_path_str,
+            QuickstartParams {
+                service_id: None,
+                service_name: None,
+                provider_name: "deepseek-main",
+                provider_type: "openai",
+                endpoint_id: "deepseek:global",
+                default_model: Some("deepseek-chat"),
+                base_url: Some("https://api.deepseek.com"),
+                api_key: "sk-primary",
+                model_mapping: None,
+                backup_provider_name: Some("openai-backup"),
+                backup_provider_type: Some("openai"),
+                backup_endpoint_id: Some("openai:global"),
+                backup_default_model: Some("gpt-4o"),
+                backup_base_url: Some("https://api.openai.com"),
+                backup_api_key: Some("sk-backup"),
+                backup_model_mapping: None,
+            },
+        )
+        .await
+        .expect("quickstart");
+
+        let state = GatewayState::load(Path::new(config_path_str))
+            .await
+            .expect("load state");
+
+        assert_eq!(state.get_routing_strategy("fast").await, "round_robin");
+        assert_eq!(state.get_routing_strategy("strong").await, "round_robin");
+        assert_eq!(state.get_routing_strategy("backup").await, "fallback");
+
+        let fast = state
+            .select_all_providers_for_service("fast", "openai")
+            .await;
+        let strong = state
+            .select_all_providers_for_service("strong", "openai")
+            .await;
+        let backup = state
+            .select_all_providers_for_service("backup", "openai")
+            .await;
+
+        assert_eq!(fast.len(), 1);
+        assert_eq!(fast[0].name, "deepseek-main");
+        assert_eq!(fast[0].endpoint_id.as_deref(), Some("deepseek:global"));
+        assert_eq!(fast[0].default_model.as_deref(), Some("deepseek-chat"));
+        assert_eq!(strong.len(), 1);
+        assert_eq!(strong[0].name, "openai-backup");
+        assert_eq!(strong[0].endpoint_id.as_deref(), Some("openai:global"));
+        assert_eq!(strong[0].default_model.as_deref(), Some("gpt-4o"));
+        assert_eq!(backup.len(), 2);
+        assert_eq!(backup[0].name, "deepseek-main");
+        assert_eq!(backup[1].name, "openai-backup");
+    }
+
     #[test]
     fn route_explanation_prefers_enabled_providers() {
         let explanation = render_route_explanation(&ModeView {
@@ -1159,8 +1551,9 @@ mod tests {
                 ModeProvider {
                     name: "disabled-openai".to_string(),
                     provider_type: "openai".to_string(),
-                    endpoint_id: Some("gpt-4o".to_string()),
+                    endpoint_id: Some("openai:global".to_string()),
                     base_url: Some("https://api.openai.com".to_string()),
+                    default_model: Some("gpt-4o".to_string()),
                     model_mapping: None,
                     has_api_key: true,
                     is_enabled: false,
@@ -1169,8 +1562,9 @@ mod tests {
                 ModeProvider {
                     name: "deepseek-main".to_string(),
                     provider_type: "openai".to_string(),
-                    endpoint_id: Some("deepseek-chat".to_string()),
+                    endpoint_id: Some("deepseek:global".to_string()),
                     base_url: Some("https://api.deepseek.com".to_string()),
+                    default_model: Some("deepseek-chat".to_string()),
                     model_mapping: Some("fast-default=deepseek-chat".to_string()),
                     has_api_key: true,
                     is_enabled: true,
@@ -1193,5 +1587,53 @@ mod tests {
         assert!(explanation.contains("deepseek-main"));
         assert!(explanation.contains("Disabled bound providers:"));
         assert!(!explanation.contains("1. disabled-openai"));
+    }
+
+    #[test]
+    fn integration_output_can_filter_by_tool() {
+        let output = render_integration_output_for_tool(
+            &ModeView {
+                id: "fast".to_string(),
+                name: "Fast".to_string(),
+                is_default: true,
+                routing_strategy: "round_robin".to_string(),
+                providers: vec![ModeProvider {
+                    name: "deepseek-main".to_string(),
+                    provider_type: "openai".to_string(),
+                    endpoint_id: Some("deepseek:global".to_string()),
+                    base_url: Some("https://api.deepseek.com".to_string()),
+                    default_model: Some("deepseek-chat".to_string()),
+                    model_mapping: None,
+                    has_api_key: true,
+                    is_enabled: true,
+                    priority: 0,
+                }],
+                keys: vec![ModeKey {
+                    key: "ugk_test".to_string(),
+                    is_active: true,
+                    quota_limit: None,
+                    qps_limit: None,
+                    concurrency_limit: None,
+                }],
+            },
+            Some("ugk_test"),
+            Some("127.0.0.1:3210"),
+            IntegrationTool::Cursor,
+        );
+
+        assert!(output.contains("Cursor (OpenAI-compatible provider):"));
+        assert!(!output.contains("Codex / codex-cli"));
+        assert!(!output.contains("Python (openai SDK):"));
+    }
+
+    #[test]
+    fn summarize_response_text_handles_sse_chunks() {
+        let body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"o\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"k\"}}]}\n\n",
+            "data: [DONE]\n"
+        );
+
+        assert_eq!(summarize_response_text(body), "ok");
     }
 }

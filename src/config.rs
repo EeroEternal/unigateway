@@ -48,6 +48,8 @@ pub struct ProviderEntry {
     pub base_url: String,
     pub api_key: String,
     #[serde(default)]
+    pub default_model: String,
+    #[serde(default)]
     pub model_mapping: String,
     #[serde(default = "default_true")]
     pub is_enabled: bool,
@@ -55,6 +57,11 @@ pub struct ProviderEntry {
 
 fn default_true() -> bool {
     true
+}
+
+pub struct ProviderModelOptions<'a> {
+    pub default_model: Option<&'a str>,
+    pub model_mapping: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,6 +170,7 @@ pub struct ServiceProvider {
     pub endpoint_id: Option<String>,
     pub base_url: Option<String>,
     pub api_key: Option<String>,
+    pub default_model: Option<String>,
     pub model_mapping: Option<String>,
 }
 
@@ -291,6 +299,11 @@ impl GatewayState {
                         Some(p.base_url.clone())
                     },
                     api_key: Some(p.api_key.clone()),
+                    default_model: if p.default_model.is_empty() {
+                        None
+                    } else {
+                        Some(p.default_model.clone())
+                    },
                     model_mapping: if p.model_mapping.is_empty() {
                         None
                     } else {
@@ -347,6 +360,11 @@ impl GatewayState {
                 Some(p.base_url)
             },
             api_key: Some(p.api_key),
+            default_model: if p.default_model.is_empty() {
+                None
+            } else {
+                Some(p.default_model)
+            },
             model_mapping: if p.model_mapping.is_empty() {
                 None
             } else {
@@ -415,6 +433,11 @@ impl GatewayState {
                 Some(p.base_url)
             },
             api_key: Some(p.api_key),
+            default_model: if p.default_model.is_empty() {
+                None
+            } else {
+                Some(p.default_model)
+            },
             model_mapping: if p.model_mapping.is_empty() {
                 None
             } else {
@@ -505,6 +528,25 @@ impl GatewayState {
         guard.dirty = true;
     }
 
+    pub async fn set_service_routing_strategy(
+        &self,
+        service_id: &str,
+        routing_strategy: &str,
+    ) -> Result<()> {
+        let mut guard = self.inner.write().await;
+        let Some(service) = guard
+            .file
+            .services
+            .iter_mut()
+            .find(|service| service.id == service_id)
+        else {
+            anyhow::bail!("service '{}' not found", service_id);
+        };
+        service.routing_strategy = routing_strategy.to_string();
+        guard.dirty = true;
+        Ok(())
+    }
+
     pub async fn list_providers(
         &self,
     ) -> Vec<(i64, String, String, Option<String>, Option<String>)> {
@@ -543,6 +585,29 @@ impl GatewayState {
         api_key: &str,
         model_mapping: Option<&str>,
     ) -> i64 {
+        self.create_provider_with_models(
+            name,
+            provider_type,
+            endpoint_id,
+            base_url,
+            api_key,
+            ProviderModelOptions {
+                default_model: None,
+                model_mapping,
+            },
+        )
+        .await
+    }
+
+    pub async fn create_provider_with_models(
+        &self,
+        name: &str,
+        provider_type: &str,
+        endpoint_id: &str,
+        base_url: Option<&str>,
+        api_key: &str,
+        model_options: ProviderModelOptions<'_>,
+    ) -> i64 {
         let mut guard = self.inner.write().await;
         let entry = ProviderEntry {
             name: name.to_string(),
@@ -550,7 +615,8 @@ impl GatewayState {
             endpoint_id: endpoint_id.to_string(),
             base_url: base_url.unwrap_or("").to_string(),
             api_key: api_key.to_string(),
-            model_mapping: model_mapping.unwrap_or("").to_string(),
+            default_model: model_options.default_model.unwrap_or("").to_string(),
+            model_mapping: model_options.model_mapping.unwrap_or("").to_string(),
             is_enabled: true,
         };
         let idx = if let Some((i, p)) = guard
@@ -572,6 +638,16 @@ impl GatewayState {
     }
 
     pub async fn bind_provider_to_service(&self, service_id: &str, provider_id: i64) -> Result<()> {
+        self.bind_provider_to_service_with_priority(service_id, provider_id, 0)
+            .await
+    }
+
+    pub async fn bind_provider_to_service_with_priority(
+        &self,
+        service_id: &str,
+        provider_id: i64,
+        priority: i64,
+    ) -> Result<()> {
         let provider_name = {
             let guard = self.inner.read().await;
             let idx = provider_id as usize;
@@ -586,11 +662,16 @@ impl GatewayState {
             .bindings
             .iter()
             .any(|b| b.service_id == service_id && b.provider_name == provider_name);
-        if !exists {
+        if let Some(binding) = guard.file.bindings.iter_mut().find(|binding| {
+            binding.service_id == service_id && binding.provider_name == provider_name
+        }) {
+            binding.priority = priority;
+            guard.dirty = true;
+        } else if !exists {
             guard.file.bindings.push(BindingEntry {
                 service_id: service_id.to_string(),
                 provider_name,
-                priority: 0,
+                priority,
             });
             guard.dirty = true;
         }
