@@ -40,7 +40,6 @@ struct QuickstartModePlan {
     bindings: Vec<(i64, i64)>,
 }
 
-#[cfg(test)]
 pub(crate) fn planned_modes(
     service_id: Option<&str>,
     service_name: Option<&str>,
@@ -239,8 +238,10 @@ pub async fn quickstart(
         // If multi-mode, we might need provider-per-mode or model-mapped-to-mode.
         // The previous implementation used model mapping like "fast=...".
 
-        if let Some(m) = model_options.default_model {
-            state.set_provider_model_options(primary_provider_id, model_options).await?;
+        if model_options.default_model.is_some() {
+            state
+                .set_provider_model_options(primary_provider_id, model_options)
+                .await?;
         }
 
         for (provider_id, priority) in &plan.bindings {
