@@ -175,7 +175,7 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
         ];
         let selection = Select::with_theme(&ColorfulTheme::default())
             .with_prompt("Choose setup type")
-            .items(&options)
+            .items(options)
             .default(0)
             .interact()
             .unwrap();
