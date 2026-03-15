@@ -146,7 +146,7 @@ enum Commands {
     /// Self-upgrade to the latest release.
     Upgrade,
     /// Interactive setup: create service, provider, bind, and API key.
-    Quickstart(setup::QuickstartCommand),
+    Quickstart(Box<setup::QuickstartCommand>),
 }
 
 #[derive(Subcommand, Debug)]
@@ -344,7 +344,7 @@ async fn main() -> Result<()> {
         },
         Some(Commands::Mcp { config }) => mcp::run(&config).await,
         Some(Commands::Upgrade) => upgrade::run_upgrade().await,
-        Some(Commands::Quickstart(command)) => setup::run_quickstart(command).await,
+        Some(Commands::Quickstart(command)) => setup::run_quickstart(*command).await,
         None => {
             let app_config = types::AppConfig::from_env();
             server::run(app_config).await
