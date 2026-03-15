@@ -169,7 +169,10 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
     let provider_name = provider_name.unwrap_or_else(|| provider_setup.provider_type.clone());
 
     let (fast_model, strong_model) = if interactive {
-        let options = ["Simple (single `default` mode)", "Multi-model (separate `fast` and `strong` modes)"];
+        let options = [
+            "Simple (single `default` mode)",
+            "Multi-model (separate `fast` and `strong` modes)",
+        ];
         let selection = Select::with_theme(&ColorfulTheme::default())
             .with_prompt("Choose setup type")
             .items(&options)
@@ -193,7 +196,8 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
                     base_url: provider_setup.base_url.clone(),
                     api_key: Some(provider_setup.api_key.clone()),
                 },
-            ).default_model;
+            )
+            .default_model;
 
             let strong = resolve_provider_setup(
                 ProviderPromptLabels {
@@ -209,7 +213,8 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
                     base_url: provider_setup.base_url.clone(),
                     api_key: Some(provider_setup.api_key.clone()),
                 },
-            ).default_model;
+            )
+            .default_model;
 
             (fast, strong)
         } else {
