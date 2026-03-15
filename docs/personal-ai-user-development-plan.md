@@ -2,6 +2,61 @@
 
 这份文档用于指导接下来几轮迭代，目标是把 UniGateway 从“通用轻量 LLM 网关”收敛为“个人开发者 / AI 重度使用者的统一模型入口”。
 
+## 0. 当前进度更新（2026-03-15）
+
+目前主线目标已经进入“核心能力已成形，继续做工具接入和产品化打磨”的阶段。
+
+### 已完成的核心能力
+
+- mode 导向 CLI：`ug mode list/show/use`
+- 路由解释：`ug route explain`
+- 集成模板输出：`ug integrations`
+- 诊断与烟雾测试：`ug doctor`、`ug test`
+- quickstart 默认生成 `fast` / `strong` / `backup`
+- provider / model 数据改为基于 registry 动态生成
+- OpenAI / Anthropic 默认启用 streaming
+
+### 已完成的主要重构
+
+- `cli.rs` 已拆分为 `modes / render / quickstart / diagnostics`
+- `main.rs` 的 quickstart/setup 逻辑已拆到 `setup/`
+- `gateway.rs` 已拆到 `gateway/chat.rs`、`gateway/streaming.rs`
+- `protocol.rs` 已拆到 `protocol/client.rs`、`protocol/messages.rs`
+- `config.rs` 已拆到 `config/schema.rs`、`store.rs`、`select.rs`、`admin.rs`
+- `cli/render.rs` 已拆到 `cli/render/integrations.rs`、`cli/render/routes.rs`
+
+### 当前工具支持状态
+
+已经具备模板或显式支持的工具：
+
+- Cursor
+- Claude Code
+- Codex
+- OpenClaw
+- Zed
+- Droid
+- OpenCode
+- 通用 `env / python / node / curl / anthropic`
+
+### 当前接入优先级
+
+后续产品化打磨优先围绕下面这组工具推进：
+
+1. OpenClaw
+2. Zed
+3. Claude Code
+4. Cursor
+5. Droid
+6. OpenCode
+
+### 当前判断
+
+项目最核心的“统一本地入口 + mode 抽象 + 多上游路由 + 工具接入”方向已经实现，接下来的重点不再是大规模底层重写，而是：
+
+- 把高优先级工具做成更低摩擦的一等公民集成
+- 强化多 mode 工作流
+- 继续提升诊断、解释和默认体验
+
 ## 1. 开发总目标
 
 在接下来的开发中，我们只围绕一个核心目标推进：

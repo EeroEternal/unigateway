@@ -23,7 +23,7 @@ pub use quickstart::{
 };
 #[cfg(test)]
 pub(crate) use render::{
-    integrations::{IntegrationTool, render_integration_output_for_tool},
+    integrations::{IntegrationTool, parse_integration_tool, render_integration_output_for_tool},
     routes::render_route_explanation,
 };
 pub use render::{
@@ -54,8 +54,9 @@ pub async fn print_metrics_snapshot(config_path: &str) -> Result<()> {
 mod tests {
     use super::{
         IntegrationTool, ModeKey, ModeProvider, ModeView, QuickstartParams,
-        effective_default_mode_id, planned_modes, quickstart, render_integration_output_for_tool,
-        render_route_explanation, summarize_response_text, user_bind_address,
+        effective_default_mode_id, parse_integration_tool, planned_modes, quickstart,
+        render_integration_output_for_tool, render_route_explanation, summarize_response_text,
+        user_bind_address,
     };
     use crate::config::GatewayState;
     use std::path::Path;
@@ -73,12 +74,10 @@ mod tests {
     }
 
     #[test]
-    fn planned_modes_defaults_to_personal_bundle() {
+    fn planned_modes_defaults_to_single_mode() {
         let modes = planned_modes(None, None);
-        assert_eq!(modes.len(), 3);
-        assert_eq!(modes[0].0, "fast");
-        assert_eq!(modes[1].0, "strong");
-        assert_eq!(modes[2].0, "backup");
+        assert_eq!(modes.len(), 1);
+        assert_eq!(modes[0].0, "default");
     }
 
     #[test]
@@ -106,7 +105,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn quickstart_creates_personal_bundle_when_mode_not_specified() {
+    async fn quickstart_creates_single_mode_when_mode_not_specified() {
         let dir = tempdir().expect("tempdir");
         let config_path = dir.path().join("config.toml");
         let config_path_str = config_path.to_str().expect("utf8 path");
@@ -135,7 +134,7 @@ mod tests {
         .await
         .expect("quickstart");
 
-        assert_eq!(result.modes.len(), 3);
+        assert_eq!(result.modes.len(), 1);
 
         let state = GatewayState::load(Path::new(config_path_str))
             .await
@@ -144,16 +143,14 @@ mod tests {
         let keys = state.list_api_keys().await;
         let default_mode = state.get_default_mode().await;
 
-        assert_eq!(services.len(), 3);
-        assert_eq!(keys.len(), 3);
-        assert_eq!(default_mode.as_deref(), Some("fast"));
-        assert!(services.iter().any(|(id, _)| id == "fast"));
-        assert!(services.iter().any(|(id, _)| id == "strong"));
-        assert!(services.iter().any(|(id, _)| id == "backup"));
+        assert_eq!(services.len(), 1);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(default_mode.as_deref(), Some("default"));
+        assert!(services.iter().any(|(id, _)| id == "default"));
     }
 
     #[tokio::test]
-    async fn quickstart_uses_secondary_provider_for_strong_and_backup_modes() {
+    async fn quickstart_configures_fallback_when_secondary_provider_given() {
         let dir = tempdir().expect("tempdir");
         let config_path = dir.path().join("config.toml");
         let config_path_str = config_path.to_str().expect("utf8 path");
@@ -186,31 +183,19 @@ mod tests {
             .await
             .expect("load state");
 
-        assert_eq!(state.get_routing_strategy("fast").await, "round_robin");
-        assert_eq!(state.get_routing_strategy("strong").await, "round_robin");
-        assert_eq!(state.get_routing_strategy("backup").await, "fallback");
+        assert_eq!(state.get_routing_strategy("default").await, "fallback");
 
-        let fast = state
-            .select_all_providers_for_service("fast", "openai")
-            .await;
-        let strong = state
-            .select_all_providers_for_service("strong", "openai")
-            .await;
-        let backup = state
-            .select_all_providers_for_service("backup", "openai")
+        let default_providers = state
+            .select_all_providers_for_service("default", "openai")
             .await;
 
-        assert_eq!(fast.len(), 1);
-        assert_eq!(fast[0].name, "deepseek-main");
-        assert_eq!(fast[0].endpoint_id.as_deref(), Some("deepseek:global"));
-        assert_eq!(fast[0].default_model.as_deref(), Some("deepseek-chat"));
-        assert_eq!(strong.len(), 1);
-        assert_eq!(strong[0].name, "openai-backup");
-        assert_eq!(strong[0].endpoint_id.as_deref(), Some("openai:global"));
-        assert_eq!(strong[0].default_model.as_deref(), Some("gpt-4o"));
-        assert_eq!(backup.len(), 2);
-        assert_eq!(backup[0].name, "deepseek-main");
-        assert_eq!(backup[1].name, "openai-backup");
+        assert_eq!(default_providers.len(), 2);
+        assert_eq!(default_providers[0].name, "deepseek-main");
+        assert_eq!(default_providers[0].endpoint_id.as_deref(), Some("deepseek:global"));
+        assert_eq!(default_providers[0].default_model.as_deref(), Some("deepseek-chat"));
+        assert_eq!(default_providers[1].name, "openai-backup");
+        assert_eq!(default_providers[1].endpoint_id.as_deref(), Some("openai:global"));
+        assert_eq!(default_providers[1].default_model.as_deref(), Some("gpt-4o"));
     }
 
     #[test]
@@ -297,6 +282,72 @@ mod tests {
         assert!(output.contains("Cursor (OpenAI-compatible provider):"));
         assert!(!output.contains("Codex / codex-cli"));
         assert!(!output.contains("Python (openai SDK):"));
+    }
+
+    #[test]
+    fn integration_output_supports_new_priority_tools() {
+        let mode = ModeView {
+            id: "fast".to_string(),
+            name: "Fast".to_string(),
+            is_default: true,
+            routing_strategy: "round_robin".to_string(),
+            providers: vec![ModeProvider {
+                name: "deepseek-main".to_string(),
+                provider_type: "openai".to_string(),
+                endpoint_id: Some("deepseek:global".to_string()),
+                base_url: Some("https://api.deepseek.com".to_string()),
+                default_model: Some("deepseek-chat".to_string()),
+                model_mapping: None,
+                has_api_key: true,
+                is_enabled: true,
+                priority: 0,
+            }],
+            keys: vec![ModeKey {
+                key: "ugk_test".to_string(),
+                is_active: true,
+                quota_limit: None,
+                qps_limit: None,
+                concurrency_limit: None,
+            }],
+        };
+
+        let zed = render_integration_output_for_tool(
+            &mode,
+            Some("ugk_test"),
+            Some("127.0.0.1:3210"),
+            IntegrationTool::Zed,
+        );
+        assert!(zed.contains("Zed (settings.json or Agent Panel > Add Provider):"));
+        assert!(zed.contains("\"openai_compatible\""));
+
+        let openclaw = render_integration_output_for_tool(
+            &mode,
+            Some("ugk_test"),
+            Some("127.0.0.1:3210"),
+            IntegrationTool::OpenClaw,
+        );
+        assert!(openclaw.contains("OpenClaw (~/.openclaw/openclaw.json):"));
+        assert!(openclaw.contains("api: \"openai-completions\""));
+    }
+
+    #[test]
+    fn parse_integration_tool_supports_new_targets() {
+        assert_eq!(
+            parse_integration_tool(Some("openclaw")).expect("openclaw"),
+            IntegrationTool::OpenClaw
+        );
+        assert_eq!(
+            parse_integration_tool(Some("zed")).expect("zed"),
+            IntegrationTool::Zed
+        );
+        assert_eq!(
+            parse_integration_tool(Some("droid")).expect("droid"),
+            IntegrationTool::Droid
+        );
+        assert_eq!(
+            parse_integration_tool(Some("opencode")).expect("opencode"),
+            IntegrationTool::OpenCode
+        );
     }
 
     #[test]

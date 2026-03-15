@@ -98,7 +98,7 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
     let backup_setup = if interactive {
         let add_backup = backup_requested
             || Confirm::with_theme(&ColorfulTheme::default())
-                .with_prompt("Add a second provider for strong/backup modes?")
+                .with_prompt("Add a second provider for automatic fallback?")
                 .default(false)
                 .interact()
                 .unwrap();
@@ -213,18 +213,16 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
         println!("\n  Smoke test after starting the gateway:\n");
         println!("    ug test --mode {}\n", mode.id);
         println!("\n  Tool-specific template examples:\n");
-        println!("    ug integrations --mode {} --tool cursor", mode.id);
-        println!("    ug integrations --mode {} --tool codex", mode.id);
-        println!(
-            "    ug integrations --mode {} --tool claude-code\n",
-            mode.id
-        );
+        println!("    ug integrations --mode {} --tool openclaw", mode.id);
+        println!("    ug integrations --mode {} --tool zed", mode.id);
+        println!("    ug integrations --mode {} --tool claude-code", mode.id);
+        println!("    ug integrations --mode {} --tool cursor\n", mode.id);
     }
 
     println!("  You can reprint these hints later with:\n");
     println!("    ug integrations --mode <mode>");
     println!(
-        "    ug integrations --mode <mode> --tool <cursor|codex|claude-code|env|python|node|curl|anthropic>\n"
+        "    ug integrations --mode <mode> --tool <openclaw|zed|cursor|claude-code|droid|opencode|codex|env|python|node|curl|anthropic>\n"
     );
     Ok(())
 }

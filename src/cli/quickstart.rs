@@ -50,11 +50,10 @@ pub(crate) fn planned_modes(
         )];
     }
 
-    vec![
-        ("fast".to_string(), "Fast".to_string()),
-        ("strong".to_string(), "Strong".to_string()),
-        ("backup".to_string(), "Backup".to_string()),
-    ]
+    vec![(
+        "default".to_string(),
+        "Default".to_string(),
+    )]
 }
 
 fn quickstart_mode_plans(
@@ -80,35 +79,20 @@ fn quickstart_mode_plans(
         }];
     }
 
-    let strong_bindings = secondary_provider_id
-        .map(|provider_id| vec![(provider_id, 0)])
-        .unwrap_or_else(|| vec![(primary_provider_id, 0)]);
+    let mut bindings = vec![(primary_provider_id, 0)];
+    let routing_strategy = if let Some(secondary_provider_id) = secondary_provider_id {
+        bindings.push((secondary_provider_id, 1));
+        "fallback"
+    } else {
+        "round_robin"
+    };
 
-    let mut backup_bindings = vec![(primary_provider_id, 0)];
-    if let Some(secondary_provider_id) = secondary_provider_id {
-        backup_bindings.push((secondary_provider_id, 1));
-    }
-
-    vec![
-        QuickstartModePlan {
-            id: "fast".to_string(),
-            name: "Fast".to_string(),
-            routing_strategy: "round_robin",
-            bindings: vec![(primary_provider_id, 0)],
-        },
-        QuickstartModePlan {
-            id: "strong".to_string(),
-            name: "Strong".to_string(),
-            routing_strategy: "round_robin",
-            bindings: strong_bindings,
-        },
-        QuickstartModePlan {
-            id: "backup".to_string(),
-            name: "Backup".to_string(),
-            routing_strategy: "fallback",
-            bindings: backup_bindings,
-        },
-    ]
+    vec![QuickstartModePlan {
+        id: "default".to_string(),
+        name: "Default".to_string(),
+        routing_strategy,
+        bindings,
+    }]
 }
 
 pub async fn create_service(config_path: &str, service_id: &str, name: &str) -> Result<()> {

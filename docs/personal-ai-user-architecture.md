@@ -40,7 +40,7 @@
 ### 用户应该优先看到的概念
 
 - **接入入口（endpoint）**：给工具和脚本配置的地址
-- **模式（mode）**：`fast`、`strong`、`cheap`、`backup`
+- **模式（mode）**：`default`
 - **上游（upstream）**：OpenAI、Anthropic、DeepSeek、Groq 等
 - **工具接入（integration）**：Cursor、Codex、Claude Code、脚本
 - **诊断（diagnostics）**：连通性、当前路由、最近失败信息
@@ -76,10 +76,7 @@
 
 用户不是直接选择 provider，而是选择“当前要什么”：
 
-- `fast`：低延迟优先
-- `strong`：效果优先
-- `cheap`：成本优先
-- `backup`：稳定可用优先
+- `default`：统一工作流入口
 
 模式是用户和底层路由系统之间的桥梁。
 
@@ -150,10 +147,7 @@ CLI 和文档优先使用 `mode`，内部仍可复用 `service` 实现。
 
 示例：
 
-- `fast`
-- `strong`
-- `cheap`
-- `backup`
+- `default`
 - `script-default`
 
 一个 mode 需要具备：
@@ -231,16 +225,10 @@ api_key = "sk-..."
 capabilities = ["chat", "fast", "cheap"]
 
 [[modes]]
-name = "fast"
+name = "default"
 primary = ["deepseek-fast"]
 fallback = ["openai-main"]
 default_model = "fast-default"
-
-[[modes]]
-name = "strong"
-primary = ["openai-main"]
-fallback = ["deepseek-fast"]
-default_model = "strong-default"
 ```
 
 ### 与当前实现的兼容策略
@@ -332,8 +320,8 @@ default_model = "strong-default"
 
 1. 用户安装 `ug`
 2. 执行 `ug quickstart`
-3. 选择 1~3 个常用上游
-4. 自动生成 `fast` / `strong` / `backup` 模式
+3. 选择 1~2 个常用上游
+4. 自动生成 `default` 模式
 5. 输出工具接入片段
 6. 运行一条验证命令确认成功
 
