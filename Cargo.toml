@@ -1,6 +1,6 @@
 [package]
 name = "unigateway"
-version = "0.7.2"
+version = "0.7.3"
 edition = "2024"
 rust-version = "1.92"
 description = "Lightweight, local-first LLM gateway for developers. A stable, single-binary unified entry point for all your AI tools and models."

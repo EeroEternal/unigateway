@@ -7,6 +7,9 @@
     Connect all your AI tools to any LLM provider through a single, stable local endpoint.
   </p>
   <p>
+    🌐 <strong><a href="http://unigate.sh/">Website: unigate.sh</a></strong>
+  </p>
+  <p>
     <a href="https://github.com/EeroEternal/unigateway/actions/workflows/rust.yml"><img src="https://github.com/EeroEternal/unigateway/actions/workflows/rust.yml/badge.svg" alt="Build Status"></a>
     <a href="https://crates.io/crates/unigateway"><img src="https://img.shields.io/crates/v/unigateway.svg" alt="Crate"></a>
     <a href="https://github.com/EeroEternal/unigateway/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
