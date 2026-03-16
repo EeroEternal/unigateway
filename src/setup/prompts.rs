@@ -19,6 +19,7 @@ pub(super) struct ProviderSetupInput {
 }
 
 pub(super) struct ProviderSetup {
+    pub(super) name: String,
     pub(super) provider_type: String,
     pub(super) endpoint_id: String,
     pub(super) default_model: Option<String>,
@@ -131,6 +132,11 @@ pub(super) fn resolve_provider_setup(
         });
 
         ProviderSetup {
+            name: if provider.family_id == "custom" {
+                provider.provider_type.clone()
+            } else {
+                provider.family_id.clone()
+            },
             provider_type: provider.provider_type.clone(),
             endpoint_id,
             default_model,
@@ -145,6 +151,7 @@ pub(super) fn resolve_provider_setup(
             preferred_model_for_endpoint(&endpoint_id, &model_ids)
         });
         ProviderSetup {
+            name: provider_type.clone(),
             provider_type,
             endpoint_id,
             default_model,

@@ -4,6 +4,8 @@ mod registry;
 use anyhow::Result;
 use clap::Args;
 use dialoguer::{Confirm, Select, theme::ColorfulTheme};
+use std::path::Path;
+use std::fs;
 
 use crate::cli;
 
@@ -76,6 +78,34 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
 
     if interactive {
         println!("\n  Welcome to UniGateway quickstart!\n");
+
+        let config_path = Path::new(&config);
+        if config_path.exists() {
+            println!("  Existing configuration found at: {}\n", config);
+            let options = [
+                "Add to existing configuration (recommended)",
+                "Clear existing configuration and start fresh",
+                "Cancel quickstart",
+            ];
+            let selection = Select::with_theme(&ColorfulTheme::default())
+                .with_prompt("How would you like to proceed?")
+                .items(&options)
+                .default(0)
+                .interact()
+                .unwrap();
+
+            match selection {
+                1 => {
+                    fs::remove_file(config_path)?;
+                    println!("  Existing configuration cleared.\n");
+                }
+                2 => {
+                    println!("  Quickstart cancelled.");
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
     }
 
     let provider_setup = resolve_provider_setup(
@@ -127,7 +157,7 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
             );
             Some((
                 backup_provider_name
-                    .unwrap_or_else(|| format!("{}-backup", backup_provider_setup.provider_type))
+                    .unwrap_or_else(|| format!("{}-backup", backup_provider_setup.name))
                     .to_string(),
                 backup_provider_setup.provider_type,
                 backup_provider_setup.endpoint_id,
@@ -166,7 +196,7 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
         None
     };
 
-    let provider_name = provider_name.unwrap_or_else(|| provider_setup.provider_type.clone());
+    let provider_name = provider_name.unwrap_or_else(|| provider_setup.name.clone());
 
     let (fast_model, strong_model) = if interactive {
         let options = [
@@ -257,6 +287,7 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
         .join(", ");
 
     println!("\n  Done! Created mode(s): {}.\n", created_ids);
+    println!("  ✓ Provider '{}' configured with API key.\n", provider_name);
     println!("  Start the gateway:\n");
     println!("    ug serve\n");
     println!("  Inspect the created modes:\n");
