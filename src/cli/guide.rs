@@ -238,7 +238,18 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
     create_api_key(config_path, &key, &service_id, None, None, None).await?;
     
     // Ask for AI Agent integration preference
-    let agent_options = vec!["OpenClaw", "Claude Code", "Cursor", "Zed", "Other / None"];
+    let agent_options = vec![
+        "OpenClaw",
+        "Claude Code",
+        "Cursor",
+        "OpenCode",
+        "Droid",
+        "Cline",
+        "OpenHands",
+        "Zed",
+        "Codex",
+        "Other / None",
+    ];
     let agent_selection = Select::with_theme(&theme)
         .with_prompt("Which AI Agent will use this key?")
         .items(&agent_options)
@@ -279,7 +290,34 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
             println!("4. Set Base URL to: {}", style(&base_url).cyan());
             println!("5. Set API Key to: {}", style(&key).cyan());
         },
-        3 => { // Zed
+        3 => { // OpenCode
+            println!("\n📝 {}", style("OpenCode Configuration").bold().underlined());
+            println!("Configure OpenAI provider with:");
+            println!("Base URL: {}", style(&base_url).cyan());
+            println!("API Key:  {}", style(&key).cyan());
+        },
+        4 => { // Droid
+            println!("\n📝 {}", style("Droid Configuration").bold().underlined());
+            println!("Configure OpenAI provider with:");
+            println!("Base URL: {}", style(&base_url).cyan());
+            println!("API Key:  {}", style(&key).cyan());
+        },
+        5 => { // Cline
+            println!("\n📝 {}", style("Cline Configuration").bold().underlined());
+            println!("1. Open Cline settings");
+            println!("2. Select API Provider: {}", style("OpenAI Compatible").bold());
+            println!("3. Set Base URL: {}", style(&base_url).cyan());
+            println!("4. Set API Key: {}", style(&key).cyan());
+            println!("5. Model ID: {}", style("default").cyan());
+        },
+        6 => { // OpenHands
+            println!("\n📝 {}", style("OpenHands Configuration").bold().underlined());
+            println!("Set environment variables or config.toml:");
+            println!("{}", style(format!("LLM_BASE_URL=\"{}\"", base_url)).cyan());
+            println!("{}", style(format!("LLM_API_KEY=\"{}\"", key)).cyan());
+            println!("{}", style("LLM_MODEL=\"default\"").cyan());
+        },
+        7 => { // Zed
             println!("\n📝 {}", style("Zed Configuration").bold().underlined());
             println!("Add this to your {}:", style("settings.json").bold());
             println!("{}", style(format!(r#"
@@ -300,6 +338,12 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
     }}
   }}"#, base_url)).dim());
             println!("\nThen run: {}", style(format!("export OPENAI_API_KEY={}", key)).cyan());
+        },
+        8 => { // Codex
+            println!("\n📝 {}", style("Codex Configuration").bold().underlined());
+            println!("Configure OpenAI provider with:");
+            println!("Base URL: {}", style(&base_url).cyan());
+            println!("API Key:  {}", style(&key).cyan());
         },
         _ => {
             println!("\n💡 Use `ug integrations` to see more configuration examples.");
