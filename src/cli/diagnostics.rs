@@ -61,7 +61,7 @@ pub(crate) fn summarize_response_text(body: &str) -> String {
     }
 }
 
-async fn gateway_health_status(bind_override: Option<&str>) -> String {
+async fn gateway_health_status(bind_override: Option<&str>) -> (bool, String) {
     let bind = bind_override
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| AppConfig::from_env().bind);
@@ -72,7 +72,10 @@ async fn gateway_health_status(bind_override: Option<&str>) -> String {
         Ok(response) => {
             let status = response.status();
             if !status.is_success() {
-                return format!("gateway responded with status {} at {}", status, url);
+                return (
+                    false,
+                    format!("gateway responded with status {} at {}", status, url),
+                );
             }
 
             match response.text().await {
@@ -86,31 +89,34 @@ async fn gateway_health_status(bind_override: Option<&str>) -> String {
                                 .map(ToOwned::to_owned)
                         })
                         .unwrap_or_else(|| "ok".to_string());
-                    format!("reachable ({}) at {}", message, url)
+                    (true, format!("reachable ({}) at {}", message, url))
                 }
-                Err(err) => format!(
-                    "gateway reachable at {}, but health body could not be read: {}",
-                    url, err
+                Err(err) => (
+                    false,
+                    format!(
+                        "gateway reachable at {}, but health body could not be read: {}",
+                        url, err
+                    ),
                 ),
             }
         }
-        Err(err) => format!("not reachable at {} ({})", url, err),
+        Err(_) => (false, format!("not reachable at {}", url)),
     }
 }
 
 fn provider_readiness(provider: &ModeProvider) -> String {
     let upstream =
         if resolve_upstream(provider.base_url.clone(), provider.endpoint_id.as_deref()).is_some() {
-            "resolved upstream"
+            "✓ resolved"
         } else {
-            "missing upstream"
+            "✗ missing upstream"
         };
     let api_key = if provider.has_api_key {
-        "upstream key configured"
+        "✓ key configured"
     } else {
-        "missing upstream key"
+        "✗ missing key"
     };
-    format!("{}, {}", upstream, api_key)
+    format!("{} | {}", upstream, api_key)
 }
 
 pub async fn doctor(
@@ -121,27 +127,39 @@ pub async fn doctor(
     let config_exists = Path::new(config_path).exists();
     let modes = load_mode_views(config_path).await?;
     let default_mode = effective_default_mode_id(&modes).map(ToOwned::to_owned);
-    let health = gateway_health_status(bind_override).await;
+    let (is_healthy, health) = gateway_health_status(bind_override).await;
     let bind_display = bind_override
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| AppConfig::from_env().bind);
 
-    println!("UniGateway doctor");
-    println!("Config path: {}", config_path);
+    println!("🩺 UniGateway Doctor");
+    println!("-------------------");
+    println!("Config Path:   {}", config_path);
     println!(
-        "Config file: {}",
+        "Config Status: {}",
         if config_exists {
-            "present"
+            "✓ present"
         } else {
-            "missing (using in-memory defaults if started)"
+            "✗ missing (using in-memory defaults if started)"
         }
     );
-    println!("Gateway bind: {}", bind_display);
-    println!("Gateway health: {}", health);
+    println!("Gateway Bind:   {}", bind_display);
+    println!(
+        "Gateway Health: {}",
+        if is_healthy {
+            format!("✓ {}", health)
+        } else {
+            format!("✗ {}", health)
+        }
+    );
+
+    if !is_healthy {
+        println!("\n💡 Tip: The gateway is not running. Start it with `ug serve` to enable LLM routing.");
+    }
 
     if modes.is_empty() {
-        println!("Modes: none");
-        println!("Next step: run `ug quickstart`");
+        println!("\nModes: none");
+        println!("Next step: run `ug guide` to set up your first provider.");
         return Ok(());
     }
 
@@ -151,36 +169,37 @@ pub async fn doctor(
         modes.iter().collect()
     };
 
-    println!("Modes checked: {}", selected.len());
+    println!("\nModes Checked: {}", selected.len());
     for mode in selected {
         let protocols = supported_protocols(mode);
         let active_keys = mode.keys.iter().filter(|key| key.is_active).count();
-        println!();
-        println!("- {} ({})", mode.id, mode.name);
+        let is_default = default_mode.as_deref() == Some(mode.id.as_str());
+
+        println!("\n- {} ({})", mode.id, mode.name);
+        if is_default {
+            println!("  ★ Default Mode");
+        }
+        println!("  Routing:   {}", mode.routing_strategy);
+        println!("  Auth:      {} / {} active keys", active_keys, mode.keys.len());
+        let protocol_list = protocols.join(", ");
         println!(
-            "  default: {}",
-            default_mode.as_deref() == Some(mode.id.as_str())
-        );
-        println!("  routing: {}", mode.routing_strategy);
-        println!("  active_keys: {} / {}", active_keys, mode.keys.len());
-        println!(
-            "  protocols: {}",
+            "  Protocols: {}",
             if protocols.is_empty() {
-                "none".to_string()
+                "none"
             } else {
-                protocols.join(", ")
+                &protocol_list
             }
         );
 
         if active_keys == 0 {
-            println!("  warning: no active gateway key for this mode");
+            println!("  ⚠️ Warning: No active gateway key for this mode. Requests will fail.");
         }
 
         for protocol in protocols {
             let providers = mode_providers_for(mode, protocol);
             println!(
-                "  {} route: {}",
-                protocol,
+                "  {} Route: {}",
+                protocol.to_uppercase(),
                 route_strategy_summary(mode, &providers)
             );
 
@@ -197,12 +216,12 @@ pub async fn doctor(
                             )
                         });
                 println!(
-                    "    - {} -> {} | family={} | {}",
+                    "    → {}: {} [family={}]",
                     provider.name,
                     resolved_base_url,
                     family_id.as_deref().unwrap_or("-"),
-                    provider_readiness(provider)
                 );
+                println!("      Status: {}", provider_readiness(provider));
             }
         }
 
@@ -212,13 +231,13 @@ pub async fn doctor(
             .filter(|provider| !provider.is_enabled)
             .count();
         if disabled > 0 {
-            println!("  note: {} bound provider(s) are disabled", disabled);
+            println!("  ℹ️ Note: {} bound provider(s) are disabled", disabled);
         }
 
-        println!("  next:");
-        println!("    ug route explain {}", mode.id);
-        println!("    ug integrations --mode {}", mode.id);
-        println!("    ug test --mode {}", mode.id);
+        println!("\n  Next Steps:");
+        println!("    ug route explain {}  # See detailed routing logic", mode.id);
+        println!("    ug test --mode {}     # Send a smoke test request", mode.id);
+        println!("    ug integrations --mode {} # Get tool config snippets", mode.id);
     }
 
     Ok(())
