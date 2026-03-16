@@ -3,6 +3,7 @@ mod registry;
 
 use anyhow::Result;
 use clap::Args;
+use console::style;
 use dialoguer::{Confirm, Select, theme::ColorfulTheme};
 use std::path::Path;
 use std::fs;
@@ -373,54 +374,80 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                 )
                 .await?;
 
-                let created_ids = result
-                    .modes
-                    .iter()
-                    .map(|mode| mode.id.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                let default_mode = result.modes.first().map(|m| m.id.as_str()).unwrap_or("default");
 
-                println!("\n  Done! Created mode(s): {}.\n", created_ids);
                 println!(
-                    "  ✓ Provider '{}' configured with API key.\n",
-                    provider_name
+                    "\n  {} Configuration complete! Mode: {}",
+                    style("✅").green(),
+                    style(default_mode).cyan().bold()
                 );
-                println!("  Start the gateway:\n");
-                println!("    ug serve\n");
-                println!("  Inspect the created modes:\n");
-                println!("    ug mode list\n");
-                if let Some(default_mode) = result.modes.first() {
-                    println!("  Default mode:\n");
-                    println!("    {}\n", default_mode.id);
-                }
-
-                for mode in &result.modes {
-                    println!("  Integration hints for mode `{}`:\n", mode.id);
-                    cli::print_integrations_with_key(
-                        &config,
-                        Some(&mode.id),
-                        None,
-                        Some(&mode.key),
-                        None,
-                    )
-                    .await?;
-                    println!("\n  Explain routing:\n");
-                    println!("    ug route explain {}\n", mode.id);
-                    println!("  Run diagnostics:\n");
-                    println!("    ug doctor --mode {}\n", mode.id);
-                    println!("\n  Smoke test after starting the gateway:\n");
-                    println!("    ug test --mode {}\n", mode.id);
-                    println!("\n  Tool-specific template examples:\n");
-                    println!("    ug integrations --mode {} --tool openclaw", mode.id);
-                    println!("    ug integrations --mode {} --tool zed", mode.id);
-                    println!("    ug integrations --mode {} --tool claude-code", mode.id);
-                    println!("    ug integrations --mode {} --tool cursor\n", mode.id);
-                }
-
-                println!("  You can reprint these hints later with:\n");
-                println!("    ug integrations --mode <mode>");
                 println!(
-                    "    ug integrations --mode <mode> --tool <openclaw|zed|cursor|claude-code|droid|opencode|codex|env|python|node|curl|anthropic>\n"
+                    "  Provider '{}' configured with API key.",
+                    style(&provider_name).bold()
+                );
+                println!("\n  Start the gateway:\n    ug serve\n");
+
+                // Ask which AI agent to configure
+                if interactive {
+                    let agent_options = vec![
+                        "Claude Code",
+                        "Cursor",
+                        "Cline",
+                        "OpenClaw",
+                        "Zed",
+                        "Droid",
+                        "OpenCode",
+                        "Codex",
+                        "OpenHands",
+                        "Trae",
+                        "Skip",
+                    ];
+                    let agent_selection = Select::with_theme(&theme)
+                        .with_prompt("Which AI agent do you want to configure?")
+                        .items(&agent_options)
+                        .default(0)
+                        .interact_opt()
+                        .unwrap();
+
+                    let tool_name = match agent_selection {
+                        Some(0) => Some("claude-code"),
+                        Some(1) => Some("cursor"),
+                        Some(2) => Some("cline"),
+                        Some(3) => Some("openclaw"),
+                        Some(4) => Some("zed"),
+                        Some(5) => Some("droid"),
+                        Some(6) => Some("opencode"),
+                        Some(7) => Some("codex"),
+                        Some(8) => Some("openhands"),
+                        Some(9) => Some("trae"),
+                        _ => None,
+                    };
+
+                    if let Some(tool_name) = tool_name {
+                        for mode in &result.modes {
+                            println!();
+                            cli::print_integrations_with_key(
+                                &config,
+                                Some(&mode.id),
+                                Some(tool_name),
+                                Some(&mode.key),
+                                None,
+                            )
+                            .await?;
+                        }
+                        println!();
+                    }
+                }
+
+                println!(
+                    "  {} Run '{}' to see hints for other tools.",
+                    style("💡").dim(),
+                    style(format!("ug integrations --mode {}", default_mode)).cyan()
+                );
+                println!(
+                    "  {} Run '{}' to see all available commands.",
+                    style("💡").dim(),
+                    style("ug help").cyan()
                 );
                 return Ok(());
             }
