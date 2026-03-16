@@ -1,5 +1,6 @@
 mod diagnostics;
 mod modes;
+pub mod process;
 mod quickstart;
 mod render;
 
@@ -16,6 +17,7 @@ pub(crate) use modes::{
     ModeKey, ModeProvider, ModeView, effective_default_mode_id, user_bind_address,
 };
 pub use modes::{list_modes, show_mode, use_mode};
+pub use process::{daemonize, is_running, status_server, stop_server, view_logs};
 #[cfg(test)]
 pub(crate) use quickstart::planned_modes;
 pub use quickstart::{

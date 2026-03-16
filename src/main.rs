@@ -34,6 +34,8 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Start the gateway server.
+    #[command(about = "Start the gateway server")]
     Serve {
         #[arg(long)]
         bind: Option<String>,
@@ -41,7 +43,28 @@ enum Commands {
         config: Option<String>,
         #[arg(long, default_value_t = false)]
         no_ui: bool,
+        /// Run in the foreground (blocking).
+        #[arg(short, long, default_value_t = false)]
+        foreground: bool,
+        /// Internal flag for detached process.
+        #[arg(long, hide = true)]
+        detached: bool,
     },
+    /// Stop the background gateway process.
+    #[command(about = "Stop the background gateway process")]
+    Stop,
+    /// Check the status of the background gateway process.
+    #[command(about = "Check the status of the background gateway process")]
+    Status,
+    /// View the background gateway logs.
+    #[command(about = "View the background gateway logs")]
+    Logs {
+        /// Tail the logs.
+        #[arg(short, long, default_value_t = false)]
+        follow: bool,
+    },
+    /// Print a snapshot of current metrics.
+    #[command(about = "Print a snapshot of current metrics")]
     Metrics {
         #[arg(long, default_value_t = config_default())]
         config: String,
@@ -87,6 +110,8 @@ enum Commands {
         #[arg(long, default_value_t = config_default())]
         config: String,
     },
+    /// Create a new service (logical grouping of models).
+    #[command(about = "Create a new service (logical grouping of models)")]
     CreateService {
         #[arg(long)]
         id: String,
@@ -95,6 +120,8 @@ enum Commands {
         #[arg(long, default_value_t = config_default())]
         config: String,
     },
+    /// Register a new LLM provider (e.g. OpenAI, Anthropic).
+    #[command(about = "Register a new LLM provider (e.g. OpenAI, Anthropic)")]
     CreateProvider {
         #[arg(long)]
         name: String,
@@ -111,6 +138,8 @@ enum Commands {
         #[arg(long, default_value_t = config_default())]
         config: String,
     },
+    /// Bind a provider to a service to enable routing.
+    #[command(about = "Bind a provider to a service to enable routing")]
     BindProvider {
         #[arg(long)]
         service_id: String,
@@ -119,6 +148,8 @@ enum Commands {
         #[arg(long, default_value_t = config_default())]
         config: String,
     },
+    /// Create a new API key for accessing a service.
+    #[command(about = "Create a new API key for accessing a service")]
     CreateApiKey {
         #[arg(long)]
         key: String,
@@ -212,7 +243,14 @@ async fn main() -> Result<()> {
             bind,
             config: config_path,
             no_ui,
+            foreground,
+            detached,
         }) => {
+            if !foreground && !detached {
+                cli::daemonize()?;
+                return Ok(());
+            }
+
             let mut app_config = types::AppConfig::from_env();
             if let Some(bind) = bind {
                 app_config.bind = bind;
@@ -225,6 +263,9 @@ async fn main() -> Result<()> {
             }
             server::run(app_config).await
         }
+        Some(Commands::Stop) => cli::stop_server(),
+        Some(Commands::Status) => cli::status_server(),
+        Some(Commands::Logs { follow }) => cli::view_logs(follow),
         Some(Commands::Metrics { config }) => cli::print_metrics_snapshot(&config).await,
         Some(Commands::Mode { action }) => match action {
             ModeAction::List { config } => cli::list_modes(&config).await,
@@ -346,8 +387,13 @@ async fn main() -> Result<()> {
         Some(Commands::Upgrade) => upgrade::run_upgrade().await,
         Some(Commands::Quickstart(command)) => setup::run_quickstart(*command).await,
         None => {
-            let app_config = types::AppConfig::from_env();
-            server::run(app_config).await
+            if cli::is_running().is_none() {
+                cli::daemonize()?;
+            } else {
+                println!("UniGateway is already running.");
+                println!("Use 'ug stop' to stop it, or 'ug status' to check status.");
+            }
+            Ok(())
         }
     }
 }
