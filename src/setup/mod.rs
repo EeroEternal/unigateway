@@ -84,26 +84,36 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
             println!("  Existing configuration found at: {}\n", config);
             let options = [
                 "Add to existing configuration (recommended)",
+                "Show current configuration",
                 "Clear existing configuration and start fresh",
                 "Cancel guide",
             ];
-            let selection = Select::with_theme(&ColorfulTheme::default())
-                .with_prompt("How would you like to proceed?")
-                .items(&options)
-                .default(0)
-                .interact()
-                .unwrap();
+            let mut selection = 0;
+            loop {
+                selection = Select::with_theme(&ColorfulTheme::default())
+                    .with_prompt("How would you like to proceed?")
+                    .items(&options)
+                    .default(selection)
+                    .interact()
+                    .unwrap();
 
-            match selection {
-                1 => {
-                    fs::remove_file(config_path)?;
-                    println!("  Existing configuration cleared.\n");
+                match selection {
+                    1 => {
+                        let contents = fs::read_to_string(config_path)?;
+                        println!("\n--- Current Configuration ---\n{}\n-----------------------------\n", contents);
+                        continue;
+                    }
+                    2 => {
+                        fs::remove_file(config_path)?;
+                        println!("  Existing configuration cleared.\n");
+                        break;
+                    }
+                    3 => {
+                        println!("  Guide cancelled.");
+                        return Ok(());
+                    }
+                    _ => break,
                 }
-                2 => {
-                    println!("  Guide cancelled.");
-                    return Ok(());
-                }
-                _ => {}
             }
         }
     }
