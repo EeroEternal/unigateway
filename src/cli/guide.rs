@@ -248,6 +248,7 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
         "OpenHands",
         "Zed",
         "Codex",
+        "Trae",
         "Other / None",
     ];
     let agent_selection = Select::with_theme(&theme)
@@ -261,89 +262,88 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
     println!("   Service: {}", style(&service_id).dim());
 
     let bind_addr = crate::types::AppConfig::from_env().bind;
-    let base_url = format!("http://{}/v1", crate::cli::modes::user_bind_address(&bind_addr));
+    let _base_url = format!("http://{}/v1", crate::cli::modes::user_bind_address(&bind_addr));
 
     match agent_selection {
         0 => { // OpenClaw
-            println!("\n📝 {}", style("OpenClaw Configuration").bold().underlined());
-            println!("Edit {}:", style("~/.openclaw/openclaw.json").bold());
-            println!("{}", style(format!(r#"
-  {{
-    "api": "openai-completions",
-    "url": "{}/chat/completions",
-    "key": "{}",
-    "model": "default"
-  }}"#, base_url, key)).dim());
+            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
+                None,
+                Some(&key),
+                Some(&bind_addr),
+                crate::cli::render::integrations::IntegrationTool::OpenClaw,
+            ));
         },
         1 => { // Claude Code
-            println!("\n📝 {}", style("Claude Code Configuration").bold().underlined());
-            println!("Run the following command to configure:");
-            println!("{}", style(format!("export OPENAI_BASE_URL={}", base_url)).cyan());
-            println!("{}", style(format!("export OPENAI_API_KEY={}", key)).cyan());
-            println!("{}", style("claude config set --global provider openai").dim());
+            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
+                None,
+                Some(&key),
+                Some(&bind_addr),
+                crate::cli::render::integrations::IntegrationTool::ClaudeCode,
+            ));
         },
         2 => { // Cursor
-            println!("\n📝 {}", style("Cursor Configuration").bold().underlined());
-            println!("1. Go to {} -> {}", style("Settings").bold(), style("Models").bold());
-            println!("2. Toggle off default models if needed");
-            println!("3. Add a new {} model", style("OpenAI").bold());
-            println!("4. Set Base URL to: {}", style(&base_url).cyan());
-            println!("5. Set API Key to: {}", style(&key).cyan());
+            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
+                None,
+                Some(&key),
+                Some(&bind_addr),
+                crate::cli::render::integrations::IntegrationTool::Cursor,
+            ));
         },
         3 => { // OpenCode
-            println!("\n📝 {}", style("OpenCode Configuration").bold().underlined());
-            println!("Configure OpenAI provider with:");
-            println!("Base URL: {}", style(&base_url).cyan());
-            println!("API Key:  {}", style(&key).cyan());
+            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
+                None,
+                Some(&key),
+                Some(&bind_addr),
+                crate::cli::render::integrations::IntegrationTool::OpenCode,
+            ));
         },
         4 => { // Droid
-            println!("\n📝 {}", style("Droid Configuration").bold().underlined());
-            println!("Configure OpenAI provider with:");
-            println!("Base URL: {}", style(&base_url).cyan());
-            println!("API Key:  {}", style(&key).cyan());
+            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
+                None,
+                Some(&key),
+                Some(&bind_addr),
+                crate::cli::render::integrations::IntegrationTool::Droid,
+            ));
         },
         5 => { // Cline
-            println!("\n📝 {}", style("Cline Configuration").bold().underlined());
-            println!("1. Open Cline settings");
-            println!("2. Select API Provider: {}", style("OpenAI Compatible").bold());
-            println!("3. Set Base URL: {}", style(&base_url).cyan());
-            println!("4. Set API Key: {}", style(&key).cyan());
-            println!("5. Model ID: {}", style("default").cyan());
+            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
+                None,
+                Some(&key),
+                Some(&bind_addr),
+                crate::cli::render::integrations::IntegrationTool::Cline,
+            ));
         },
         6 => { // OpenHands
-            println!("\n📝 {}", style("OpenHands Configuration").bold().underlined());
-            println!("Set environment variables or config.toml:");
-            println!("{}", style(format!("LLM_BASE_URL=\"{}\"", base_url)).cyan());
-            println!("{}", style(format!("LLM_API_KEY=\"{}\"", key)).cyan());
-            println!("{}", style("LLM_MODEL=\"default\"").cyan());
+            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
+                None,
+                Some(&key),
+                Some(&bind_addr),
+                crate::cli::render::integrations::IntegrationTool::OpenHands,
+            ));
         },
         7 => { // Zed
-            println!("\n📝 {}", style("Zed Configuration").bold().underlined());
-            println!("Add this to your {}:", style("settings.json").bold());
-            println!("{}", style(format!(r#"
-  "assistant": {{
-    "version": "2",
-    "default_model": {{
-      "provider": "openai",
-      "model": "default"
-    }}
-  }},
-  "language_models": {{
-    "openai": {{
-      "version": "1",
-      "api_url": "{}",
-      "available_models": [
-        {{ "name": "default", "max_tokens": 128000 }}
-      ]
-    }}
-  }}"#, base_url)).dim());
-            println!("\nThen run: {}", style(format!("export OPENAI_API_KEY={}", key)).cyan());
+            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
+                None,
+                Some(&key),
+                Some(&bind_addr),
+                crate::cli::render::integrations::IntegrationTool::Zed,
+            ));
         },
         8 => { // Codex
-            println!("\n📝 {}", style("Codex Configuration").bold().underlined());
-            println!("Configure OpenAI provider with:");
-            println!("Base URL: {}", style(&base_url).cyan());
-            println!("API Key:  {}", style(&key).cyan());
+            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
+                None,
+                Some(&key),
+                Some(&bind_addr),
+                crate::cli::render::integrations::IntegrationTool::Codex,
+            ));
+        },
+        9 => { // Trae
+            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
+                None,
+                Some(&key),
+                Some(&bind_addr),
+                crate::cli::render::integrations::IntegrationTool::Trae,
+            ));
         },
         _ => {
             println!("\n💡 Use `ug integrations` to see more configuration examples.");
