@@ -382,13 +382,68 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                     style(default_mode).cyan().bold()
                 );
                 println!(
-                    "  Provider '{}' configured with API key.",
+                    "  Provider '{}' configured with API key.\n",
                     style(&provider_name).bold()
                 );
-                println!("\n  Start the gateway:\n    ug serve\n");
+
+                // Check gateway status and offer to start
+                let already_running = cli::is_running();
+                if let Some(pid) = already_running {
+                    println!(
+                        "  {} Gateway is already running (PID: {}).",
+                        style("🟢").green(),
+                        style(pid).bold()
+                    );
+                    println!(
+                        "  {} You may need to restart it to pick up new config: {} then {}",
+                        style("💡").dim(),
+                        style("ug stop").cyan(),
+                        style("ug serve").cyan()
+                    );
+                } else if interactive {
+                    let start_now = Confirm::with_theme(&theme)
+                        .with_prompt("Start the gateway now?")
+                        .default(true)
+                        .interact_opt()
+                        .unwrap()
+                        .unwrap_or(false);
+
+                    if start_now {
+                        match cli::daemonize() {
+                            Ok(()) => {
+                                println!(
+                                    "  {} Gateway started successfully.",
+                                    style("🟢").green()
+                                );
+                            }
+                            Err(e) => {
+                                println!(
+                                    "  {} Failed to start gateway: {}",
+                                    style("⚠️").yellow(),
+                                    e
+                                );
+                                println!(
+                                    "  You can start it manually with: {}",
+                                    style("ug serve").cyan()
+                                );
+                            }
+                        }
+                    } else {
+                        println!(
+                            "\n  Start the gateway later with: {}\n",
+                            style("ug serve").cyan()
+                        );
+                    }
+                } else {
+                    println!(
+                        "\n  Start the gateway:\n    {}\n",
+                        style("ug serve").cyan()
+                    );
+                }
 
                 // Ask which AI agent to configure
                 if interactive {
+                    println!();
                     let agent_options = vec![
                         "Claude Code",
                         "Cursor",
