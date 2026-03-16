@@ -1,7 +1,10 @@
 use anyhow::{Context, Result, bail};
+use console::style;
+use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use serde_json::Value;
 use std::env;
+use std::time::Duration;
 
 const REPO: &str = "EeroEternal/unigateway";
 const BIN: &str = "ug";
@@ -17,7 +20,8 @@ fn detect_target() -> Result<&'static str> {
 }
 
 pub async fn run_upgrade() -> Result<()> {
-    println!("Current version: {CURRENT_VERSION}");
+    println!("Current version: {}", style(CURRENT_VERSION).cyan());
+    println!("Checking for updates...");
 
     let client = Client::new();
     let release: Value = client
@@ -38,31 +42,46 @@ pub async fn run_upgrade() -> Result<()> {
     let latest_version = latest_tag.trim_start_matches('v');
 
     if latest_version == CURRENT_VERSION {
-        println!("Already up to date.");
+        println!("{}", style("Already up to date.").green());
         return Ok(());
     }
 
-    println!("New version available: {latest_version}");
+    println!(
+        "{} New version available: {} -> {}",
+        style("✨").yellow(),
+        style(CURRENT_VERSION).dim(),
+        style(latest_version).green().bold()
+    );
 
     let target = detect_target()?;
     let archive_name = format!("{BIN}-{target}.tar.gz");
     let download_url =
         format!("https://github.com/{REPO}/releases/download/{latest_tag}/{archive_name}");
 
-    println!("Downloading {archive_name}...");
-    let bytes = client
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} Downloading {msg}")
+            .unwrap(),
+    );
+    pb.set_message(archive_name.clone());
+    pb.enable_steady_tick(Duration::from_millis(100));
+
+    let response = client
         .get(&download_url)
         .send()
         .await?
         .error_for_status()
-        .context("failed to download release")?
-        .bytes()
-        .await?;
+        .context("failed to download release (binary may not be ready yet)")?;
+
+    let bytes = response.bytes().await?;
+    pb.finish_with_message("Download complete");
 
     let tmpdir = tempfile::tempdir().context("create temp dir")?;
     let archive_path = tmpdir.path().join(&archive_name);
     std::fs::write(&archive_path, &bytes)?;
 
+    println!("Extracting...");
     let status = std::process::Command::new("tar")
         .args([
             "xzf",
@@ -101,7 +120,11 @@ pub async fn run_upgrade() -> Result<()> {
             std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))?;
         }
     } else {
-        println!("Need sudo to install to {}", dest.display());
+        println!(
+            "{} Need sudo to install to {}",
+            style("🔑").yellow(),
+            style(dest.display()).cyan()
+        );
         let s = std::process::Command::new("sudo")
             .args(["cp", &new_bin.to_string_lossy(), &dest.to_string_lossy()])
             .status()
@@ -111,6 +134,10 @@ pub async fn run_upgrade() -> Result<()> {
         }
     }
 
-    println!("Upgraded to {latest_version}");
+    println!(
+        "{} Upgraded to {}",
+        style("🚀").green(),
+        style(latest_version).bold()
+    );
     Ok(())
 }
