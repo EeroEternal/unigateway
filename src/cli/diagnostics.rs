@@ -161,7 +161,7 @@ pub async fn doctor(
     }
 
     if modes.is_empty() {
-        println!("\nModes: none");
+        println!("\nModes: {}", style("none").yellow());
         println!("Next step: run `ug guide` to set up your first provider.");
         return Ok(());
     }

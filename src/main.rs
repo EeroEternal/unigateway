@@ -224,7 +224,7 @@ Examples:
     Upgrade,
     /// Interactive setup guide: create service, provider, bind, and API key.
     #[command(alias = "quickstart", about = "Interactive setup guide")]
-    Guide(Box<setup::QuickstartCommand>),
+    Guide(Box<setup::GuideCommand>),
     /// Generate shell completion scripts.
     #[command(about = "Generate shell completion scripts", long_about = "Generate shell completion scripts.
 
@@ -543,7 +543,7 @@ async fn main() -> Result<()> {
         },
         Some(Commands::Mcp { config }) => mcp::run(&config).await,
         Some(Commands::Upgrade) => upgrade::run_upgrade().await,
-        Some(Commands::Guide(command)) => setup::run_quickstart(*command).await,
+        Some(Commands::Guide(command)) => setup::run_guide(*command).await,
         None => {
             if cli::is_running().is_none() {
                 cli::daemonize()?;

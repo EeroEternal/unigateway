@@ -16,7 +16,7 @@ fn config_default() -> String {
 }
 
 #[derive(Args, Debug)]
-pub struct QuickstartCommand {
+pub struct GuideCommand {
     #[arg(long)]
     pub service_id: Option<String>,
     #[arg(long)]
@@ -53,8 +53,8 @@ pub struct QuickstartCommand {
     pub config: String,
 }
 
-pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
-    let QuickstartCommand {
+pub async fn run_guide(command: GuideCommand) -> Result<()> {
+    let GuideCommand {
         service_id,
         service_name,
         provider_name: provider_name_arg,
@@ -348,9 +348,9 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
                     .clone()
                     .unwrap_or_else(|| provider_setup.name.clone());
 
-                let result = cli::quickstart(
+                let result = cli::guide(
                     &config,
-                    cli::QuickstartParams {
+                    cli::GuideParams {
                         service_id: service_id.as_deref(),
                         service_name: service_name.as_deref(),
                         provider_name: &provider_name,

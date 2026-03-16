@@ -222,7 +222,7 @@ pub(crate) fn select_mode<'a>(
     requested_mode: Option<&str>,
 ) -> Result<&'a ModeView> {
     if modes.is_empty() {
-        bail!("no modes configured; run `ug guide` first")
+        bail!("No modes configured. Run `ug guide` first.")
     }
 
     if let Some(mode) = requested_mode {

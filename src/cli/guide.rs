@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crate::config::{GatewayState, ProviderModelOptions};
 
-pub struct QuickstartParams<'a> {
+pub struct GuideParams<'a> {
     pub service_id: Option<&'a str>,
     pub service_name: Option<&'a str>,
     pub provider_name: &'a str,
@@ -24,16 +24,16 @@ pub struct QuickstartParams<'a> {
     pub backup_model_mapping: Option<&'a str>,
 }
 
-pub struct QuickstartModeOutput {
+pub struct GuideModeOutput {
     pub id: String,
     pub key: String,
 }
 
-pub struct QuickstartResult {
-    pub modes: Vec<QuickstartModeOutput>,
+pub struct GuideResult {
+    pub modes: Vec<GuideModeOutput>,
 }
 
-struct QuickstartModePlan {
+struct GuideModePlan {
     id: String,
     name: String,
     routing_strategy: &'static str,
@@ -67,14 +67,14 @@ pub(crate) fn planned_modes(
     vec![("default".to_string(), "Default".to_string())]
 }
 
-fn quickstart_mode_plans(
+fn guide_mode_plans(
     service_id: Option<&str>,
     service_name: Option<&str>,
     fast_model: Option<&str>,
     strong_model: Option<&str>,
     primary_provider_id: i64,
     secondary_provider_id: Option<i64>,
-) -> Vec<QuickstartModePlan> {
+) -> Vec<GuideModePlan> {
     let mut plans = Vec::new();
     let modes = planned_modes(service_id, service_name, fast_model, strong_model);
 
@@ -87,7 +87,7 @@ fn quickstart_mode_plans(
             "round_robin"
         };
 
-        plans.push(QuickstartModePlan {
+        plans.push(GuideModePlan {
             id,
             name,
             routing_strategy,
@@ -152,6 +152,7 @@ pub async fn create_api_key(
     state.persist_if_dirty().await
 }
 
+use console::style;
 use dialoguer::{Input, Select, theme::ColorfulTheme};
 
 pub async fn interactive_create_service(config_path: &str) -> Result<()> {
@@ -167,7 +168,7 @@ pub async fn interactive_create_service(config_path: &str) -> Result<()> {
         .interact_text()?;
 
     create_service(config_path, &id, &name).await?;
-    println!("✅ Service '{}' created.", id);
+    println!("{} Service '{}' created.", style("✅").green(), style(id).bold());
     Ok(())
 }
 
@@ -211,7 +212,7 @@ pub async fn interactive_create_provider(config_path: &str) -> Result<()> {
         None
     ).await?;
 
-    println!("✅ Provider '{}' created with ID: {}", name, id);
+    println!("{} Provider '{}' created with ID: {}", style("✅").green(), style(name).bold(), id);
     Ok(())
 }
 
@@ -235,14 +236,84 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
         .interact_text()?;
 
     create_api_key(config_path, &key, &service_id, None, None, None).await?;
-    println!("✅ API Key '{}' created for service '{}'.", key, service_id);
+    
+    // Ask for AI Agent integration preference
+    let agent_options = vec!["OpenClaw", "Claude Code", "Cursor", "Zed", "Other / None"];
+    let agent_selection = Select::with_theme(&theme)
+        .with_prompt("Which AI Agent will use this key?")
+        .items(&agent_options)
+        .default(0)
+        .interact()?;
+    
+    println!("\n{} API Key created successfully!", style("✅").green());
+    println!("   Key: {}", style(&key).cyan().bold());
+    println!("   Service: {}", style(&service_id).dim());
+
+    let bind_addr = crate::types::AppConfig::from_env().bind;
+    let base_url = format!("http://{}/v1", crate::cli::modes::user_bind_address(&bind_addr));
+
+    match agent_selection {
+        0 => { // OpenClaw
+            println!("\n📝 {}", style("OpenClaw Configuration").bold().underlined());
+            println!("Edit {}:", style("~/.openclaw/openclaw.json").bold());
+            println!("{}", style(format!(r#"
+  {{
+    "api": "openai-completions",
+    "url": "{}/chat/completions",
+    "key": "{}",
+    "model": "default"
+  }}"#, base_url, key)).dim());
+        },
+        1 => { // Claude Code
+            println!("\n📝 {}", style("Claude Code Configuration").bold().underlined());
+            println!("Run the following command to configure:");
+            println!("{}", style(format!("export OPENAI_BASE_URL={}", base_url)).cyan());
+            println!("{}", style(format!("export OPENAI_API_KEY={}", key)).cyan());
+            println!("{}", style("claude config set --global provider openai").dim());
+        },
+        2 => { // Cursor
+            println!("\n📝 {}", style("Cursor Configuration").bold().underlined());
+            println!("1. Go to {} -> {}", style("Settings").bold(), style("Models").bold());
+            println!("2. Toggle off default models if needed");
+            println!("3. Add a new {} model", style("OpenAI").bold());
+            println!("4. Set Base URL to: {}", style(&base_url).cyan());
+            println!("5. Set API Key to: {}", style(&key).cyan());
+        },
+        3 => { // Zed
+            println!("\n📝 {}", style("Zed Configuration").bold().underlined());
+            println!("Add this to your {}:", style("settings.json").bold());
+            println!("{}", style(format!(r#"
+  "assistant": {{
+    "version": "2",
+    "default_model": {{
+      "provider": "openai",
+      "model": "default"
+    }}
+  }},
+  "language_models": {{
+    "openai": {{
+      "version": "1",
+      "api_url": "{}",
+      "available_models": [
+        {{ "name": "default", "max_tokens": 128000 }}
+      ]
+    }}
+  }}"#, base_url)).dim());
+            println!("\nThen run: {}", style(format!("export OPENAI_API_KEY={}", key)).cyan());
+        },
+        _ => {
+            println!("\n💡 Use `ug integrations` to see more configuration examples.");
+        }
+    }
+    
+    println!("\n🚀 Ready! Use `ug help` for more commands.");
     Ok(())
 }
 
-pub async fn quickstart(
+pub async fn guide(
     config_path: &str,
-    params: QuickstartParams<'_>,
-) -> Result<QuickstartResult> {
+    params: GuideParams<'_>,
+) -> Result<GuideResult> {
     let state = GatewayState::load(Path::new(config_path)).await?;
     let primary_provider_id = state
         .create_provider_with_models(
@@ -283,7 +354,7 @@ pub async fn quickstart(
         _ => bail!("backup provider requires name, provider_type, endpoint_id, and api_key"),
     };
 
-    let planned = quickstart_mode_plans(
+    let planned = guide_mode_plans(
         params.service_id,
         params.service_name,
         params.fast_model,
@@ -337,7 +408,7 @@ pub async fn quickstart(
                 .await?;
         }
         state.create_api_key(&key, &plan.id, None, None, None).await;
-        modes.push(QuickstartModeOutput { id: plan.id, key });
+        modes.push(GuideModeOutput { id: plan.id, key });
     }
 
     if let Some(default_mode) = default_mode {
@@ -345,5 +416,5 @@ pub async fn quickstart(
     }
 
     state.persist_if_dirty().await?;
-    Ok(QuickstartResult { modes })
+    Ok(GuideResult { modes })
 }

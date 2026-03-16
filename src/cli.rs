@@ -1,8 +1,8 @@
 mod diagnostics;
-mod modes;
+pub mod guide;
+pub mod modes;
 pub mod process;
-mod quickstart;
-mod render;
+pub mod render;
 
 use anyhow::Result;
 use std::path::Path;
@@ -19,10 +19,10 @@ pub(crate) use modes::{
 pub use modes::{list_modes, show_mode, use_mode};
 pub use process::{daemonize, is_running, status_server, stop_server, view_logs};
 #[cfg(test)]
-pub(crate) use quickstart::planned_modes;
-pub use quickstart::{
-    QuickstartParams, bind_provider, create_api_key, create_provider, create_service,
-    interactive_create_api_key, interactive_create_provider, interactive_create_service, quickstart,
+pub(crate) use guide::planned_modes;
+pub use guide::{
+    GuideParams, bind_provider, create_api_key, create_provider, create_service, guide,
+    interactive_create_api_key, interactive_create_provider, interactive_create_service,
 };
 #[cfg(test)]
 pub(crate) use render::{
@@ -71,10 +71,9 @@ pub async fn print_metrics_snapshot(config_path: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        IntegrationTool, ModeKey, ModeProvider, ModeView, QuickstartParams,
-        effective_default_mode_id, parse_integration_tool, planned_modes, quickstart,
-        render_integration_output_for_tool, render_route_explanation, summarize_response_text,
-        user_bind_address,
+        GuideParams, IntegrationTool, ModeKey, ModeProvider, ModeView, effective_default_mode_id,
+        guide, parse_integration_tool, planned_modes, render_integration_output_for_tool,
+        render_route_explanation, summarize_response_text, user_bind_address,
     };
     use crate::config::GatewayState;
     use std::path::Path;
@@ -123,14 +122,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn quickstart_creates_single_mode_when_mode_not_specified() {
+    async fn guide_creates_single_mode_when_mode_not_specified() {
         let dir = tempdir().expect("tempdir");
         let config_path = dir.path().join("config.toml");
         let config_path_str = config_path.to_str().expect("utf8 path");
 
-        let result = quickstart(
+        let result = guide(
             config_path_str,
-            QuickstartParams {
+            GuideParams {
                 service_id: None,
                 service_name: None,
                 provider_name: "deepseek-main",
@@ -152,7 +151,7 @@ mod tests {
             },
         )
         .await
-        .expect("quickstart");
+        .expect("guide");
 
         assert_eq!(result.modes.len(), 1);
 
@@ -170,14 +169,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn quickstart_configures_fallback_when_secondary_provider_given() {
+    async fn guide_configures_fallback_when_secondary_provider_given() {
         let dir = tempdir().expect("tempdir");
         let config_path = dir.path().join("config.toml");
         let config_path_str = config_path.to_str().expect("utf8 path");
 
-        quickstart(
+        guide(
             config_path_str,
-            QuickstartParams {
+            GuideParams {
                 service_id: None,
                 service_name: None,
                 provider_name: "deepseek-main",
@@ -199,7 +198,7 @@ mod tests {
             },
         )
         .await
-        .expect("quickstart");
+        .expect("guide");
 
         let state = GatewayState::load(Path::new(config_path_str))
             .await
