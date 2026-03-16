@@ -283,7 +283,7 @@ mod tests {
     #[test]
     fn integration_output_can_filter_by_tool() {
         let output = render_integration_output_for_tool(
-            &ModeView {
+            Some(&ModeView {
                 id: "fast".to_string(),
                 name: "Fast".to_string(),
                 is_default: true,
@@ -306,7 +306,7 @@ mod tests {
                     qps_limit: None,
                     concurrency_limit: None,
                 }],
-            },
+            }),
             Some("ugk_test"),
             Some("127.0.0.1:3210"),
             IntegrationTool::Cursor,
@@ -345,7 +345,7 @@ mod tests {
         };
 
         let zed = render_integration_output_for_tool(
-            &mode,
+            Some(&mode),
             Some("ugk_test"),
             Some("127.0.0.1:3210"),
             IntegrationTool::Zed,
@@ -354,7 +354,7 @@ mod tests {
         assert!(zed.contains("\"openai_compatible\""));
 
         let openclaw = render_integration_output_for_tool(
-            &mode,
+            Some(&mode),
             Some("ugk_test"),
             Some("127.0.0.1:3210"),
             IntegrationTool::OpenClaw,
