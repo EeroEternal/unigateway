@@ -195,6 +195,10 @@ pub(crate) async fn anthropic_messages(
         for provider in &providers {
             request.model = provider.map_model(&original_model);
 
+            // If we are routing Anthropic request to an OpenAI-compatible provider (like Moonshot/Kimi),
+            // we MUST set UpstreamProtocol::OpenAi.
+            // resolve_providers returns providers with their configured type.
+            // If the provider is configured as "openai", we use OpenAi protocol.
             let upstream_protocol = match provider.provider_type.as_str() {
                 "anthropic" => UpstreamProtocol::Anthropic,
                 _ => UpstreamProtocol::OpenAi,
@@ -207,6 +211,13 @@ pub(crate) async fn anthropic_messages(
                 upstream_protocol = ?upstream_protocol,
                 "routing anthropic request to provider"
             );
+
+            // SPECIAL HANDLING FOR AUTHENTICATION
+            // If we are routing to an OpenAI provider, we need to ensure the request has the correct API key header.
+            // invoke_provider_chat uses provider.api_key.
+            // But we must ensure that llm-connector handles the protocol conversion correctly,
+            // specifically putting the key in "Authorization: Bearer" for OpenAI,
+            // and "x-api-key" for Anthropic.
 
             match invoke_provider_chat(
                 upstream_protocol,

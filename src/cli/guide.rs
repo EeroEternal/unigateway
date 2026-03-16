@@ -147,9 +147,82 @@ pub async fn create_api_key(
 ) -> Result<()> {
     let state = GatewayState::load(Path::new(config_path)).await?;
     state
-        .create_api_key(key, service_id, quota_limit, qps_limit, concurrency_limit)
+        .create_api_key(
+            key,
+            service_id,
+            quota_limit,
+            qps_limit,
+            concurrency_limit,
+        )
         .await;
-    state.persist_if_dirty().await
+    state.persist_if_dirty().await?;
+    println!("✅ Created API key '{}' for service '{}'", key, service_id);
+    Ok(())
+}
+
+pub async fn list_services(config_path: &str, json: bool) -> Result<()> {
+    let state = GatewayState::load(Path::new(config_path)).await?;
+    let services = state.list_services().await;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&services)?);
+    } else {
+        if services.is_empty() {
+            println!("No services found.");
+            return Ok(());
+        }
+
+        println!("{:<20} {:<20}", "ID", "NAME");
+        println!("{:-<20} {:-<20}", "", "");
+
+        for service in services {
+            println!("{:<20} {:<20}", service.0, service.1);
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn list_providers(config_path: &str, json: bool) -> Result<()> {
+    let state = GatewayState::load(Path::new(config_path)).await?;
+    let providers = state.list_providers().await;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&providers)?);
+    } else {
+        if providers.is_empty() {
+            println!("No providers found.");
+            return Ok(());
+        }
+
+        println!("{:<4} {:<20} {:<15} {:<30} {:<20}", "ID", "NAME", "TYPE", "BASE URL", "ENDPOINT ID");
+        println!("{:-<4} {:-<20} {:-<15} {:-<30} {:-<20}", "", "", "", "", "");
+
+        for (id, name, provider_type, base_url, endpoint_id) in providers {
+            let base_url = base_url.as_deref().unwrap_or("-");
+            let endpoint_id = endpoint_id.as_deref().unwrap_or("-");
+            
+            println!(
+                "{:<4} {:<20} {:<15} {:<30} {:<20}",
+                id,
+                name,
+                provider_type,
+                truncate(base_url, 30),
+                truncate(endpoint_id, 20)
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn truncate(s: &str, max_len: usize) -> String {
+    if s.chars().count() > max_len {
+        let s: String = s.chars().take(max_len.saturating_sub(3)).collect();
+        format!("{}...", s)
+    } else {
+        s.to_string()
+    }
 }
 
 use console::style;
