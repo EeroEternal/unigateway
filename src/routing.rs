@@ -102,10 +102,17 @@ pub async fn resolve_providers(
     target_hint: Option<&str>,
 ) -> Result<Vec<ResolvedProvider>, String> {
     if let Some(hint) = target_hint {
-        let sp = gateway
-            .select_provider_for_service_with_hint(service_id, protocol_hint, hint)
+        let sp = if let Some(sp) = gateway
+            .select_provider_for_service_with_hint(service_id, "", hint)
             .await
-            .ok_or_else(|| format!("no provider matches target '{hint}'"))?;
+        {
+            sp
+        } else {
+            gateway
+                .select_provider_for_service_with_hint(service_id, protocol_hint, hint)
+                .await
+                .ok_or_else(|| format!("no provider matches target '{hint}'"))?
+        };
         let rp = resolve_service_provider(&sp)
             .ok_or_else(|| format!("provider '{}': base_url or api_key missing", sp.name))?;
         return Ok(vec![rp]);
@@ -115,12 +122,13 @@ pub async fn resolve_providers(
 
     if strategy == "fallback" {
         let mut all = gateway
-            .select_all_providers_for_service(service_id, protocol_hint)
+            .select_all_providers_for_service(service_id, "")
             .await;
-        
-        // If no providers for the requested protocol, try cross-protocol
+
         if all.is_empty() {
-            all = gateway.select_all_providers_for_service(service_id, "").await;
+            all = gateway
+                .select_all_providers_for_service(service_id, protocol_hint)
+                .await;
         }
 
         if all.is_empty() {
@@ -136,12 +144,13 @@ pub async fn resolve_providers(
 
     // round-robin
     let mut sp = gateway
-        .select_provider_for_service(service_id, protocol_hint)
+        .select_provider_for_service(service_id, "")
         .await;
-    
-    // If no provider for the requested protocol, try cross-protocol
+
     if sp.is_none() {
-        sp = gateway.select_provider_for_service(service_id, "").await;
+        sp = gateway
+            .select_provider_for_service(service_id, protocol_hint)
+            .await;
     }
 
     let sp = sp.ok_or_else(|| format!("no provider bound for service/{protocol_hint}"))?;
@@ -152,7 +161,11 @@ pub async fn resolve_providers(
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_upstream;
+    use std::sync::Arc;
+
+    use super::{resolve_providers, resolve_upstream};
+    use crate::config::GatewayState;
+    use tempfile::tempdir;
 
     #[test]
     fn resolve_upstream_minimax_global() {
@@ -164,5 +177,67 @@ mod tests {
             url
         );
         assert_eq!(family.as_deref(), Some("minimax"));
+    }
+
+    #[tokio::test]
+    async fn resolve_providers_allows_cross_protocol_target_hint() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state: Arc<GatewayState> = GatewayState::load(&config_path).await.expect("load state");
+
+        state.create_service("svc", "Service").await;
+        let provider_id = state
+            .create_provider(
+                "moonshot",
+                "openai",
+                "moonshot:global",
+                None,
+                "sk-test-moonshot",
+                None,
+            )
+            .await;
+        state
+            .bind_provider_to_service("svc", provider_id)
+            .await
+            .expect("bind provider");
+
+        let providers = resolve_providers(&state, "svc", "anthropic", Some("moonshot"))
+            .await
+            .expect("resolve providers");
+
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].name, "moonshot");
+        assert_eq!(providers[0].provider_type, "openai");
+    }
+
+    #[tokio::test]
+    async fn resolve_providers_allows_cross_protocol_round_robin() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state: Arc<GatewayState> = GatewayState::load(&config_path).await.expect("load state");
+
+        state.create_service("svc", "Service").await;
+        let provider_id = state
+            .create_provider(
+                "moonshot",
+                "openai",
+                "moonshot:global",
+                None,
+                "sk-test-moonshot",
+                None,
+            )
+            .await;
+        state
+            .bind_provider_to_service("svc", provider_id)
+            .await
+            .expect("bind provider");
+
+        let providers = resolve_providers(&state, "svc", "anthropic", None)
+            .await
+            .expect("resolve providers");
+
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].name, "moonshot");
+        assert_eq!(providers[0].provider_type, "openai");
     }
 }
