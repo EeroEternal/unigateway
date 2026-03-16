@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 
 use super::super::modes::{
     ModeView, load_mode_views, mode_providers_for, select_mode, supported_protocols,
-    user_anthropic_base_url, user_bind_address,
+    user_anthropic_base_url, user_bind_address, user_openai_base_url,
 };
 use crate::types::AppConfig;
 
@@ -305,7 +305,7 @@ pub(crate) fn render_integration_output_for_tool(
         Some(b) => user_bind_address(b),
         None => user_bind_address(&AppConfig::from_env().bind),
     };
-    let base_url = format!("http://{}/v1", bind_addr);
+    let _base_url = format!("http://{}/v1", bind_addr);
 
     let default_model = if let Some(mode) = mode {
         let providers = mode_providers_for(mode, "openai");
@@ -353,6 +353,7 @@ pub(crate) fn render_integration_output_for_tool(
     }
 
     if mode.is_none() || openai_provider.is_some() {
+        let base_url = user_openai_base_url(bind_override);
         let _ = writeln!(&mut out);
         let wants_openai = matches!(
             tool,
