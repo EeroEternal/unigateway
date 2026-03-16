@@ -1,6 +1,6 @@
 ---
 name: unigateway
-version: 0.7.7
+version: 0.7.8
 description: >
   Set up and manage UniGateway — a unified LLM gateway that proxies
   OpenAI, Anthropic, DeepSeek, Groq, MiniMax, and any OpenAI-compatible
@@ -38,7 +38,7 @@ brew install EeroEternal/tap/ug
 cargo install unigateway
 ```
 
-## 2. Quickstart (interactive)
+## 2. Guide (interactive)
 
 ```bash
 ug guide
@@ -46,7 +46,7 @@ ug guide
 
 Walks through: provider type → model → base URL → API key.
 Creates config, service, provider, binding, and gateway API key automatically.
-`ug guide` is an alias for `ug quickstart`.
+`ug quickstart` is an alias for `ug guide`.
 Then start:
 
 ```bash
@@ -220,8 +220,8 @@ Default location: `~/.config/unigateway/config.toml` (macOS: `~/Library/Applicat
 | `ug status` | Check if the gateway is running |
 | `ug stop` | Stop the background gateway |
 | `ug logs` | View the background gateway logs (`-f` to tail) |
-| `ug guide` | Interactive setup wizard (alias for `quickstart`) |
-| `ug quickstart` | Interactive setup wizard |
+| `ug guide` | Interactive setup guide |
+| `ug quickstart` | Interactive setup guide (alias for `guide`) |
 | `ug create-service` | Create or update a service |
 | `ug create-provider` | Create or update a provider |
 | `ug bind-provider` | Bind provider to service |

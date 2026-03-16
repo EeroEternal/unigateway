@@ -176,9 +176,9 @@ enum Commands {
     },
     /// Self-upgrade to the latest release.
     Upgrade,
-    /// Interactive setup: create service, provider, bind, and API key.
-    #[command(alias = "guide")]
-    Quickstart(Box<setup::QuickstartCommand>),
+    /// Interactive setup guide: create service, provider, bind, and API key.
+    #[command(alias = "quickstart")]
+    Guide(Box<setup::QuickstartCommand>),
 }
 
 #[derive(Subcommand, Debug)]
@@ -364,7 +364,7 @@ async fn main() -> Result<()> {
                     print!("{}", contents);
                 } else {
                     println!("Config file not found: {}", config);
-                    println!("Run `ug quickstart` to create one.");
+                    println!("Run `ug guide` to create one.");
                 }
                 Ok(())
             }
@@ -372,7 +372,7 @@ async fn main() -> Result<()> {
                 let path = std::path::Path::new(&config);
                 if !path.exists() {
                     anyhow::bail!(
-                        "Config file not found: {}. Run `ug quickstart` first.",
+                        "Config file not found: {}. Run `ug guide` first.",
                         config
                     );
                 }
@@ -386,7 +386,7 @@ async fn main() -> Result<()> {
         },
         Some(Commands::Mcp { config }) => mcp::run(&config).await,
         Some(Commands::Upgrade) => upgrade::run_upgrade().await,
-        Some(Commands::Quickstart(command)) => setup::run_quickstart(*command).await,
+        Some(Commands::Guide(command)) => setup::run_quickstart(*command).await,
         None => {
             if cli::is_running().is_none() {
                 cli::daemonize()?;

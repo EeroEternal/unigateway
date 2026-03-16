@@ -77,7 +77,7 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
     let interactive = provider_type.is_none() || endpoint_id.is_none() || api_key.is_none();
 
     if interactive {
-        println!("\n  Welcome to UniGateway quickstart!\n");
+        println!("\n  Welcome to UniGateway guide!\n");
 
         let config_path = Path::new(&config);
         if config_path.exists() {
@@ -85,7 +85,7 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
             let options = [
                 "Add to existing configuration (recommended)",
                 "Clear existing configuration and start fresh",
-                "Cancel quickstart",
+                "Cancel guide",
             ];
             let selection = Select::with_theme(&ColorfulTheme::default())
                 .with_prompt("How would you like to proceed?")
@@ -100,7 +100,7 @@ pub async fn run_quickstart(command: QuickstartCommand) -> Result<()> {
                     println!("  Existing configuration cleared.\n");
                 }
                 2 => {
-                    println!("  Quickstart cancelled.");
+                    println!("  Guide cancelled.");
                     return Ok(());
                 }
                 _ => {}
