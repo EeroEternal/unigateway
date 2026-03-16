@@ -37,7 +37,7 @@ cargo install unigateway                 # Rust toolchain
 Run the interactive wizard to set up your first provider and generate a default configuration:
 
 ```bash
-ug quickstart
+ug guide          # or 'ug quickstart'
 ug serve          # Starts in background by default
 ```
 

@@ -177,6 +177,7 @@ enum Commands {
     /// Self-upgrade to the latest release.
     Upgrade,
     /// Interactive setup: create service, provider, bind, and API key.
+    #[command(alias = "guide")]
     Quickstart(Box<setup::QuickstartCommand>),
 }
 
