@@ -5,7 +5,9 @@ use anyhow::Result;
 use clap::Args;
 use console::style;
 use dialoguer::{Confirm, Select, theme::ColorfulTheme};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::path::Path;
+use std::time::Duration;
 use std::fs;
 
 use crate::cli;
@@ -276,7 +278,7 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                             println!("\n  Choose models for multi-model setup:");
                             step = 5;
                         } else {
-                            step = 7;
+                            step = 8;
                         }
                     }
                     None => {
@@ -335,7 +337,7 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                 ) {
                     SetupFlow::Next(setup) => {
                         strong_model = setup.default_model;
-                        step = 7;
+                        step = 8;
                     }
                     SetupFlow::Back => {
                         step = 5;
@@ -343,7 +345,7 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                 }
             }
             7 => {
-                // Finalize and Save
+                // Non-interactive finalize (skip agent selection)
                 let provider_setup = provider_setup.unwrap();
                 let provider_name = provider_name_arg
                     .clone()
@@ -382,118 +384,13 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                     style(default_mode).cyan().bold()
                 );
                 println!(
-                    "  Provider '{}' configured with API key.\n",
+                    "  Provider '{}' configured with API key.",
                     style(&provider_name).bold()
                 );
-
-                // Check gateway status and offer to start
-                let already_running = cli::is_running();
-                if let Some(pid) = already_running {
-                    println!(
-                        "  {} Gateway is already running (PID: {}).",
-                        style("🟢").green(),
-                        style(pid).bold()
-                    );
-                    println!(
-                        "  {} You may need to restart it to pick up new config: {} then {}",
-                        style("💡").dim(),
-                        style("ug stop").cyan(),
-                        style("ug serve").cyan()
-                    );
-                } else if interactive {
-                    let start_now = Confirm::with_theme(&theme)
-                        .with_prompt("Start the gateway now?")
-                        .default(true)
-                        .interact_opt()
-                        .unwrap()
-                        .unwrap_or(false);
-
-                    if start_now {
-                        match cli::daemonize() {
-                            Ok(()) => {
-                                println!(
-                                    "  {} Gateway started successfully.",
-                                    style("🟢").green()
-                                );
-                            }
-                            Err(e) => {
-                                println!(
-                                    "  {} Failed to start gateway: {}",
-                                    style("⚠️").yellow(),
-                                    e
-                                );
-                                println!(
-                                    "  You can start it manually with: {}",
-                                    style("ug serve").cyan()
-                                );
-                            }
-                        }
-                    } else {
-                        println!(
-                            "\n  Start the gateway later with: {}\n",
-                            style("ug serve").cyan()
-                        );
-                    }
-                } else {
-                    println!(
-                        "\n  Start the gateway:\n    {}\n",
-                        style("ug serve").cyan()
-                    );
-                }
-
-                // Ask which AI agent to configure
-                if interactive {
-                    println!();
-                    let agent_options = vec![
-                        "Claude Code",
-                        "Cursor",
-                        "Cline",
-                        "OpenClaw",
-                        "Zed",
-                        "Droid",
-                        "OpenCode",
-                        "Codex",
-                        "OpenHands",
-                        "Trae",
-                        "Skip",
-                    ];
-                    let agent_selection = Select::with_theme(&theme)
-                        .with_prompt("Which AI agent do you want to configure?")
-                        .items(&agent_options)
-                        .default(0)
-                        .interact_opt()
-                        .unwrap();
-
-                    let tool_name = match agent_selection {
-                        Some(0) => Some("claude-code"),
-                        Some(1) => Some("cursor"),
-                        Some(2) => Some("cline"),
-                        Some(3) => Some("openclaw"),
-                        Some(4) => Some("zed"),
-                        Some(5) => Some("droid"),
-                        Some(6) => Some("opencode"),
-                        Some(7) => Some("codex"),
-                        Some(8) => Some("openhands"),
-                        Some(9) => Some("trae"),
-                        _ => None,
-                    };
-
-                    if let Some(tool_name) = tool_name {
-                        for mode in &result.modes {
-                            println!();
-                            cli::print_integrations_with_key(
-                                &config,
-                                Some(&mode.id),
-                                Some(tool_name),
-                                Some(&mode.key),
-                                None,
-                            )
-                            .await?;
-                        }
-                        println!();
-                    }
-                }
-
+                println!(
+                    "\n  Start the gateway:\n    {}\n",
+                    style("ug serve").cyan()
+                );
                 println!(
                     "  {} Run '{}' to see hints for other tools.",
                     style("💡").dim(),
@@ -505,6 +402,166 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                     style("ug help").cyan()
                 );
                 return Ok(());
+            }
+            8 => {
+                // Interactive: collect agent selection BEFORE configuring
+                let agent_options = vec![
+                    "Claude Code",
+                    "Cursor",
+                    "Cline",
+                    "OpenClaw",
+                    "Zed",
+                    "Droid",
+                    "OpenCode",
+                    "Codex",
+                    "OpenHands",
+                    "Trae",
+                    "Skip",
+                ];
+                match Select::with_theme(&theme)
+                    .with_prompt("Which AI agent do you want to configure?")
+                    .items(&agent_options)
+                    .default(0)
+                    .interact_opt()
+                    .unwrap()
+                {
+                    Some(sel) => {
+                        let tool_name = match sel {
+                            0 => Some("claude-code"),
+                            1 => Some("cursor"),
+                            2 => Some("cline"),
+                            3 => Some("openclaw"),
+                            4 => Some("zed"),
+                            5 => Some("droid"),
+                            6 => Some("opencode"),
+                            7 => Some("codex"),
+                            8 => Some("openhands"),
+                            9 => Some("trae"),
+                            _ => None,
+                        };
+
+                        // Show spinner while configuring
+                        let spinner = ProgressBar::new_spinner();
+                        spinner.set_style(
+                            ProgressStyle::with_template("  {spinner} {msg}")
+                                .unwrap()
+                                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+                        );
+                        spinner.set_message("Configuring gateway...");
+                        spinner.enable_steady_tick(Duration::from_millis(80));
+
+                        let provider_setup = provider_setup.unwrap();
+                        let provider_name = provider_name_arg
+                            .clone()
+                            .unwrap_or_else(|| provider_setup.name.clone());
+
+                        let result = cli::guide(
+                            &config,
+                            cli::GuideParams {
+                                service_id: service_id.as_deref(),
+                                service_name: service_name.as_deref(),
+                                provider_name: &provider_name,
+                                provider_type: &provider_setup.provider_type,
+                                endpoint_id: &provider_setup.endpoint_id,
+                                default_model: provider_setup.default_model.as_deref(),
+                                fast_model: fast_model.as_deref().or(command.fast_model.as_deref()),
+                                strong_model: strong_model.as_deref().or(command.strong_model.as_deref()),
+                                base_url: provider_setup.base_url.as_deref(),
+                                api_key: &provider_setup.api_key,
+                                model_mapping: model_mapping.as_deref(),
+                                backup_provider_name: backup_setup.as_ref().map(|s| s.0.as_str()),
+                                backup_provider_type: backup_setup.as_ref().map(|s| s.1.as_str()),
+                                backup_endpoint_id: backup_setup.as_ref().map(|s| s.2.as_str()),
+                                backup_default_model: backup_setup.as_ref().and_then(|s| s.3.as_deref()),
+                                backup_base_url: backup_setup.as_ref().and_then(|s| s.4.as_deref()),
+                                backup_api_key: backup_setup.as_ref().map(|s| s.5.as_str()),
+                                backup_model_mapping: backup_model_mapping.as_deref(),
+                            },
+                        )
+                        .await?;
+
+                        // Auto-start or detect running gateway
+                        let already_running = cli::is_running();
+                        let gateway_started = if already_running.is_some() {
+                            true
+                        } else {
+                            cli::daemonize().is_ok()
+                        };
+
+                        // Brief pause so spinner is visible
+                        tokio::time::sleep(Duration::from_millis(800)).await;
+                        spinner.finish_and_clear();
+
+                        let default_mode = result.modes.first().map(|m| m.id.as_str()).unwrap_or("default");
+
+                        // -- All output at once --
+                        println!();
+                        println!(
+                            "  {} Configuration complete! Mode: {}",
+                            style("✅").green(),
+                            style(default_mode).cyan().bold()
+                        );
+                        println!(
+                            "  Provider '{}' configured with API key.",
+                            style(&provider_name).bold()
+                        );
+
+                        if let Some(pid) = already_running {
+                            println!(
+                                "\n  {} Gateway is running (PID: {}). Restart to pick up new config: {} then {}",
+                                style("🟢").green(),
+                                style(pid).bold(),
+                                style("ug stop").cyan(),
+                                style("ug serve").cyan()
+                            );
+                        } else if gateway_started {
+                            println!(
+                                "\n  {} Gateway started.",
+                                style("🟢").green()
+                            );
+                        } else {
+                            println!(
+                                "\n  Start the gateway with: {}",
+                                style("ug serve").cyan()
+                            );
+                        }
+
+                        if let Some(tool_name) = tool_name {
+                            for mode in &result.modes {
+                                println!();
+                                cli::print_integrations_with_key(
+                                    &config,
+                                    Some(&mode.id),
+                                    Some(tool_name),
+                                    Some(&mode.key),
+                                    None,
+                                )
+                                .await?;
+                            }
+                        }
+
+                        println!();
+                        println!(
+                            "  {} Run '{}' to see hints for other tools.",
+                            style("💡").dim(),
+                            style(format!("ug integrations --mode {}", default_mode)).cyan()
+                        );
+                        println!(
+                            "  {} Run '{}' to see all available commands.",
+                            style("💡").dim(),
+                            style("ug help").cyan()
+                        );
+                        return Ok(());
+                    }
+                    None => {
+                        // User pressed Esc, go back
+                        if setup_type_selection == 1 {
+                            step = 6;
+                        } else {
+                            step = 4;
+                        }
+                    }
+                }
             }
             _ => unreachable!("guide step out of range"),
         }
