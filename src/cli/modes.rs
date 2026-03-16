@@ -221,7 +221,7 @@ pub(crate) fn select_mode<'a>(
     requested_mode: Option<&str>,
 ) -> Result<&'a ModeView> {
     if modes.is_empty() {
-        bail!("no modes configured; run `ug quickstart` first")
+        bail!("no modes configured; run `ug guide` first")
     }
 
     if let Some(mode) = requested_mode {
@@ -298,7 +298,7 @@ pub(crate) fn pick_mode_protocol<'a>(
 pub async fn list_modes(config_path: &str) -> Result<()> {
     let modes = load_mode_views(config_path).await?;
     if modes.is_empty() {
-        println!("No modes configured. Run `ug quickstart` first.");
+        println!("No modes configured. Run `ug guide` first.");
         return Ok(());
     }
 
