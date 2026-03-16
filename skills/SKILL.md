@@ -1,6 +1,6 @@
 ---
 name: unigateway
-version: 0.7.8
+version: 0.7.9
 description: >
   Set up and manage UniGateway — a unified LLM gateway that proxies
   OpenAI, Anthropic, DeepSeek, Groq, MiniMax, and any OpenAI-compatible
