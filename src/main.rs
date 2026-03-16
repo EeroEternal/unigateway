@@ -183,8 +183,11 @@ Examples:
     },
     /// Manage LLM providers.
     #[command(about = "Manage LLM providers", long_about = "Manage LLM providers.
-
+    
 Examples:
+  # List all providers
+  ug provider list
+
   # Create a new OpenAI provider
   ug provider create --name deepseek --provider-type openai --base-url https://api.deepseek.com --api-key sk-xxx --endpoint-id deepseek-chat
 
@@ -255,6 +258,13 @@ enum ServiceAction {
 
 #[derive(Subcommand, Debug)]
 enum ProviderAction {
+    /// List all registered providers.
+    List {
+        #[arg(long, default_value_t = config_default())]
+        config: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Register a new provider.
     Create {
         #[arg(long)]
@@ -479,6 +489,7 @@ async fn main() -> Result<()> {
                 provider_id,
                 config,
             } => cli::bind_provider(&config, &service_id, provider_id).await,
+            ProviderAction::List { config, json } => cli::list_providers(&config, json).await,
         },
         Some(Commands::Key { action }) => match action {
             KeyAction::Create {

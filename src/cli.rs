@@ -23,6 +23,7 @@ pub(crate) use guide::planned_modes;
 pub use guide::{
     GuideParams, bind_provider, create_api_key, create_provider, create_service, guide,
     interactive_create_api_key, interactive_create_provider, interactive_create_service,
+    list_providers,
 };
 #[cfg(test)]
 pub(crate) use render::{

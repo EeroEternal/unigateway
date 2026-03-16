@@ -60,7 +60,11 @@ pub(super) async fn try_chat_stream_raw(
                         .map(|s| Ok(Bytes::from(s)))
                         .collect()
                 }
-                Err(e) => vec![Err(Box::new(std::io::Error::other(e.to_string())) as BoxErr)],
+                Err(e) => {
+                    // Log the error for debugging
+                    tracing::error!("llm-connector chat_stream failed: {}", e);
+                    vec![Err(Box::new(std::io::Error::other(format!("llm-connector chat_stream failed: {}", e))) as BoxErr)]
+                },
             };
             
             futures_util::stream::iter(result)
