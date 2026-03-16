@@ -1,4 +1,5 @@
 use anyhow::{Result, bail};
+use console::style;
 use std::fmt::Write as _;
 
 use super::super::modes::{
@@ -58,6 +59,13 @@ pub(crate) fn parse_integration_tool(tool: Option<&str>) -> Result<IntegrationTo
     }
 }
 
+fn render_anthropic_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
+    let _ = writeln!(out, "Anthropic-compatible (e.g. Cursor, Claude Dev):");
+    let _ = writeln!(out, "  Base URL: {}", style(base_url).cyan());
+    let _ = writeln!(out, "  API Key: {}", style(key.unwrap_or("<gateway api key>")).cyan());
+    let _ = writeln!(out, "  Model: {}", style(model).cyan());
+}
+
 fn render_openai_tool_settings(
     out: &mut String,
     title: &str,
@@ -66,231 +74,186 @@ fn render_openai_tool_settings(
     model: &str,
 ) {
     let _ = writeln!(out, "{}:", title);
-    let _ = writeln!(out, "  Base URL: {}", base_url);
-    let _ = writeln!(out, "  API Key: {}", key.unwrap_or("<gateway api key>"));
-    let _ = writeln!(out, "  Model: {}", model);
+    let _ = writeln!(out, "  Base URL: {}", style(base_url).cyan());
+    let _ = writeln!(out, "  API Key: {}", style(key.unwrap_or("<gateway api key>")).cyan());
+    let _ = writeln!(out, "  Model: {}", style(model).cyan());
 }
 
 fn render_openai_env_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let _ = writeln!(out, "Shell environment:");
-    let _ = writeln!(out, "  export OPENAI_BASE_URL={}", base_url);
+    let _ = writeln!(out, "  {}", style(format!("export OPENAI_BASE_URL={}", base_url)).cyan());
     let _ = writeln!(
         out,
-        "  export OPENAI_API_KEY={}",
-        key.unwrap_or("<gateway api key>")
+        "  {}",
+        style(format!("export OPENAI_API_KEY={}", key.unwrap_or("<gateway api key>"))).cyan()
     );
-    let _ = writeln!(out, "  export OPENAI_MODEL={}", model);
+    let _ = writeln!(out, "  {}", style(format!("export OPENAI_MODEL={}", model)).cyan());
 }
 
 fn render_openai_python_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let _ = writeln!(out, "Python (openai SDK):");
-    let _ = writeln!(out, "  from openai import OpenAI");
-    let _ = writeln!(
-        out,
-        "  client = OpenAI(base_url=\"{}\", api_key=\"{}\")",
+    let code = format!(
+        r#"  from openai import OpenAI
+  client = OpenAI(base_url="{}", api_key="{}")
+  print(client.chat.completions.create(model="{}", messages=[{{"role": "user", "content": "hello"}}]).choices[0].message.content)"#,
         base_url,
-        key.unwrap_or("<gateway api key>")
-    );
-    let _ = writeln!(
-        out,
-        "  print(client.chat.completions.create(model=\"{}\", messages=[{{\"role\": \"user\", \"content\": \"hello\"}}]).choices[0].message.content)",
+        key.unwrap_or("<gateway api key>"),
         model
     );
+    let _ = writeln!(out, "{}", style(code).dim());
 }
 
 fn render_openai_node_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let _ = writeln!(out, "Node (openai SDK):");
-    let _ = writeln!(out, "  import OpenAI from \"openai\";");
-    let _ = writeln!(
-        out,
-        "  const client = new OpenAI({{ baseURL: \"{}\", apiKey: \"{}\" }});",
+    let code = format!(
+        r#"  import OpenAI from "openai";
+  const client = new OpenAI({{ baseURL: "{}", apiKey: "{}" }});
+  const response = await client.chat.completions.create({{ model: "{}", messages: [{{ role: "user", content: "hello" }}] }});
+  console.log(response.choices[0].message.content);"#,
         base_url,
-        key.unwrap_or("<gateway api key>")
-    );
-    let _ = writeln!(
-        out,
-        "  const response = await client.chat.completions.create({{ model: \"{}\", messages: [{{ role: \"user\", content: \"hello\" }}] }});",
+        key.unwrap_or("<gateway api key>"),
         model
     );
-    let _ = writeln!(out, "  console.log(response.choices[0].message.content);");
+    let _ = writeln!(out, "{}", style(code).dim());
 }
 
 fn render_openai_curl_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let _ = writeln!(out, "curl:");
-    let _ = writeln!(
-        out,
-        "  curl -s {}/chat/completions -H \"Authorization: Bearer {}\" -H \"Content-Type: application/json\" -d '{{\"model\":\"{}\",\"messages\":[{{\"role\":\"user\",\"content\":\"hello\"}}]}}'",
+    let cmd = format!(
+        r#"  curl -s {}/chat/completions -H "Authorization: Bearer {}" -H "Content-Type: application/json" -d '{{"model":"{}","messages":[{{"role":"user","content":"hello"}}]}}'"#,
         base_url,
         key.unwrap_or("<gateway api key>"),
         model
     );
-}
-
-fn render_anthropic_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
-    let _ = writeln!(out, "Anthropic-compatible clients:");
-    let _ = writeln!(out, "  Base URL: {}", base_url);
-    let _ = writeln!(out, "  x-api-key: {}", key.unwrap_or("<gateway api key>"));
-    let _ = writeln!(out, "  Model: {}", model);
-    let _ = writeln!(out, "  curl:");
-    let _ = writeln!(
-        out,
-        "    curl -s {}/v1/messages -H \"x-api-key: {}\" -H \"anthropic-version: 2023-06-01\" -H \"Content-Type: application/json\" -d '{{\"model\":\"{}\",\"max_tokens\":64,\"messages\":[{{\"role\":\"user\",\"content\":\"hello\"}}]}}'",
-        base_url,
-        key.unwrap_or("<gateway api key>"),
-        model
-    );
+    let _ = writeln!(out, "{}", style(cmd).dim());
 }
 
 fn render_openclaw_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let _ = writeln!(out, "OpenClaw (~/.openclaw/openclaw.json):");
-    let _ = writeln!(out, "  {{");
-    let _ = writeln!(
-        out,
-        "    agents: {{ defaults: {{ model: {{ primary: \"unigateway/{}\" }} }} }},",
-        model
-    );
-    let _ = writeln!(out, "    models: {{");
-    let _ = writeln!(out, "      mode: \"merge\",");
-    let _ = writeln!(out, "      providers: {{");
-    let _ = writeln!(out, "        unigateway: {{");
-    let _ = writeln!(out, "          baseUrl: \"{}\",", base_url);
-    let _ = writeln!(out, "          apiKey: \"${{UNIGATEWAY_API_KEY}}\",");
-    let _ = writeln!(out, "          api: \"openai-completions\",");
-    let _ = writeln!(
-        out,
-        "          models: [{{ id: \"{}\", name: \"UniGateway {}\" }}],",
-        model, model
-    );
-    let _ = writeln!(out, "        }},");
-    let _ = writeln!(out, "      }},");
-    let _ = writeln!(out, "    }},");
-    let _ = writeln!(out, "  }}");
-    let _ = writeln!(
-        out,
-        "  export UNIGATEWAY_API_KEY={}",
-        key.unwrap_or("<gateway api key>")
-    );
+    let config = serde_json::json!({
+        "agents": {
+            "defaults": {
+                "model": {
+                    "primary": format!("unigateway/{}", model)
+                }
+            }
+        },
+        "models": {
+            "mode": "merge",
+            "providers": {
+                "unigateway": {
+                    "baseUrl": base_url,
+                    "apiKey": "${UNIGATEWAY_API_KEY}",
+                    "api": "openai-completions",
+                    "models": [
+                        {
+                            "id": model,
+                            "name": format!("UniGateway {}", model)
+                        }
+                    ]
+                }
+            }
+        }
+    });
+    let _ = writeln!(out, "{}", style(serde_json::to_string_pretty(&config).unwrap()).dim());
+    if let Some(k) = key {
+        let _ = writeln!(out, "  {}", style(format!("export UNIGATEWAY_API_KEY={}", k)).cyan());
+    }
 }
 
 fn render_zed_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let _ = writeln!(out, "Zed (settings.json or Agent Panel > Add Provider):");
-    let _ = writeln!(out, "  {{");
-    let _ = writeln!(out, "    \"language_models\": {{");
-    let _ = writeln!(out, "      \"openai_compatible\": {{");
-    let _ = writeln!(out, "        \"UniGateway\": {{");
-    let _ = writeln!(out, "          \"api_url\": \"{}\",", base_url);
-    let _ = writeln!(out, "          \"available_models\": [");
-    let _ = writeln!(out, "            {{");
-    let _ = writeln!(out, "              \"name\": \"{}\",", model);
-    let _ = writeln!(
-        out,
-        "              \"display_name\": \"UniGateway {}\",",
-        model
-    );
-    let _ = writeln!(
-        out,
-        "              \"max_tokens\": {},",
-        DEFAULT_CONTEXT_WINDOW_HINT
-    );
-    let _ = writeln!(out, "              \"capabilities\": {{");
-    let _ = writeln!(out, "                \"tools\": true,");
-    let _ = writeln!(out, "                \"chat_completions\": true");
-    let _ = writeln!(out, "              }}");
-    let _ = writeln!(out, "            }}");
-    let _ = writeln!(out, "          ]");
-    let _ = writeln!(out, "        }}");
-    let _ = writeln!(out, "      }}");
-    let _ = writeln!(out, "    }}");
-    let _ = writeln!(out, "  }}");
-    let _ = writeln!(
-        out,
-        "  export UNIGATEWAY_API_KEY={}",
-        key.unwrap_or("<gateway api key>")
-    );
+    let config = serde_json::json!({
+        "language_models": {
+            "openai_compatible": {
+                "UniGateway": {
+                    "api_url": base_url,
+                    "available_models": [
+                        {
+                            "name": model,
+                            "display_name": format!("UniGateway {}", model),
+                            "max_tokens": DEFAULT_CONTEXT_WINDOW_HINT,
+                            "capabilities": {
+                                "tools": true,
+                                "chat_completions": true,
+                            },
+                        }
+                    ]
+                }
+            }
+        }
+    });
+    let _ = writeln!(out, "{}", style(serde_json::to_string_pretty(&config).unwrap()).dim());
+    if let Some(k) = key {
+        let _ = writeln!(out, "  {}", style(format!("export UNIGATEWAY_API_KEY={}", k)).cyan());
+    }
 }
 
 fn render_droid_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let _ = writeln!(out, "Droid (~/.factory/settings.json):");
-    let _ = writeln!(out, "  {{");
-    let _ = writeln!(out, "    \"customModels\": [");
-    let _ = writeln!(out, "      {{");
-    let _ = writeln!(out, "        \"model\": \"{}\",", model);
-    let _ = writeln!(out, "        \"displayName\": \"UniGateway {}\",", model);
-    let _ = writeln!(out, "        \"baseUrl\": \"{}\",", base_url);
-    let _ = writeln!(out, "        \"apiKey\": \"${{UNIGATEWAY_API_KEY}}\",",);
-    let _ = writeln!(
-        out,
-        "        \"provider\": \"generic-chat-completion-api\","
-    );
-    let _ = writeln!(
-        out,
-        "        \"maxOutputTokens\": {}",
-        DEFAULT_MAX_OUTPUT_TOKENS_HINT
-    );
-    let _ = writeln!(out, "      }}");
-    let _ = writeln!(out, "    ]");
-    let _ = writeln!(out, "  }}");
-    let _ = writeln!(
-        out,
-        "  export UNIGATEWAY_API_KEY={}",
-        key.unwrap_or("<gateway api key>")
-    );
+    let config = serde_json::json!({
+        "customModels": [
+            {
+                "model": model,
+                "displayName": format!("UniGateway {}", model),
+                "baseUrl": base_url,
+                "apiKey": "${UNIGATEWAY_API_KEY}",
+                "provider": "generic-chat-completion-api",
+                "maxOutputTokens": DEFAULT_MAX_OUTPUT_TOKENS_HINT,
+            }
+        ]
+    });
+    let _ = writeln!(out, "{}", style(serde_json::to_string_pretty(&config).unwrap()).dim());
+    if let Some(k) = key {
+        let _ = writeln!(out, "  {}", style(format!("export UNIGATEWAY_API_KEY={}", k)).cyan());
+    }
 }
 
 fn render_opencode_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let _ = writeln!(out, "OpenCode (opencode.json):");
-    let _ = writeln!(out, "  {{");
-    let _ = writeln!(out, "    \"$schema\": \"https://opencode.ai/config.json\",");
-    let _ = writeln!(out, "    \"provider\": {{");
-    let _ = writeln!(out, "      \"unigateway\": {{");
-    let _ = writeln!(out, "        \"npm\": \"@ai-sdk/openai-compatible\",");
-    let _ = writeln!(out, "        \"name\": \"UniGateway\",");
-    let _ = writeln!(out, "        \"options\": {{");
-    let _ = writeln!(out, "          \"baseURL\": \"{}\",", base_url);
-    let _ = writeln!(out, "          \"apiKey\": \"{{env:UNIGATEWAY_API_KEY}}\"");
-    let _ = writeln!(out, "        }},");
-    let _ = writeln!(out, "        \"models\": {{");
-    let _ = writeln!(out, "          \"{}\": {{", model);
-    let _ = writeln!(out, "            \"name\": \"UniGateway {}\",", model);
-    let _ = writeln!(out, "            \"limit\": {{");
-    let _ = writeln!(
-        out,
-        "              \"context\": {},",
-        DEFAULT_CONTEXT_WINDOW_HINT
-    );
-    let _ = writeln!(
-        out,
-        "              \"output\": {}",
-        DEFAULT_MAX_OUTPUT_TOKENS_HINT
-    );
-    let _ = writeln!(out, "            }}");
-    let _ = writeln!(out, "          }}");
-    let _ = writeln!(out, "        }}");
-    let _ = writeln!(out, "      }}");
-    let _ = writeln!(out, "    }}");
-    let _ = writeln!(out, "  }}");
+    let config = serde_json::json!({
+        "$schema": "https://opencode.ai/config.json",
+        "provider": {
+            "unigateway": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "UniGateway",
+                "options": {
+                    "baseURL": base_url,
+                    "apiKey": "{env:UNIGATEWAY_API_KEY}"
+                },
+                "models": {
+                    model: {
+                        "name": format!("UniGateway {}", model),
+                        "limit": {
+                            "context": DEFAULT_CONTEXT_WINDOW_HINT,
+                            "output": DEFAULT_MAX_OUTPUT_TOKENS_HINT,
+                        }
+                    }
+                }
+            }
+        }
+    });
+    let _ = writeln!(out, "{}", style(serde_json::to_string_pretty(&config).unwrap()).dim());
     let _ = writeln!(out, "  Then run `/connect` -> Other -> unigateway");
-    let _ = writeln!(
-        out,
-        "  export UNIGATEWAY_API_KEY={}",
-        key.unwrap_or("<gateway api key>")
-    );
+    if let Some(k) = key {
+        let _ = writeln!(out, "  {}", style(format!("export UNIGATEWAY_API_KEY={}", k)).cyan());
+    }
 }
 
 fn render_cline_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let _ = writeln!(out, "Cline (VS Code Extension):");
     let _ = writeln!(out, "  1. Open Cline settings");
     let _ = writeln!(out, "  2. Select API Provider: OpenAI Compatible");
-    let _ = writeln!(out, "  3. Set Base URL: {}", base_url);
-    let _ = writeln!(out, "  4. Set API Key: {}", key.unwrap_or("<gateway api key>"));
-    let _ = writeln!(out, "  5. Model ID: {}", model);
+    let _ = writeln!(out, "  3. Set Base URL: {}", style(base_url).cyan());
+    let _ = writeln!(out, "  4. Set API Key: {}", style(key.unwrap_or("<gateway api key>")).cyan());
+    let _ = writeln!(out, "  5. Model ID: {}", style(model).cyan());
 }
 
 fn render_openhands_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let _ = writeln!(out, "OpenHands (env or config.toml):");
-    let _ = writeln!(out, "  LLM_BASE_URL=\"{}\"", base_url);
-    let _ = writeln!(out, "  LLM_API_KEY=\"{}\"", key.unwrap_or("<gateway api key>"));
-    let _ = writeln!(out, "  LLM_MODEL=\"{}\"", model);
+    let _ = writeln!(out, "  {}", style(format!("LLM_BASE_URL=\"{}\"", base_url)).cyan());
+    let _ = writeln!(out, "  {}", style(format!("LLM_API_KEY=\"{}\"", key.unwrap_or("<gateway api key>"))).cyan());
+    let _ = writeln!(out, "  {}", style(format!("LLM_MODEL=\"{}\"", model)).cyan());
 }
 
 pub(crate) fn render_integration_output_for_tool(

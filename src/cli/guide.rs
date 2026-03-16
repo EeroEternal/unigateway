@@ -266,6 +266,7 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
 
     match agent_selection {
         0 => { // OpenClaw
+            println!("\n🎉 {}", style("Ready to use with OpenClaw!").green().bold());
             println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
                 None,
                 Some(&key),
@@ -274,6 +275,7 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
             ));
         },
         1 => { // Claude Code
+            println!("\n🎉 {}", style("Ready to use with Claude Code!").green().bold());
             println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
                 None,
                 Some(&key),
@@ -282,6 +284,7 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
             ));
         },
         2 => { // Cursor
+            println!("\n🎉 {}", style("Ready to use with Cursor!").green().bold());
             println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
                 None,
                 Some(&key),
@@ -290,6 +293,7 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
             ));
         },
         3 => { // OpenCode
+            println!("\n🎉 {}", style("Ready to use with OpenCode!").green().bold());
             println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
                 None,
                 Some(&key),
@@ -298,6 +302,7 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
             ));
         },
         4 => { // Droid
+            println!("\n🎉 {}", style("Ready to use with Droid!").green().bold());
             println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
                 None,
                 Some(&key),
@@ -306,6 +311,7 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
             ));
         },
         5 => { // Cline
+            println!("\n🎉 {}", style("Ready to use with Cline!").green().bold());
             println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
                 None,
                 Some(&key),
@@ -314,6 +320,7 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
             ));
         },
         6 => { // OpenHands
+            println!("\n🎉 {}", style("Ready to use with OpenHands!").green().bold());
             println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
                 None,
                 Some(&key),
@@ -322,6 +329,7 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
             ));
         },
         7 => { // Zed
+            println!("\n🎉 {}", style("Ready to use with Zed!").green().bold());
             println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
                 None,
                 Some(&key),
@@ -330,6 +338,7 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
             ));
         },
         8 => { // Codex
+            println!("\n🎉 {}", style("Ready to use with Codex!").green().bold());
             println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
                 None,
                 Some(&key),
@@ -338,6 +347,7 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
             ));
         },
         9 => { // Trae
+            println!("\n🎉 {}", style("Ready to use with Trae!").green().bold());
             println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
                 None,
                 Some(&key),
