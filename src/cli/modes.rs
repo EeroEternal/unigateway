@@ -1,9 +1,10 @@
 use anyhow::{Context, Result, bail};
+use serde::Serialize;
 use std::path::Path;
 
 use crate::{config::GatewayState, types::AppConfig};
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub(crate) struct ModeProvider {
     pub(crate) name: String,
     pub(crate) provider_type: String,
@@ -16,7 +17,7 @@ pub(crate) struct ModeProvider {
     pub(crate) priority: i64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub(crate) struct ModeKey {
     pub(crate) key: String,
     pub(crate) is_active: bool,
@@ -25,7 +26,7 @@ pub(crate) struct ModeKey {
     pub(crate) concurrency_limit: Option<i64>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub(crate) struct ModeView {
     pub(crate) id: String,
     pub(crate) name: String,
@@ -295,8 +296,13 @@ pub(crate) fn pick_mode_protocol<'a>(
     Ok(protocols[0])
 }
 
-pub async fn list_modes(config_path: &str) -> Result<()> {
+pub async fn list_modes(config_path: &str, json: bool) -> Result<()> {
     let modes = load_mode_views(config_path).await?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&modes)?);
+        return Ok(());
+    }
+
     if modes.is_empty() {
         println!("No modes configured. Run `ug guide` first.");
         return Ok(());
@@ -329,10 +335,15 @@ pub async fn list_modes(config_path: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn show_mode(config_path: &str, mode_id: &str) -> Result<()> {
+pub async fn show_mode(config_path: &str, mode_id: &str, json: bool) -> Result<()> {
     let modes = load_mode_views(config_path).await?;
     let default_mode = effective_default_mode_id(&modes).map(ToOwned::to_owned);
     let mode = select_mode(&modes, Some(mode_id))?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&mode)?);
+        return Ok(());
+    }
 
     println!("Mode: {}", mode.id);
     println!("Name: {}", mode.name);

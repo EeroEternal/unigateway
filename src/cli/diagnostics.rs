@@ -1,7 +1,10 @@
 use anyhow::{Context, Result, bail};
+use console::style;
+use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use serde_json::Value;
 use std::path::Path;
+use std::time::Duration;
 
 use crate::{routing::resolve_upstream, types::AppConfig};
 
@@ -107,14 +110,14 @@ async fn gateway_health_status(bind_override: Option<&str>) -> (bool, String) {
 fn provider_readiness(provider: &ModeProvider) -> String {
     let upstream =
         if resolve_upstream(provider.base_url.clone(), provider.endpoint_id.as_deref()).is_some() {
-            "✓ resolved"
+            style("✓ resolved").green()
         } else {
-            "✗ missing upstream"
+            style("✗ missing upstream").red()
         };
     let api_key = if provider.has_api_key {
-        "✓ key configured"
+        style("✓ key configured").green()
     } else {
-        "✗ missing key"
+        style("✗ missing key").red()
     };
     format!("{} | {}", upstream, api_key)
 }
@@ -132,24 +135,24 @@ pub async fn doctor(
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| AppConfig::from_env().bind);
 
-    println!("🩺 UniGateway Doctor");
+    println!("{}", style("🩺 UniGateway Doctor").bold());
     println!("-------------------");
     println!("Config Path:   {}", config_path);
     println!(
         "Config Status: {}",
         if config_exists {
-            "✓ present"
+            style("✓ present").green()
         } else {
-            "✗ missing (using in-memory defaults if started)"
+            style("✗ missing (using in-memory defaults if started)").red()
         }
     );
     println!("Gateway Bind:   {}", bind_display);
     println!(
         "Gateway Health: {}",
         if is_healthy {
-            format!("✓ {}", health)
+            style(format!("✓ {}", health)).green()
         } else {
-            format!("✗ {}", health)
+            style(format!("✗ {}", health)).red()
         }
     );
 
@@ -175,9 +178,9 @@ pub async fn doctor(
         let active_keys = mode.keys.iter().filter(|key| key.is_active).count();
         let is_default = default_mode.as_deref() == Some(mode.id.as_str());
 
-        println!("\n- {} ({})", mode.id, mode.name);
+        println!("\n- {} ({})", style(&mode.id).bold(), mode.name);
         if is_default {
-            println!("  ★ Default Mode");
+            println!("  {}", style("★ Default Mode").yellow());
         }
         println!("  Routing:   {}", mode.routing_strategy);
         println!("  Auth:      {} / {} active keys", active_keys, mode.keys.len());
@@ -192,7 +195,7 @@ pub async fn doctor(
         );
 
         if active_keys == 0 {
-            println!("  ⚠️ Warning: No active gateway key for this mode. Requests will fail.");
+            println!("  {}", style("⚠️ Warning: No active gateway key for this mode. Requests will fail.").yellow());
         }
 
         for protocol in protocols {
@@ -304,7 +307,20 @@ pub async fn test_mode(
         _ => bail!("unsupported protocol '{}'", protocol),
     };
 
-    let response = request.send().await.with_context(|| {
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} {msg}")
+            .unwrap(),
+    );
+    pb.set_message(format!("Testing mode '{}' via {}...", mode.id, protocol));
+    pb.enable_steady_tick(Duration::from_millis(100));
+
+    let response = request.send().await;
+
+    pb.finish_and_clear();
+
+    let response = response.with_context(|| {
         format!(
             "failed to connect to {}. Start the gateway with `ug serve` and try again",
             url
@@ -328,10 +344,11 @@ pub async fn test_mode(
     }
 
     println!(
-        "Mode '{}' passed {} smoke test: {}",
+        "{} Mode '{}' passed {} smoke test: {}",
+        style("✓").green(),
         mode.id,
         protocol,
-        summarize_response_text(&body)
+        style(summarize_response_text(&body)).dim()
     );
     Ok(())
 }

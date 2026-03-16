@@ -152,6 +152,93 @@ pub async fn create_api_key(
     state.persist_if_dirty().await
 }
 
+use dialoguer::{Input, Select, theme::ColorfulTheme};
+
+pub async fn interactive_create_service(config_path: &str) -> Result<()> {
+    let theme = ColorfulTheme::default();
+    let id: String = Input::with_theme(&theme)
+        .with_prompt("Service ID (e.g. 'default')")
+        .default("default".to_string())
+        .interact_text()?;
+
+    let name: String = Input::with_theme(&theme)
+        .with_prompt("Service Name")
+        .default("Default Service".to_string())
+        .interact_text()?;
+
+    create_service(config_path, &id, &name).await?;
+    println!("✅ Service '{}' created.", id);
+    Ok(())
+}
+
+pub async fn interactive_create_provider(config_path: &str) -> Result<()> {
+    let theme = ColorfulTheme::default();
+    
+    let name: String = Input::with_theme(&theme)
+        .with_prompt("Provider Name")
+        .interact_text()?;
+
+    let provider_types = vec!["openai", "anthropic"];
+    let selection = Select::with_theme(&theme)
+        .with_prompt("Provider Type")
+        .items(&provider_types)
+        .default(0)
+        .interact()?;
+    let provider_type = provider_types[selection];
+
+    let endpoint_id: String = Input::with_theme(&theme)
+        .with_prompt("Endpoint ID (e.g. 'openai:global')")
+        .interact_text()?;
+
+    let base_url: String = Input::with_theme(&theme)
+        .with_prompt("Base URL (optional)")
+        .allow_empty(true)
+        .interact_text()?;
+    
+    let api_key: String = Input::with_theme(&theme)
+        .with_prompt("API Key")
+        .interact_text()?;
+
+    let base_url = if base_url.is_empty() { None } else { Some(base_url.as_str()) };
+
+    let id = create_provider(
+        config_path,
+        &name,
+        provider_type,
+        &endpoint_id,
+        base_url,
+        &api_key,
+        None
+    ).await?;
+
+    println!("✅ Provider '{}' created with ID: {}", name, id);
+    Ok(())
+}
+
+pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
+    let theme = ColorfulTheme::default();
+    
+    let key: String = Input::with_theme(&theme)
+        .with_prompt("API Key Value (leave empty to generate)")
+        .allow_empty(true)
+        .interact_text()?;
+    
+    let key = if key.is_empty() {
+        format!("ugk_{}", hex::encode(rand::random::<[u8; 16]>()))
+    } else {
+        key
+    };
+
+    let service_id: String = Input::with_theme(&theme)
+        .with_prompt("Service ID to bind")
+        .default("default".to_string())
+        .interact_text()?;
+
+    create_api_key(config_path, &key, &service_id, None, None, None).await?;
+    println!("✅ API Key '{}' created for service '{}'.", key, service_id);
+    Ok(())
+}
+
 pub async fn quickstart(
     config_path: &str,
     params: QuickstartParams<'_>,

@@ -19,7 +19,9 @@ mod types;
 mod upgrade;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::{generate, Shell};
+use std::io;
 
 fn config_default() -> String {
     types::default_config_path()
@@ -35,7 +37,17 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Start the gateway server.
-    #[command(about = "Start the gateway server")]
+    #[command(about = "Start the gateway server", long_about = "Starts the UniGateway server.
+
+Examples:
+  # Start server in background (default)
+  ug serve
+
+  # Start in foreground (blocking)
+  ug serve --foreground
+
+  # Bind to a specific address
+  ug serve --bind 0.0.0.0:8000")]
     Serve {
         #[arg(long)]
         bind: Option<String>,
@@ -57,7 +69,14 @@ enum Commands {
     #[command(about = "Check the status of the background gateway process")]
     Status,
     /// View the background gateway logs.
-    #[command(about = "View the background gateway logs")]
+    #[command(about = "View the background gateway logs", long_about = "View the background gateway logs.
+
+Examples:
+  # Print current logs
+  ug logs
+
+  # Follow log output (tail -f)
+  ug logs --follow")]
     Logs {
         /// Tail the logs.
         #[arg(short, long, default_value_t = false)]
@@ -70,16 +89,46 @@ enum Commands {
         config: String,
     },
     /// Explore user-facing modes (semantic alias over services).
+    #[command(alias = "models", about = "Explore user-facing modes", long_about = "Explore user-facing modes (semantic alias over services).
+
+Examples:
+  # List all modes
+  ug mode list
+
+  # Show details for a specific mode
+  ug mode show default
+
+  # Set the default mode
+  ug mode use fast")]
     Mode {
         #[command(subcommand)]
         action: ModeAction,
     },
     /// Explain how a mode routes requests to providers.
+    #[command(about = "Explain how a mode routes requests to providers", long_about = "Explain how a mode routes requests to providers.
+
+Examples:
+  # Explain routing for the default mode
+  ug route explain
+
+  # Explain routing for a specific mode
+  ug route explain --mode fast")]
     Route {
         #[command(subcommand)]
         action: RouteAction,
     },
     /// Print tool integration hints for a configured mode.
+    #[command(about = "Print tool integration hints for a configured mode", long_about = "Print tool integration hints for a configured mode.
+
+Examples:
+  # Show integration hints for all tools
+  ug integrations
+
+  # Show hints for Cursor
+  ug integrations --tool cursor
+
+  # Show hints for a specific mode
+  ug integrations --mode fast")]
     Integrations {
         #[arg(long)]
         mode: Option<String>,
@@ -91,6 +140,17 @@ enum Commands {
         config: String,
     },
     /// Run a smoke test against the local gateway for a mode.
+    #[command(about = "Run a smoke test against the local gateway for a mode", long_about = "Run a smoke test against the local gateway for a mode.
+
+Examples:
+  # Test the default mode
+  ug test
+
+  # Test a specific mode
+  ug test --mode fast
+
+  # Test using Anthropic protocol
+  ug test --protocol anthropic")]
     Test {
         #[arg(long)]
         mode: Option<String>,
@@ -102,6 +162,7 @@ enum Commands {
         config: String,
     },
     /// Inspect current config and local gateway readiness.
+    #[command(about = "Inspect current config and local gateway readiness")]
     Doctor {
         #[arg(long)]
         mode: Option<String>,
@@ -110,37 +171,109 @@ enum Commands {
         #[arg(long, default_value_t = config_default())]
         config: String,
     },
-    /// Create a new service (logical grouping of models).
-    #[command(about = "Create a new service (logical grouping of models)")]
-    CreateService {
-        #[arg(long)]
-        id: String,
-        #[arg(long)]
-        name: String,
+    /// Manage services (logical groupings of models).
+    #[command(about = "Manage services (logical groupings of models)", long_about = "Manage services (logical groupings of models).
+
+Examples:
+  # Create a new service
+  ug service create --id my-service --name \"My Service\"")]
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
+    },
+    /// Manage LLM providers.
+    #[command(about = "Manage LLM providers", long_about = "Manage LLM providers.
+
+Examples:
+  # Create a new OpenAI provider
+  ug provider create --name deepseek --provider-type openai --base-url https://api.deepseek.com --api-key sk-xxx --endpoint-id deepseek-chat
+
+  # Bind a provider to a service
+  ug provider bind --service-id default --provider-id 1")]
+    Provider {
+        #[command(subcommand)]
+        action: ProviderAction,
+    },
+    /// Manage API keys.
+    #[command(about = "Manage API keys", long_about = "Manage API keys.
+
+Examples:
+  # Create a new API key
+  ug key create --key my-key --service-id default
+
+  # Create a key with quota limit
+  ug key create --key limited-key --service-id default --quota-limit 1000")]
+    Key {
+        #[command(subcommand)]
+        action: KeyAction,
+    },
+    /// Show, edit, or locate the config file.
+    #[command(about = "Show, edit, or locate the config file")]
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+    /// Start as an MCP (Model Context Protocol) server over stdio.
+    #[command(about = "Start as an MCP (Model Context Protocol) server over stdio")]
+    Mcp {
         #[arg(long, default_value_t = config_default())]
         config: String,
     },
-    /// Register a new LLM provider (e.g. OpenAI, Anthropic).
-    #[command(about = "Register a new LLM provider (e.g. OpenAI, Anthropic)")]
-    CreateProvider {
+    /// Self-upgrade to the latest release.
+    #[command(about = "Self-upgrade to the latest release")]
+    Upgrade,
+    /// Interactive setup guide: create service, provider, bind, and API key.
+    #[command(alias = "quickstart", about = "Interactive setup guide")]
+    Guide(Box<setup::QuickstartCommand>),
+    /// Generate shell completion scripts.
+    #[command(about = "Generate shell completion scripts", long_about = "Generate shell completion scripts.
+
+Examples:
+  # Generate Zsh completion
+  ug completion zsh > _ug
+
+  # Generate Bash completion
+  ug completion bash > /etc/bash_completion.d/ug")]
+    Completion {
+        #[arg(value_enum)]
+        shell: Shell,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ServiceAction {
+    /// Create a new service.
+    Create {
         #[arg(long)]
-        name: String,
+        id: Option<String>,
         #[arg(long)]
-        provider_type: String,
+        name: Option<String>,
+        #[arg(long, default_value_t = config_default())]
+        config: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ProviderAction {
+    /// Register a new provider.
+    Create {
         #[arg(long)]
-        endpoint_id: String,
+        name: Option<String>,
+        #[arg(long)]
+        provider_type: Option<String>,
+        #[arg(long)]
+        endpoint_id: Option<String>,
         #[arg(long)]
         base_url: Option<String>,
         #[arg(long)]
-        api_key: String,
+        api_key: Option<String>,
         #[arg(long)]
         model_mapping: Option<String>,
         #[arg(long, default_value_t = config_default())]
         config: String,
     },
-    /// Bind a provider to a service to enable routing.
-    #[command(about = "Bind a provider to a service to enable routing")]
-    BindProvider {
+    /// Bind a provider to a service.
+    Bind {
         #[arg(long)]
         service_id: String,
         #[arg(long)]
@@ -148,13 +281,16 @@ enum Commands {
         #[arg(long, default_value_t = config_default())]
         config: String,
     },
-    /// Create a new API key for accessing a service.
-    #[command(about = "Create a new API key for accessing a service")]
-    CreateApiKey {
+}
+
+#[derive(Subcommand, Debug)]
+enum KeyAction {
+    /// Create a new API key.
+    Create {
         #[arg(long)]
-        key: String,
+        key: Option<String>,
         #[arg(long)]
-        service_id: String,
+        service_id: Option<String>,
         #[arg(long)]
         quota_limit: Option<i64>,
         #[arg(long)]
@@ -164,21 +300,6 @@ enum Commands {
         #[arg(long, default_value_t = config_default())]
         config: String,
     },
-    /// Show, edit, or locate the config file.
-    Config {
-        #[command(subcommand)]
-        action: ConfigAction,
-    },
-    /// Start as an MCP (Model Context Protocol) server over stdio.
-    Mcp {
-        #[arg(long, default_value_t = config_default())]
-        config: String,
-    },
-    /// Self-upgrade to the latest release.
-    Upgrade,
-    /// Interactive setup guide: create service, provider, bind, and API key.
-    #[command(alias = "quickstart")]
-    Guide(Box<setup::QuickstartCommand>),
 }
 
 #[derive(Subcommand, Debug)]
@@ -195,6 +316,19 @@ enum ConfigAction {
         #[arg(long, default_value_t = config_default())]
         config: String,
     },
+    /// Get a config value.
+    Get {
+        key: String,
+        #[arg(long, default_value_t = config_default())]
+        config: String,
+    },
+    /// Set a config value.
+    Set {
+        key: String,
+        value: String,
+        #[arg(long, default_value_t = config_default())]
+        config: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -203,12 +337,16 @@ enum ModeAction {
     List {
         #[arg(long, default_value_t = config_default())]
         config: String,
+        #[arg(long)]
+        json: bool,
     },
     /// Show providers and keys for a mode.
     Show {
         mode: String,
         #[arg(long, default_value_t = config_default())]
         config: String,
+        #[arg(long)]
+        json: bool,
     },
     /// Set the default mode used by commands that omit --mode.
     Use {
@@ -269,8 +407,8 @@ async fn main() -> Result<()> {
         Some(Commands::Logs { follow }) => cli::view_logs(follow),
         Some(Commands::Metrics { config }) => cli::print_metrics_snapshot(&config).await,
         Some(Commands::Mode { action }) => match action {
-            ModeAction::List { config } => cli::list_modes(&config).await,
-            ModeAction::Show { mode, config } => cli::show_mode(&config, &mode).await,
+            ModeAction::List { config, json } => cli::list_modes(&config, json).await,
+            ModeAction::Show { mode, config, json } => cli::show_mode(&config, &mode, json).await,
             ModeAction::Use { mode, config } => cli::use_mode(&config, &mode).await,
         },
         Some(Commands::Route { action }) => match action {
@@ -304,53 +442,70 @@ async fn main() -> Result<()> {
         Some(Commands::Doctor { mode, bind, config }) => {
             cli::doctor(&config, mode.as_deref(), bind.as_deref()).await
         }
-        Some(Commands::CreateService { id, name, config }) => {
-            cli::create_service(&config, &id, &name).await
-        }
-        Some(Commands::CreateProvider {
-            name,
-            provider_type,
-            endpoint_id,
-            base_url,
-            api_key,
-            model_mapping,
-            config,
-        }) => {
-            let provider_id = cli::create_provider(
-                &config,
-                &name,
-                &provider_type,
-                &endpoint_id,
-                base_url.as_deref(),
-                &api_key,
-                model_mapping.as_deref(),
-            )
-            .await?;
-            println!("provider_id={}", provider_id);
-            Ok(())
-        }
-        Some(Commands::BindProvider {
-            service_id,
-            provider_id,
-            config,
-        }) => cli::bind_provider(&config, &service_id, provider_id).await,
-        Some(Commands::CreateApiKey {
-            key,
-            service_id,
-            quota_limit,
-            qps_limit,
-            concurrency_limit,
-            config,
-        }) => {
-            cli::create_api_key(
-                &config,
-                &key,
-                &service_id,
+        Some(Commands::Service { action }) => match action {
+            ServiceAction::Create { id, name, config } => match (id, name) {
+                (Some(id), Some(name)) => cli::create_service(&config, &id, &name).await,
+                _ => cli::interactive_create_service(&config).await,
+            },
+        },
+        Some(Commands::Provider { action }) => match action {
+            ProviderAction::Create {
+                name,
+                provider_type,
+                endpoint_id,
+                base_url,
+                api_key,
+                model_mapping,
+                config,
+            } => match (name, provider_type, endpoint_id, api_key) {
+                (Some(name), Some(provider_type), Some(endpoint_id), Some(api_key)) => {
+                    let provider_id = cli::create_provider(
+                        &config,
+                        &name,
+                        &provider_type,
+                        &endpoint_id,
+                        base_url.as_deref(),
+                        &api_key,
+                        model_mapping.as_deref(),
+                    )
+                    .await?;
+                    println!("provider_id={}", provider_id);
+                    Ok(())
+                }
+                _ => cli::interactive_create_provider(&config).await,
+            },
+            ProviderAction::Bind {
+                service_id,
+                provider_id,
+                config,
+            } => cli::bind_provider(&config, &service_id, provider_id).await,
+        },
+        Some(Commands::Key { action }) => match action {
+            KeyAction::Create {
+                key,
+                service_id,
                 quota_limit,
                 qps_limit,
                 concurrency_limit,
-            )
-            .await
+                config,
+            } => match (key, service_id) {
+                (Some(key), Some(service_id)) => {
+                    cli::create_api_key(
+                        &config,
+                        &key,
+                        &service_id,
+                        quota_limit,
+                        qps_limit,
+                        concurrency_limit,
+                    )
+                    .await
+                }
+                _ => cli::interactive_create_api_key(&config).await,
+            },
+        },
+        Some(Commands::Completion { shell }) => {
+            generate(shell, &mut Cli::command(), "ug", &mut io::stdout());
+            Ok(())
         }
         Some(Commands::Config { action }) => match action {
             ConfigAction::Path => {
@@ -383,6 +538,8 @@ async fn main() -> Result<()> {
                 }
                 Ok(())
             }
+            ConfigAction::Get { key, config } => cli::config_get(&config, &key).await,
+            ConfigAction::Set { key, value, config } => cli::config_set(&config, &key, &value).await,
         },
         Some(Commands::Mcp { config }) => mcp::run(&config).await,
         Some(Commands::Upgrade) => upgrade::run_upgrade().await,

@@ -6,6 +6,26 @@ use super::{
 };
 
 impl GatewayState {
+    pub async fn set_config_value(&self, key: &str, value: &str) -> Result<()> {
+        let mut guard = self.inner.write().await;
+        match key {
+            "preferences.default_mode" => {
+                guard.file.preferences.default_mode = value.to_string();
+            }
+            _ => anyhow::bail!("unknown config key '{}'", key),
+        }
+        guard.dirty = true;
+        Ok(())
+    }
+
+    pub async fn get_config_value(&self, key: &str) -> Result<String> {
+        let guard = self.inner.read().await;
+        match key {
+            "preferences.default_mode" => Ok(guard.file.preferences.default_mode.clone()),
+            _ => anyhow::bail!("unknown config key '{}'", key),
+        }
+    }
+
     pub async fn list_services(&self) -> Vec<(String, String)> {
         let guard = self.inner.read().await;
         guard

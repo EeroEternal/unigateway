@@ -21,7 +21,8 @@ pub use process::{daemonize, is_running, status_server, stop_server, view_logs};
 #[cfg(test)]
 pub(crate) use quickstart::planned_modes;
 pub use quickstart::{
-    QuickstartParams, bind_provider, create_api_key, create_provider, create_service, quickstart,
+    QuickstartParams, bind_provider, create_api_key, create_provider, create_service,
+    interactive_create_api_key, interactive_create_provider, interactive_create_service, quickstart,
 };
 #[cfg(test)]
 pub(crate) use render::{
@@ -32,6 +33,21 @@ pub use render::{
     integrations::{print_integrations, print_integrations_with_key},
     routes::explain_route,
 };
+
+pub async fn config_get(config_path: &str, key: &str) -> Result<()> {
+    let state = GatewayState::load(Path::new(config_path)).await?;
+    let value = state.get_config_value(key).await?;
+    println!("{}", value);
+    Ok(())
+}
+
+pub async fn config_set(config_path: &str, key: &str, value: &str) -> Result<()> {
+    let state = GatewayState::load(Path::new(config_path)).await?;
+    state.set_config_value(key, value).await?;
+    state.persist_if_dirty().await?;
+    println!("✅ Set '{}' to '{}'", key, value);
+    Ok(())
+}
 
 pub async fn print_metrics_snapshot(config_path: &str) -> Result<()> {
     let state = GatewayState::load(Path::new(config_path)).await?;
