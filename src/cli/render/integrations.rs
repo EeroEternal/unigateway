@@ -2,9 +2,10 @@ use anyhow::{Result, bail};
 use std::fmt::Write as _;
 
 use super::super::modes::{
-    ModeView, load_mode_views, provider_default_model, select_mode, supported_protocols,
-    user_anthropic_base_url, user_openai_base_url,
+    ModeView, load_mode_views, mode_providers_for, select_mode, supported_protocols,
+    user_anthropic_base_url, user_bind_address,
 };
+use crate::types::AppConfig;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum IntegrationTool {
@@ -16,6 +17,9 @@ pub(crate) enum IntegrationTool {
     Droid,
     OpenCode,
     Codex,
+    Cline,
+    OpenHands,
+    Trae,
     Env,
     Python,
     Node,
@@ -39,13 +43,16 @@ pub(crate) fn parse_integration_tool(tool: Option<&str>) -> Result<IntegrationTo
         }
         Some(tool) if tool == "droid" || tool == "factory" => Ok(IntegrationTool::Droid),
         Some(tool) if tool == "opencode" || tool == "open-code" => Ok(IntegrationTool::OpenCode),
+        Some(tool) if tool == "cline" => Ok(IntegrationTool::Cline),
+        Some(tool) if tool == "openhands" || tool == "open-hands" => Ok(IntegrationTool::OpenHands),
+        Some(tool) if tool == "trae" => Ok(IntegrationTool::Trae),
         Some(tool) if tool == "env" || tool == "shell" => Ok(IntegrationTool::Env),
         Some(tool) if tool == "python" => Ok(IntegrationTool::Python),
         Some(tool) if tool == "node" || tool == "javascript" => Ok(IntegrationTool::Node),
         Some(tool) if tool == "curl" => Ok(IntegrationTool::Curl),
         Some(tool) if tool == "anthropic" => Ok(IntegrationTool::Anthropic),
         Some(tool) => bail!(
-            "unknown integration target '{}'; use one of: openclaw, zed, cursor, claude-code, droid, opencode, codex, env, python, node, curl, anthropic",
+            "unknown integration target '{}'; use one of: openclaw, zed, cursor, claude-code, droid, opencode, codex, cline, openhands, trae, env, python, node, curl, anthropic",
             tool
         ),
     }
@@ -270,35 +277,44 @@ fn render_opencode_block(out: &mut String, base_url: &str, key: Option<&str>, mo
     );
 }
 
+fn render_cline_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
+    let _ = writeln!(out, "Cline (VS Code Extension):");
+    let _ = writeln!(out, "  1. Open Cline settings");
+    let _ = writeln!(out, "  2. Select API Provider: OpenAI Compatible");
+    let _ = writeln!(out, "  3. Set Base URL: {}", base_url);
+    let _ = writeln!(out, "  4. Set API Key: {}", key.unwrap_or("<gateway api key>"));
+    let _ = writeln!(out, "  5. Model ID: {}", model);
+}
+
+fn render_openhands_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
+    let _ = writeln!(out, "OpenHands (env or config.toml):");
+    let _ = writeln!(out, "  LLM_BASE_URL=\"{}\"", base_url);
+    let _ = writeln!(out, "  LLM_API_KEY=\"{}\"", key.unwrap_or("<gateway api key>"));
+    let _ = writeln!(out, "  LLM_MODEL=\"{}\"", model);
+}
+
 pub(crate) fn render_integration_output_for_tool(
-    mode: &ModeView,
+    mode: Option<&ModeView>,
     key: Option<&str>,
     bind_override: Option<&str>,
     tool: IntegrationTool,
 ) -> String {
-    let openai_provider = mode
-        .providers
-        .iter()
-        .find(|provider| provider.is_enabled && provider.provider_type == "openai");
-    let anthropic_provider = mode
-        .providers
-        .iter()
-        .find(|provider| provider.is_enabled && provider.provider_type == "anthropic");
-
     let mut out = String::new();
-    let protocols = supported_protocols(mode);
 
-    let _ = writeln!(&mut out, "Mode: {} ({})", mode.id, mode.name);
-    let _ = writeln!(&mut out, "Routing: {}", mode.routing_strategy);
-    let _ = writeln!(
-        &mut out,
-        "Protocols: {}",
-        if protocols.is_empty() {
-            "none".to_string()
-        } else {
-            protocols.join(", ")
-        }
-    );
+    let bind_addr = match bind_override {
+        Some(b) => user_bind_address(b),
+        None => user_bind_address(&AppConfig::from_env().bind),
+    };
+    let base_url = format!("http://{}/v1", bind_addr);
+
+    let default_model = if let Some(mode) = mode {
+        let providers = mode_providers_for(mode, "openai");
+        let provider = providers.first();
+        provider.and_then(|p| p.default_model.clone()).unwrap_or_else(|| "default".to_string())
+    } else {
+        "default".to_string()
+    };
+    let model = default_model.as_str();
 
     if let Some(key) = key {
         let _ = writeln!(&mut out, "Gateway API Key: {}", key);
@@ -309,9 +325,34 @@ pub(crate) fn render_integration_output_for_tool(
         );
     }
 
-    if let Some(provider) = openai_provider {
-        let model = provider_default_model(provider, "your-model");
-        let base_url = user_openai_base_url(bind_override);
+    let openai_provider = mode.and_then(|m| {
+        m.providers
+            .iter()
+            .find(|provider| provider.is_enabled && provider.provider_type == "openai")
+    });
+
+    let anthropic_provider = mode.and_then(|m| {
+        m.providers
+            .iter()
+            .find(|provider| provider.is_enabled && provider.provider_type == "anthropic")
+    });
+
+    if let Some(mode) = mode {
+        let protocols = supported_protocols(mode);
+        let _ = writeln!(&mut out, "Mode: {} ({})", mode.id, mode.name);
+        let _ = writeln!(&mut out, "Routing: {}", mode.routing_strategy);
+        let _ = writeln!(
+            &mut out,
+            "Protocols: {}",
+            if protocols.is_empty() {
+                "none".to_string()
+            } else {
+                protocols.join(", ")
+            }
+        );
+    }
+
+    if mode.is_none() || openai_provider.is_some() {
         let _ = writeln!(&mut out);
         let wants_openai = matches!(
             tool,
@@ -323,6 +364,9 @@ pub(crate) fn render_integration_output_for_tool(
                 | IntegrationTool::Cursor
                 | IntegrationTool::Codex
                 | IntegrationTool::ClaudeCode
+                | IntegrationTool::Cline
+                | IntegrationTool::OpenHands
+                | IntegrationTool::Trae
                 | IntegrationTool::Env
                 | IntegrationTool::Python
                 | IntegrationTool::Node
@@ -330,12 +374,12 @@ pub(crate) fn render_integration_output_for_tool(
         );
 
         if wants_openai {
-            let _ = writeln!(&mut out, "OpenAI-compatible integrations:");
+            if tool == IntegrationTool::All {
+                let _ = writeln!(&mut out, "OpenAI-compatible integrations:");
+            }
             match tool {
                 IntegrationTool::All => {
                     render_openclaw_block(&mut out, &base_url, key, model);
-                    let _ = writeln!(&mut out);
-                    render_zed_block(&mut out, &base_url, key, model);
                     let _ = writeln!(&mut out);
                     render_openai_tool_settings(
                         &mut out,
@@ -353,13 +397,27 @@ pub(crate) fn render_integration_output_for_tool(
                         model,
                     );
                     let _ = writeln!(&mut out);
+                    render_opencode_block(&mut out, &base_url, key, model);
+                    let _ = writeln!(&mut out);
                     render_droid_block(&mut out, &base_url, key, model);
                     let _ = writeln!(&mut out);
-                    render_opencode_block(&mut out, &base_url, key, model);
+                    render_cline_block(&mut out, &base_url, key, model);
+                    let _ = writeln!(&mut out);
+                    render_openhands_block(&mut out, &base_url, key, model);
+                    let _ = writeln!(&mut out);
+                    render_zed_block(&mut out, &base_url, key, model);
                     let _ = writeln!(&mut out);
                     render_openai_tool_settings(
                         &mut out,
                         "  Codex / codex-cli",
+                        &base_url,
+                        key,
+                        model,
+                    );
+                    let _ = writeln!(&mut out);
+                    render_openai_tool_settings(
+                        &mut out,
+                        "  Trae Configuration",
                         &base_url,
                         key,
                         model,
@@ -398,6 +456,15 @@ pub(crate) fn render_integration_output_for_tool(
                 ),
                 IntegrationTool::Droid => render_droid_block(&mut out, &base_url, key, model),
                 IntegrationTool::OpenCode => render_opencode_block(&mut out, &base_url, key, model),
+                IntegrationTool::Cline => render_cline_block(&mut out, &base_url, key, model),
+                IntegrationTool::OpenHands => render_openhands_block(&mut out, &base_url, key, model),
+                IntegrationTool::Trae => render_openai_tool_settings(
+                    &mut out,
+                    "  Trae Configuration",
+                    &base_url,
+                    key,
+                    model,
+                ),
                 IntegrationTool::Env => render_openai_env_block(&mut out, &base_url, key, model),
                 IntegrationTool::Python => {
                     render_openai_python_block(&mut out, &base_url, key, model)
@@ -416,6 +483,9 @@ pub(crate) fn render_integration_output_for_tool(
             | IntegrationTool::OpenCode
             | IntegrationTool::Codex
             | IntegrationTool::ClaudeCode
+            | IntegrationTool::Cline
+            | IntegrationTool::OpenHands
+            | IntegrationTool::Trae
             | IntegrationTool::Env
             | IntegrationTool::Python
             | IntegrationTool::Node
@@ -428,8 +498,7 @@ pub(crate) fn render_integration_output_for_tool(
         );
     }
 
-    if let Some(provider) = anthropic_provider {
-        let model = provider_default_model(provider, "your-model");
+    if mode.is_none() || anthropic_provider.is_some() {
         let base_url = user_anthropic_base_url(bind_override);
         if matches!(tool, IntegrationTool::All | IntegrationTool::Anthropic) {
             let _ = writeln!(&mut out);
@@ -475,7 +544,7 @@ pub async fn print_integrations_with_key(
 
     println!(
         "{}",
-        render_integration_output_for_tool(mode, key.as_deref(), bind_override, tool)
+        render_integration_output_for_tool(Some(mode), key.as_deref(), bind_override, tool)
     );
     Ok(())
 }
