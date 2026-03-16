@@ -10,6 +10,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   BIN_NAME: ug
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -27,7 +28,7 @@ jobs:
             archive: ug-x86_64-unknown-linux-gnu.tar.gz
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.92.0
@@ -52,7 +53,7 @@ jobs:
           shasum -a 256 ${{ matrix.archive }} > ${{ matrix.archive }}.sha256
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.archive }}
           path: |
@@ -63,10 +64,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
@@ -81,10 +82,10 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
@@ -98,15 +99,35 @@ jobs:
           SHA_X86_MAC=$(awk '{print $1}' dist/ug-x86_64-apple-darwin.tar.gz.sha256)
           SHA_LINUX=$(awk '{print $1}' dist/ug-x86_64-unknown-linux-gnu.tar.gz.sha256)
 
-          cp Formula/ug.rb /tmp/ug.rb
-          sed -i "s/version \".*\"/version \"${VERSION}\"/" /tmp/ug.rb
-          sed -i "0,/PLACEHOLDER/{s/PLACEHOLDER/${SHA_ARM}/}"   /tmp/ug.rb
-          sed -i "0,/PLACEHOLDER/{s/PLACEHOLDER/${SHA_X86_MAC}/}" /tmp/ug.rb
-          sed -i "0,/PLACEHOLDER/{s/PLACEHOLDER/${SHA_LINUX}/}"  /tmp/ug.rb
-
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/EeroEternal/homebrew-tap.git" tap
           mkdir -p tap/Formula
-          cp /tmp/ug.rb tap/Formula/ug.rb
+          cat > tap/Formula/ug.rb <<EOF
+          class Ug < Formula
+            desc "Lightweight, local-first LLM gateway for developers"
+            homepage "https://github.com/EeroEternal/unigateway"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/EeroEternal/unigateway/releases/download/v${VERSION}/ug-aarch64-apple-darwin.tar.gz"
+                sha256 "${SHA_ARM}"
+              else
+                url "https://github.com/EeroEternal/unigateway/releases/download/v${VERSION}/ug-x86_64-apple-darwin.tar.gz"
+                sha256 "${SHA_X86_MAC}"
+              end
+            end
+
+            on_linux do
+              url "https://github.com/EeroEternal/unigateway/releases/download/v${VERSION}/ug-x86_64-unknown-linux-gnu.tar.gz"
+              sha256 "${SHA_LINUX}"
+            end
+
+            def install
+              bin.install "ug"
+            end
+          end
+          EOF
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
