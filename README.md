@@ -38,10 +38,20 @@ Run the interactive wizard to set up your first provider and generate a default 
 
 ```bash
 ug quickstart
-ug serve
+ug serve          # Starts in background by default
 ```
 
-### 2. Managing Modes
+### 2. Managing the Server
+UniGateway runs in the background. Use these commands to manage it:
+
+```bash
+ug status         # Check if the gateway is running
+ug stop           # Stop the background gateway
+ug logs           # View or tail the logs
+ug serve -f       # Run in the foreground (blocking)
+```
+
+### 3. Managing Modes
 UniGateway organizes providers into **Modes**. Use the CLI to manage them:
 
 ```bash
