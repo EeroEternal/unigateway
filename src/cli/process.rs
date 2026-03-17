@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 use anyhow::{Result, Context, bail};
 
 pub fn pid_path() -> PathBuf {
@@ -120,10 +121,23 @@ pub fn daemonize() -> Result<()> {
     }
 
     let exe = std::env::current_exe()?;
-    let args: Vec<String> = std::env::args()
-        .skip(1)
-        .filter(|arg| arg != "serve" && arg != "-f" && arg != "--foreground")
-        .collect();
+    let raw_args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = Vec::new();
+    let mut i = 0usize;
+    while i < raw_args.len() {
+        match raw_args[i].as_str() {
+            "--bind" | "-b" | "--config" | "-c" => {
+                if i + 1 < raw_args.len() {
+                    args.push(raw_args[i].clone());
+                    args.push(raw_args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "--no-ui" => args.push(raw_args[i].clone()),
+            _ => {}
+        }
+        i += 1;
+    }
 
     let mut cmd = Command::new(exe);
     cmd.arg("serve");
@@ -138,13 +152,22 @@ pub fn daemonize() -> Result<()> {
         .append(true)
         .open(&log_file)?;
 
-    let child = cmd
+    let mut child = cmd
         .stdout(std::process::Stdio::from(log_handle.try_clone()?))
         .stderr(std::process::Stdio::from(log_handle))
         .spawn()
         .context("failed to spawn background process")?;
 
     let pid = child.id();
+    std::thread::sleep(Duration::from_millis(150));
+    if let Some(status) = child.try_wait().context("failed to check background process status")? {
+        bail!(
+            "failed to start background process (exit: {}). See logs: {}",
+            status,
+            log_file.display()
+        );
+    }
+
     fs::write(pid_file, pid.to_string())?;
 
     println!("UniGateway started in background (PID: {}).", pid);
