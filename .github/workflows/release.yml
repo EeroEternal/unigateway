@@ -66,11 +66,59 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Download artifacts
+      - name: Download aarch64 macOS artifact
+        id: download_aarch64_macos
         uses: actions/download-artifact@v5
         with:
+          name: ug-aarch64-apple-darwin.tar.gz
           path: dist
-          merge-multiple: true
+        continue-on-error: true
+
+      - name: Retry download aarch64 macOS artifact
+        if: steps.download_aarch64_macos.outcome == 'failure'
+        uses: actions/download-artifact@v5
+        with:
+          name: ug-aarch64-apple-darwin.tar.gz
+          path: dist
+
+      - name: Download x86_64 macOS artifact
+        id: download_x86_64_macos
+        uses: actions/download-artifact@v5
+        with:
+          name: ug-x86_64-apple-darwin.tar.gz
+          path: dist
+        continue-on-error: true
+
+      - name: Retry download x86_64 macOS artifact
+        if: steps.download_x86_64_macos.outcome == 'failure'
+        uses: actions/download-artifact@v5
+        with:
+          name: ug-x86_64-apple-darwin.tar.gz
+          path: dist
+
+      - name: Download Linux artifact
+        id: download_linux
+        uses: actions/download-artifact@v5
+        with:
+          name: ug-x86_64-unknown-linux-gnu.tar.gz
+          path: dist
+        continue-on-error: true
+
+      - name: Retry download Linux artifact
+        if: steps.download_linux.outcome == 'failure'
+        uses: actions/download-artifact@v5
+        with:
+          name: ug-x86_64-unknown-linux-gnu.tar.gz
+          path: dist
+
+      - name: Verify release artifacts
+        run: |
+          test -f dist/ug-aarch64-apple-darwin.tar.gz
+          test -f dist/ug-aarch64-apple-darwin.tar.gz.sha256
+          test -f dist/ug-x86_64-apple-darwin.tar.gz
+          test -f dist/ug-x86_64-apple-darwin.tar.gz.sha256
+          test -f dist/ug-x86_64-unknown-linux-gnu.tar.gz
+          test -f dist/ug-x86_64-unknown-linux-gnu.tar.gz.sha256
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -84,11 +132,59 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Download artifacts
+      - name: Download aarch64 macOS artifact
+        id: download_aarch64_macos
         uses: actions/download-artifact@v5
         with:
+          name: ug-aarch64-apple-darwin.tar.gz
           path: dist
-          merge-multiple: true
+        continue-on-error: true
+
+      - name: Retry download aarch64 macOS artifact
+        if: steps.download_aarch64_macos.outcome == 'failure'
+        uses: actions/download-artifact@v5
+        with:
+          name: ug-aarch64-apple-darwin.tar.gz
+          path: dist
+
+      - name: Download x86_64 macOS artifact
+        id: download_x86_64_macos
+        uses: actions/download-artifact@v5
+        with:
+          name: ug-x86_64-apple-darwin.tar.gz
+          path: dist
+        continue-on-error: true
+
+      - name: Retry download x86_64 macOS artifact
+        if: steps.download_x86_64_macos.outcome == 'failure'
+        uses: actions/download-artifact@v5
+        with:
+          name: ug-x86_64-apple-darwin.tar.gz
+          path: dist
+
+      - name: Download Linux artifact
+        id: download_linux
+        uses: actions/download-artifact@v5
+        with:
+          name: ug-x86_64-unknown-linux-gnu.tar.gz
+          path: dist
+        continue-on-error: true
+
+      - name: Retry download Linux artifact
+        if: steps.download_linux.outcome == 'failure'
+        uses: actions/download-artifact@v5
+        with:
+          name: ug-x86_64-unknown-linux-gnu.tar.gz
+          path: dist
+
+      - name: Verify release artifacts
+        run: |
+          test -f dist/ug-aarch64-apple-darwin.tar.gz
+          test -f dist/ug-aarch64-apple-darwin.tar.gz.sha256
+          test -f dist/ug-x86_64-apple-darwin.tar.gz
+          test -f dist/ug-x86_64-apple-darwin.tar.gz.sha256
+          test -f dist/ug-x86_64-unknown-linux-gnu.tar.gz
+          test -f dist/ug-x86_64-unknown-linux-gnu.tar.gz.sha256
 
       - name: Update Homebrew tap
         env:
