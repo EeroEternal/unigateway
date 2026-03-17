@@ -111,13 +111,13 @@ pub fn view_logs(follow: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn daemonize() -> Result<()> {
+fn daemonize_internal(print_messages: bool) -> Result<u32> {
     let pid_file = pid_path();
     let log_file = log_path();
 
-    if is_running().is_some() {
+    if let Some(pid) = is_running() {
         println!("UniGateway is already running.");
-        return Ok(());
+        return Ok(pid);
     }
 
     let exe = std::env::current_exe()?;
@@ -170,10 +170,21 @@ pub fn daemonize() -> Result<()> {
 
     fs::write(pid_file, pid.to_string())?;
 
-    println!("UniGateway started in background (PID: {}).", pid);
-    println!("Current config has been loaded.");
-    println!("Logs: {}", log_file.display());
-    println!("Stop with: ug stop");
+    if print_messages {
+        println!("UniGateway started in background (PID: {}).", pid);
+        println!("Current config has been loaded.");
+        println!("Logs: {}", log_file.display());
+        println!("Stop with: ug stop");
+    }
 
+    Ok(pid)
+}
+
+pub fn daemonize() -> Result<()> {
+    let _ = daemonize_internal(true)?;
     Ok(())
+}
+
+pub fn daemonize_silent() -> Result<u32> {
+    daemonize_internal(false)
 }

@@ -482,10 +482,10 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
 
                         // Auto-start or detect running gateway
                         let already_running = cli::is_running();
-                        let gateway_started = if already_running.is_some() {
-                            true
+                        let started_pid = if already_running.is_some() {
+                            None
                         } else {
-                            cli::daemonize().is_ok()
+                            cli::process::daemonize_silent().ok()
                         };
 
                         // Brief pause so spinner is visible
@@ -496,37 +496,39 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
 
                         // -- All output at once --
                         println!();
-                        println!(
-                            "  {} Configuration complete! Mode: {}",
-                            style("✅").green(),
-                            style(default_mode).cyan().bold()
-                        );
-                        println!(
-                            "  Provider '{}' configured with API key.",
-                            style(&provider_name).bold()
-                        );
+                        println!("  {} Configuration complete!", style("✅").green());
+                        println!("  Mode: {}", style(default_mode).cyan().bold());
+                        println!("  Provider: {}", style(&provider_name).bold());
+                        println!();
+                        println!("  {} Gateway status", style("1)").cyan().bold());
 
                         if let Some(pid) = already_running {
                             println!(
-                                "\n  {} Gateway is running (PID: {}). New config has been saved, but the running process has not reloaded it. Restart to apply it: {} then {}",
+                                "  {} Already running (PID: {}).",
                                 style("🟢").green(),
                                 style(pid).bold(),
-                                style("ug stop").cyan(),
-                                style("ug serve").cyan()
                             );
-                        } else if gateway_started {
+                            println!("  New config is saved, but restart is required to apply it.");
+                            println!("  Restart now: {}  then  {}", style("ug stop").cyan(), style("ug serve").cyan());
+                            println!("  Logs: {}", style(cli::process::log_path().display().to_string()).dim());
+                            println!("  Stop: {}", style("ug stop").cyan());
+                        } else if let Some(pid) = started_pid {
                             println!(
-                                "\n  {} Gateway started.",
-                                style("🟢").green()
+                                "  {} Started in background (PID: {}).",
+                                style("🟢").green(),
+                                style(pid).bold()
                             );
+                            println!("  Logs: {}", style(cli::process::log_path().display().to_string()).dim());
+                            println!("  Stop: {}", style("ug stop").cyan());
                         } else {
-                            println!(
-                                "\n  Start the gateway with: {}",
-                                style("ug serve").cyan()
-                            );
+                            println!("  {} Not started automatically.", style("🟡").yellow());
+                            println!("  Start manually: {}", style("ug serve").cyan());
                         }
 
                         if let Some(tool_name) = tool_name {
+                            println!();
+                            println!("  {} Tool setup", style("2)").cyan().bold());
+                            println!("  Copy env vars below, then start your tool.");
                             for mode in &result.modes {
                                 println!();
                                 cli::print_integrations_with_key(
@@ -541,6 +543,7 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                         }
 
                         println!();
+                        println!("  {} Other commands", style("3)").cyan().bold());
                         println!(
                             "  {} Run '{}' to see hints for other tools.",
                             style("💡").dim(),
