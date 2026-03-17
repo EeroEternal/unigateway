@@ -148,6 +148,7 @@ pub fn daemonize() -> Result<()> {
     fs::write(pid_file, pid.to_string())?;
 
     println!("UniGateway started in background (PID: {}).", pid);
+    println!("Current config has been loaded.");
     println!("Logs: {}", log_file.display());
     println!("Stop with: ug stop");
 

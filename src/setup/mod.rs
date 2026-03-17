@@ -508,7 +508,7 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
 
                         if let Some(pid) = already_running {
                             println!(
-                                "\n  {} Gateway is running (PID: {}). Restart to pick up new config: {} then {}",
+                                "\n  {} Gateway is running (PID: {}). New config has been saved, but the running process has not reloaded it. Restart to apply it: {} then {}",
                                 style("🟢").green(),
                                 style(pid).bold(),
                                 style("ug stop").cyan(),

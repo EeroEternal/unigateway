@@ -76,13 +76,21 @@ pub fn extract_x_api_key(headers: &HeaderMap, env_api_key: &str) -> String {
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string())
         .or_else(|| {
-            if env_api_key.is_empty() {
-                None
-            } else {
-                Some(env_api_key.to_string())
-            }
+            headers
+                .get(header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.strip_prefix("Bearer "))
+                .map(|s| s.to_string())
+        })
+        .or_else(|| {
+            let _ = env_api_key;
+            None
         })
         .unwrap_or_default()
+        .chars()
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 /// JSON error response helper.

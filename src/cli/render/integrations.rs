@@ -66,6 +66,33 @@ fn render_anthropic_block(out: &mut String, base_url: &str, key: Option<&str>, m
     let _ = writeln!(out, "  Model: {}", style(model).cyan());
 }
 
+fn render_claude_code_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
+    let key = key.unwrap_or("<gateway api key>");
+    let _ = writeln!(out, "Claude Code:");
+    let _ = writeln!(
+        out,
+        "  {}",
+        style(format!("export ANTHROPIC_BASE_URL={}", base_url)).cyan()
+    );
+    let _ = writeln!(
+        out,
+        "  {}",
+        style(format!("export ANTHROPIC_API_KEY={}", key)).cyan()
+    );
+    let _ = writeln!(out, "  {}", style(format!("export ANTHROPIC_MODEL={}", model)).cyan());
+    let _ = writeln!(out);
+    let _ = writeln!(out, "  Start Claude Code with:");
+    let _ = writeln!(
+        out,
+        "  {}",
+        style(format!(
+            "ANTHROPIC_BASE_URL={} ANTHROPIC_API_KEY={} ANTHROPIC_MODEL={} claude",
+            base_url, key, model
+        ))
+        .cyan()
+    );
+}
+
 fn render_openai_tool_settings(
     out: &mut String,
     title: &str,
@@ -345,13 +372,6 @@ pub(crate) fn render_integration_output_for_tool(
                 IntegrationTool::All => {
                     render_openclaw_block(&mut out, &base_url, key, model);
                     let _ = writeln!(&mut out);
-                    render_openai_tool_settings(
-                        &mut out,
-                        "  Claude Code custom OpenAI endpoint",
-                        &base_url,
-                        key,
-                        model,
-                    );
                     let _ = writeln!(&mut out);
                     render_openai_tool_settings(
                         &mut out,
@@ -411,13 +431,10 @@ pub(crate) fn render_integration_output_for_tool(
                     key,
                     model,
                 ),
-                IntegrationTool::ClaudeCode => render_openai_tool_settings(
-                    &mut out,
-                    "  Claude Code custom OpenAI endpoint",
-                    &base_url,
-                    key,
-                    model,
-                ),
+                IntegrationTool::ClaudeCode => {
+                    let anthropic_base_url = user_anthropic_base_url(bind_override);
+                    render_claude_code_block(&mut out, &anthropic_base_url, key, model)
+                }
                 IntegrationTool::Droid => render_droid_block(&mut out, &base_url, key, model),
                 IntegrationTool::OpenCode => render_opencode_block(&mut out, &base_url, key, model),
                 IntegrationTool::Cline => render_cline_block(&mut out, &base_url, key, model),
@@ -464,9 +481,17 @@ pub(crate) fn render_integration_output_for_tool(
 
     if mode.is_none() || anthropic_provider.is_some() {
         let base_url = user_anthropic_base_url(bind_override);
-        if matches!(tool, IntegrationTool::All | IntegrationTool::Anthropic) {
+        if matches!(tool, IntegrationTool::All | IntegrationTool::Anthropic | IntegrationTool::ClaudeCode) {
             let _ = writeln!(&mut out);
-            render_anthropic_block(&mut out, &base_url, key, model);
+            if tool == IntegrationTool::ClaudeCode {
+                render_claude_code_block(&mut out, &base_url, key, model);
+            } else {
+                render_anthropic_block(&mut out, &base_url, key, model);
+                if tool == IntegrationTool::All {
+                    let _ = writeln!(&mut out);
+                    render_claude_code_block(&mut out, &base_url, key, model);
+                }
+            }
         }
     } else if matches!(tool, IntegrationTool::Anthropic) {
         let _ = writeln!(&mut out);

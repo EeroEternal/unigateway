@@ -9,7 +9,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::middleware::{
     GatewayAuth, error_json, extract_bearer_token, extract_x_api_key, record_stat,
@@ -156,7 +156,21 @@ pub(crate) async fn anthropic_messages(
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
     let start = Instant::now();
+    let has_x_api_key = headers.get("x-api-key").is_some();
+    let has_bearer = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.starts_with("Bearer "))
+        .unwrap_or(false);
     let token = extract_x_api_key(&headers, &state.config.anthropic_api_key);
+    info!(
+        endpoint = "/v1/messages",
+        has_x_api_key,
+        has_bearer,
+        token_present = !token.is_empty(),
+        model = payload.get("model").and_then(|v| v.as_str()).unwrap_or(""),
+        "received anthropic request"
+    );
 
     let mut request =
         match anthropic_payload_to_chat_request(&payload, &state.config.anthropic_model) {
@@ -172,6 +186,12 @@ pub(crate) async fn anthropic_messages(
         Ok(a) => a,
         Err(resp) => return resp,
     };
+    info!(
+        endpoint,
+        gateway_key_matched = auth.is_some(),
+        token_present = !token.is_empty(),
+        "anthropic request authentication result"
+    );
 
     if let Some(ref auth) = auth {
         let providers = match resolve_providers(
@@ -204,7 +224,7 @@ pub(crate) async fn anthropic_messages(
                 _ => UpstreamProtocol::OpenAi,
             };
 
-            debug!(
+            info!(
                 provider_name = provider.name.as_str(),
                 base_url = provider.base_url.as_str(),
                 model = request.model.as_str(),
@@ -250,6 +270,13 @@ pub(crate) async fn anthropic_messages(
 
     // No gateway key — use env config
     let api_key = fallback_api_key(&token, &state.config.anthropic_api_key);
+    info!(
+        endpoint,
+        token_present = !token.is_empty(),
+        env_key_present = !state.config.anthropic_api_key.is_empty(),
+        using_env_fallback = token.is_empty() && !state.config.anthropic_api_key.is_empty(),
+        "anthropic request falling back to env upstream key"
+    );
     if api_key.is_empty() {
         return error_json(StatusCode::BAD_REQUEST, "missing upstream api key");
     }
