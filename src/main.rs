@@ -175,6 +175,9 @@ Examples:
     #[command(about = "Manage services (logical groupings of models)", long_about = "Manage services (logical groupings of models).
 
 Examples:
+  # List services
+  ug service list
+
   # Create a new service
   ug service create --id my-service --name \"My Service\"")]
     Service {
@@ -245,6 +248,13 @@ Examples:
 
 #[derive(Subcommand, Debug)]
 enum ServiceAction {
+    /// List all configured services.
+    List {
+        #[arg(long, default_value_t = config_default())]
+        config: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Create a new service.
     Create {
         #[arg(long)]
@@ -453,6 +463,7 @@ async fn main() -> Result<()> {
             cli::doctor(&config, mode.as_deref(), bind.as_deref()).await
         }
         Some(Commands::Service { action }) => match action {
+            ServiceAction::List { config, json } => cli::list_services(&config, json).await,
             ServiceAction::Create { id, name, config } => match (id, name) {
                 (Some(id), Some(name)) => cli::create_service(&config, &id, &name).await,
                 _ => cli::interactive_create_service(&config).await,
