@@ -4,11 +4,14 @@ mod messages;
 use anyhow::{Result, anyhow};
 use llm_connector::{
     ChatResponse,
-    types::{ChatRequest, EmbedRequest, EmbedResponse, Message, Role},
+    types::{ChatRequest, EmbedRequest, EmbedResponse, Message, ResponsesRequest, Role},
 };
 use serde_json::{Value, json};
 
-pub(crate) use client::{invoke_embeddings, invoke_with_connector, invoke_with_connector_stream};
+pub(crate) use client::{
+    invoke_embeddings, invoke_responses_stream_with_connector, invoke_responses_with_connector,
+    invoke_with_connector, invoke_with_connector_stream,
+};
 use messages::{chat_messages, stream_flag};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +45,23 @@ pub fn openai_payload_to_chat_request(payload: &Value, default_model: &str) -> R
     req.stream = stream_flag(payload, true);
 
     Ok(req)
+}
+
+pub fn openai_payload_to_responses_request(
+    payload: &Value,
+    default_model: &str,
+) -> Result<ResponsesRequest> {
+    let mut normalized = payload.clone();
+    if normalized
+        .get("model")
+        .and_then(Value::as_str)
+        .is_none()
+    {
+        normalized["model"] = Value::String(default_model.to_string());
+    }
+
+    serde_json::from_value::<ResponsesRequest>(normalized)
+        .map_err(|e| anyhow!("failed to parse responses request: {e}"))
 }
 
 pub fn anthropic_payload_to_chat_request(

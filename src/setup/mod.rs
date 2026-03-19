@@ -18,6 +18,38 @@ fn config_default() -> String {
     crate::types::default_config_path()
 }
 
+fn has_existing_config(config_path: &Path) -> bool {
+    if !config_path.exists() {
+        return false;
+    }
+
+    let contents = match fs::read_to_string(config_path) {
+        Ok(contents) => contents,
+        Err(_) => return true,
+    };
+
+    if contents.trim().is_empty() {
+        return false;
+    }
+
+    let parsed = match toml::from_str::<toml::Value>(&contents) {
+        Ok(value) => value,
+        Err(_) => return true,
+    };
+
+    for key in ["services", "providers", "bindings", "api_keys"] {
+        if parsed
+            .get(key)
+            .and_then(|value| value.as_array())
+            .is_some_and(|items| !items.is_empty())
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
 #[derive(Args, Debug)]
 pub struct GuideCommand {
     #[arg(long)]
@@ -99,7 +131,7 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                 }
                 println!("\n  Welcome to UniGateway guide!\n");
                 let config_path = Path::new(&config);
-                if config_path.exists() {
+                if has_existing_config(config_path) {
                     println!("  Existing configuration found at: {}\n", config);
                     let options = [
                         "Add to existing configuration (recommended)",

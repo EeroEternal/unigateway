@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use llm_connector::{
     ChatResponse, LlmClient,
-    types::{ChatRequest, ChatStream, EmbedRequest, EmbedResponse},
+    types::{ChatRequest, ChatStream, EmbedRequest, EmbedResponse, ResponsesRequest, ResponsesResponse, ResponsesStream},
 };
 use tracing::debug;
 
@@ -112,4 +112,43 @@ pub(crate) async fn invoke_embeddings(
         "llm-connector embed returned"
     );
     Ok(resp)
+}
+
+pub(crate) async fn invoke_responses_with_connector(
+    protocol: UpstreamProtocol,
+    base_url: &str,
+    api_key: &str,
+    req: &ResponsesRequest,
+    family_id: Option<&str>,
+) -> Result<ResponsesResponse> {
+    debug!(
+        protocol = match protocol {
+            UpstreamProtocol::OpenAi => "openai",
+            UpstreamProtocol::Anthropic => "anthropic",
+        },
+        base_url,
+        family_id = family_id.unwrap_or(""),
+        model = req.model.as_str(),
+        stream = req.stream.unwrap_or(false),
+        "invoking llm-connector responses"
+    );
+    let client = build_client(protocol, base_url, api_key, family_id)?;
+    client
+        .invoke_responses(req)
+        .await
+        .context("llm-connector responses failed")
+}
+
+pub(crate) async fn invoke_responses_stream_with_connector(
+    protocol: UpstreamProtocol,
+    base_url: &str,
+    api_key: &str,
+    req: &ResponsesRequest,
+    family_id: Option<&str>,
+) -> Result<ResponsesStream, anyhow::Error> {
+    let client = build_client(protocol, base_url, api_key, family_id)?;
+    client
+        .invoke_responses_stream(req)
+        .await
+        .context("llm-connector responses stream failed")
 }

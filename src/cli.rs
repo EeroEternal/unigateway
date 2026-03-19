@@ -362,6 +362,16 @@ mod tests {
         );
         assert!(openclaw.contains("OpenClaw (~/.openclaw/openclaw.json):"));
         assert!(openclaw.contains("\"api\": \"openai-completions\""));
+
+        let codex = render_integration_output_for_tool(
+            Some(&mode),
+            Some("ugk_test"),
+            Some("127.0.0.1:3210"),
+            IntegrationTool::Codex,
+        );
+        assert!(codex.contains("Codex / codex-cli:"));
+        assert!(codex.contains("NO_PROXY=127.0.0.1,localhost"));
+        assert!(codex.contains("OPENAI_BASE_URL=http://127.0.0.1:3210/v1"));
     }
 
     #[test]

@@ -21,7 +21,7 @@ UniGateway is a lightweight, high-performance LLM gateway designed for developer
 ## 📦 Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/EeroEternal/unigateway/main/install.sh | sh
+curl -fsSL https://unigate.sh/install.sh | sh
 ```
 
 Or via Homebrew / Cargo:
@@ -105,11 +105,15 @@ Add to `~/.openclaw/openclaw.json`:
 ```
 
 #### 🛠️ Claude Code
-Configure Claude Code to use UniGateway as its OpenAI endpoint:
+Configure Claude Code to use UniGateway via the Anthropic-compatible endpoint:
 ```bash
-export CLAUDE_BASE_URL="http://127.0.0.1:3210/v1"
-export CLAUDE_API_KEY="ugk_your_key"
+export ANTHROPIC_BASE_URL="http://127.0.0.1:3210"
+export ANTHROPIC_API_KEY="ugk_your_key"
+export ANTHROPIC_MODEL="kimi-k2.5"
 ```
+
+Note: `claude -p` typically honors these env vars directly. In some CLI versions,
+interactive `claude` may still show a login onboarding flow on first launch.
 
 ### MCP (Model Context Protocol)
 Manage your gateway through natural language in Cursor or Claude Desktop:

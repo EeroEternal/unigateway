@@ -5,24 +5,147 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::{
+    body::Body,
     extract::{Json, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header::CONTENT_TYPE},
     response::{IntoResponse, Response},
 };
+use bytes::Bytes;
+use futures_util::StreamExt;
 use tracing::{debug, info};
 
 use crate::middleware::{
-    GatewayAuth, error_json, extract_bearer_token, extract_x_api_key, record_stat,
+    GatewayAuth, error_json, extract_openai_api_key, extract_x_api_key, record_stat,
 };
 use crate::protocol::{
     UpstreamProtocol, anthropic_payload_to_chat_request, chat_response_to_anthropic_json,
     chat_response_to_openai_json, embed_response_to_openai_json, invoke_embeddings,
+    invoke_responses_stream_with_connector, invoke_responses_with_connector,
     openai_payload_to_chat_request, openai_payload_to_embed_request,
+    openai_payload_to_responses_request,
 };
 use crate::routing::{resolve_providers, target_provider_hint};
 use crate::types::AppState;
 
 use self::chat::{invoke_direct_chat, invoke_provider_chat};
+
+fn response_text(resp: &llm_connector::types::ResponsesResponse) -> String {
+    if !resp.output_text.is_empty() {
+        return resp.output_text.clone();
+    }
+
+    resp.output
+        .as_ref()
+        .map(|items| {
+            items
+                .iter()
+                .flat_map(|item| item.content.as_ref().into_iter().flatten())
+                .filter_map(|content| content.text.clone())
+                .collect::<Vec<String>>()
+                .join("")
+        })
+        .unwrap_or_default()
+}
+
+fn build_responses_stream_response_from_full(
+    resp: llm_connector::types::ResponsesResponse,
+) -> anyhow::Result<Response> {
+    let response_id = resp.id.clone();
+    let model = resp.model.clone();
+    let text = response_text(&resp);
+    let usage = resp.usage.clone();
+
+    let mut chunks: Vec<Result<Bytes, std::io::Error>> = Vec::new();
+
+    let created = serde_json::json!({
+        "response": {
+            "id": response_id,
+            "object": "response",
+            "model": model,
+            "status": "in_progress"
+        }
+    });
+    chunks.push(Ok(Bytes::from(format!(
+        "event: response.created\ndata: {}\n\n",
+        created
+    ))));
+
+    if !text.is_empty() {
+        let delta = serde_json::json!({
+            "response_id": response_id,
+            "delta": text,
+        });
+        chunks.push(Ok(Bytes::from(format!(
+            "event: response.output_text.delta\ndata: {}\n\n",
+            delta
+        ))));
+    }
+
+    let completed = serde_json::json!({
+        "response": {
+            "id": response_id,
+            "object": "response",
+            "model": model,
+            "status": "completed",
+            "usage": usage,
+        }
+    });
+    chunks.push(Ok(Bytes::from(format!(
+        "event: response.completed\ndata: {}\n\n",
+        completed
+    ))));
+    chunks.push(Ok(Bytes::from("data: [DONE]\n\n")));
+
+    let sse_stream = futures_util::stream::iter(chunks);
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "text/event-stream")
+        .body(Body::from_stream(sse_stream))
+        .map_err(|e| anyhow::anyhow!("build responses stream fallback: {e}"))
+}
+
+async fn invoke_responses_stream_with_fallback(
+    protocol: UpstreamProtocol,
+    base_url: &str,
+    api_key: &str,
+    request: &llm_connector::types::ResponsesRequest,
+    provider_family: Option<&str>,
+) -> anyhow::Result<Response> {
+    match invoke_responses_stream_with_connector(protocol, base_url, api_key, request, provider_family).await {
+        Ok(stream) => {
+            let sse_stream = stream.map(|event| match event {
+                Ok(event) => {
+                    let data = serde_json::to_string(&event.data)
+                        .unwrap_or_else(|_| String::from("{}"));
+                    let chunk = format!("event: {}\ndata: {}\n\n", event.event_type, data);
+                    Ok::<Bytes, std::io::Error>(Bytes::from(chunk))
+                }
+                Err(err) => Err(std::io::Error::other(err.to_string())),
+            });
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(CONTENT_TYPE, "text/event-stream")
+                .body(Body::from_stream(sse_stream))
+                .map_err(|e| anyhow::anyhow!("build responses stream: {e}"))
+        }
+        Err(stream_err) => {
+            tracing::warn!(error = %stream_err, "responses streaming failed, fallback to non-stream -> sse");
+            let full_resp = invoke_responses_with_connector(
+                protocol,
+                base_url,
+                api_key,
+                request,
+                provider_family,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!(
+                "stream failed: {stream_err}; non-stream fallback failed: {e}"
+            ))?;
+
+            build_responses_stream_response_from_full(full_resp)
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // OpenAI Chat
@@ -34,7 +157,7 @@ pub(crate) async fn openai_chat(
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
     let start = Instant::now();
-    let token = extract_bearer_token(&headers, &state.config.openai_api_key);
+    let token = extract_openai_api_key(&headers, &state.config.openai_api_key);
 
     let mut request = match openai_payload_to_chat_request(&payload, &state.config.openai_model) {
         Ok(req) => req,
@@ -135,6 +258,216 @@ pub(crate) async fn openai_chat(
     )
     .await
     {
+        Ok(resp) => {
+            record_stat(&state, endpoint, 200, &start).await;
+            resp
+        }
+        Err(err) => {
+            record_stat(&state, endpoint, 500, &start).await;
+            error_json(StatusCode::BAD_GATEWAY, &format!("upstream error: {err:#}"))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI Responses
+// ---------------------------------------------------------------------------
+
+pub(crate) async fn openai_responses(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(payload): Json<serde_json::Value>,
+) -> Response {
+    let start = Instant::now();
+    let token = extract_openai_api_key(&headers, &state.config.openai_api_key);
+
+    let mut request = match openai_payload_to_responses_request(&payload, &state.config.openai_model)
+    {
+        Ok(req) => req,
+        Err(err) => return error_json(StatusCode::BAD_REQUEST, &format!("invalid request: {err}")),
+    };
+    let stream = request.stream.unwrap_or(false);
+
+    let hint = target_provider_hint(&headers, &payload);
+    let endpoint = "/v1/responses";
+    let original_model = request.model.clone();
+
+    let auth = match GatewayAuth::try_authenticate(&state, &token).await {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
+
+    if let Some(ref auth) = auth {
+        let providers = match resolve_providers(
+            &state.gateway,
+            &auth.key.service_id,
+            "openai",
+            hint.as_deref(),
+        )
+        .await
+        {
+            Ok(p) => p,
+            Err(msg) => {
+                auth.release(&state).await;
+                let status = if msg.contains("matches target") {
+                    StatusCode::BAD_REQUEST
+                } else {
+                    StatusCode::SERVICE_UNAVAILABLE
+                };
+                return error_json(status, &msg);
+            }
+        };
+
+        let mut last_err = String::from("unknown");
+        for provider in &providers {
+            request.model = provider.map_model(&original_model);
+            let req_primary = request.clone();
+
+            let upstream_protocol = match provider.provider_type.as_str() {
+                "anthropic" => UpstreamProtocol::Anthropic,
+                _ => UpstreamProtocol::OpenAi,
+            };
+
+            let mut result = if stream {
+                invoke_responses_stream_with_fallback(
+                    upstream_protocol,
+                    &provider.base_url,
+                    &provider.api_key,
+                    &req_primary,
+                    provider.family_id.as_deref(),
+                )
+                .await
+            } else {
+                invoke_responses_with_connector(
+                    upstream_protocol,
+                    &provider.base_url,
+                    &provider.api_key,
+                    &req_primary,
+                    provider.family_id.as_deref(),
+                )
+                .await
+                .map(|resp| (StatusCode::OK, Json(resp)).into_response())
+            };
+
+            // Compatibility retry: some clients send tool schemas that are valid for
+            // OpenAI Responses API but cannot be mapped to chat fallback tool types.
+            if let Err(err) = &result {
+                let err_msg = format!("{err:#}");
+                let should_retry_without_tools = err_msg.contains("Failed to map responses.tools")
+                    || err_msg.contains("Failed to map responses.tool_choice");
+
+                if should_retry_without_tools {
+                    let mut req_compat = req_primary.clone();
+                    req_compat.tools = None;
+                    req_compat.tool_choice = None;
+
+                    result = if stream {
+                        invoke_responses_stream_with_fallback(
+                            upstream_protocol,
+                            &provider.base_url,
+                            &provider.api_key,
+                            &req_compat,
+                            provider.family_id.as_deref(),
+                        )
+                        .await
+                    } else {
+                        invoke_responses_with_connector(
+                            upstream_protocol,
+                            &provider.base_url,
+                            &provider.api_key,
+                            &req_compat,
+                            provider.family_id.as_deref(),
+                        )
+                        .await
+                        .map(|resp| (StatusCode::OK, Json(resp)).into_response())
+                    };
+                }
+            }
+
+            match result {
+                Ok(resp) => {
+                    auth.finalize(&state).await;
+                    record_stat(&state, endpoint, 200, &start).await;
+                    return resp;
+                }
+                Err(err) => {
+                    tracing::warn!(provider = provider.name.as_str(), error = %err, "upstream responses error, trying next");
+                    last_err = format!("{err:#}");
+                }
+            }
+        }
+
+        auth.release(&state).await;
+        record_stat(&state, endpoint, 500, &start).await;
+        return error_json(
+            StatusCode::BAD_GATEWAY,
+            &format!("all providers failed, last: {last_err}"),
+        );
+    }
+
+    let api_key = fallback_api_key(&token, &state.config.openai_api_key);
+    if api_key.is_empty() {
+        return error_json(StatusCode::BAD_REQUEST, "missing upstream api key");
+    }
+
+    request.model = original_model;
+    let req_primary = request.clone();
+
+    let mut result = if stream {
+        invoke_responses_stream_with_fallback(
+            UpstreamProtocol::OpenAi,
+            &state.config.openai_base_url,
+            &api_key,
+            &req_primary,
+            None,
+        )
+        .await
+    } else {
+        invoke_responses_with_connector(
+            UpstreamProtocol::OpenAi,
+            &state.config.openai_base_url,
+            &api_key,
+            &req_primary,
+            None,
+        )
+        .await
+        .map(|resp| (StatusCode::OK, Json(resp)).into_response())
+    };
+
+    if let Err(err) = &result {
+        let err_msg = format!("{err:#}");
+        let should_retry_without_tools = err_msg.contains("Failed to map responses.tools")
+            || err_msg.contains("Failed to map responses.tool_choice");
+
+        if should_retry_without_tools {
+            let mut req_compat = req_primary.clone();
+            req_compat.tools = None;
+            req_compat.tool_choice = None;
+
+            result = if stream {
+                invoke_responses_stream_with_fallback(
+                    UpstreamProtocol::OpenAi,
+                    &state.config.openai_base_url,
+                    &api_key,
+                    &req_compat,
+                    None,
+                )
+                .await
+            } else {
+                invoke_responses_with_connector(
+                    UpstreamProtocol::OpenAi,
+                    &state.config.openai_base_url,
+                    &api_key,
+                    &req_compat,
+                    None,
+                )
+                .await
+                .map(|resp| (StatusCode::OK, Json(resp)).into_response())
+            };
+        }
+    }
+
+    match result {
         Ok(resp) => {
             record_stat(&state, endpoint, 200, &start).await;
             resp
@@ -312,7 +645,7 @@ pub(crate) async fn openai_embeddings(
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
     let start = Instant::now();
-    let token = extract_bearer_token(&headers, &state.config.openai_api_key);
+    let token = extract_openai_api_key(&headers, &state.config.openai_api_key);
 
     let mut embed_request =
         match openai_payload_to_embed_request(&payload, &state.config.openai_model) {

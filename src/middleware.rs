@@ -55,13 +55,30 @@ impl GatewayAuth {
     }
 }
 
-/// Extract Bearer token from Authorization header, with env fallback.
-pub fn extract_bearer_token(headers: &HeaderMap, _env_api_key: &str) -> String {
+/// Extract API key for OpenAI-compatible requests.
+///
+/// Accept common variants used by different clients:
+/// - Authorization: Bearer <key>
+/// - api-key: <key>
+/// - x-api-key: <key>
+pub fn extract_openai_api_key(headers: &HeaderMap, _env_api_key: &str) -> String {
     headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(|s| s.to_string())
+        .or_else(|| {
+            headers
+                .get("api-key")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+        })
+        .or_else(|| {
+            headers
+                .get("x-api-key")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+        })
         .unwrap_or_default()
         .chars()
         .collect::<String>()

@@ -29,7 +29,7 @@ Supported upstream providers (any OpenAI-compatible API works):
 ## 1. Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/EeroEternal/unigateway/main/install.sh | sh
+curl -fsSL https://unigate.sh/install.sh | sh
 ```
 
 Alternatives:

@@ -106,6 +106,22 @@ fn render_openai_tool_settings(
     let _ = writeln!(out, "  Model: {}", style(model).cyan());
 }
 
+fn render_codex_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
+    let api_key = key.unwrap_or("<gateway api key>");
+    let _ = writeln!(out, "Codex / codex-cli:");
+    let _ = writeln!(out, "  Base URL: {}", style(base_url).cyan());
+    let _ = writeln!(out, "  API Key: {}", style(api_key).cyan());
+    let _ = writeln!(out, "  Model: {}", style(model).cyan());
+    let _ = writeln!(out);
+    let _ = writeln!(out, "  Recommended env (avoid local proxy hijacking):");
+    let _ = writeln!(out, "  {}", style("export NO_PROXY=127.0.0.1,localhost").cyan());
+    let _ = writeln!(out, "  {}", style("export no_proxy=127.0.0.1,localhost").cyan());
+    let _ = writeln!(out, "  {}", style(format!("export OPENAI_BASE_URL={}", base_url)).cyan());
+    let _ = writeln!(out, "  {}", style(format!("export OPENAI_API_KEY={}", api_key)).cyan());
+    let _ = writeln!(out, "  {}", style(format!("export OPENAI_MODEL={}", model)).cyan());
+    let _ = writeln!(out, "  {}", style("codex exec \"reply only: OK\"").cyan());
+}
+
 fn render_openai_env_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let _ = writeln!(out, "Shell environment:");
     let _ = writeln!(out, "  {}", style(format!("export OPENAI_BASE_URL={}", base_url)).cyan());
@@ -391,13 +407,7 @@ pub(crate) fn render_integration_output_for_tool(
                     let _ = writeln!(&mut out);
                     render_zed_block(&mut out, &base_url, key, model);
                     let _ = writeln!(&mut out);
-                    render_openai_tool_settings(
-                        &mut out,
-                        "  Codex / codex-cli",
-                        &base_url,
-                        key,
-                        model,
-                    );
+                    render_codex_block(&mut out, &base_url, key, model);
                     let _ = writeln!(&mut out);
                     render_openai_tool_settings(
                         &mut out,
@@ -424,13 +434,7 @@ pub(crate) fn render_integration_output_for_tool(
                     key,
                     model,
                 ),
-                IntegrationTool::Codex => render_openai_tool_settings(
-                    &mut out,
-                    "  Codex / codex-cli",
-                    &base_url,
-                    key,
-                    model,
-                ),
+                IntegrationTool::Codex => render_codex_block(&mut out, &base_url, key, model),
                 IntegrationTool::ClaudeCode => {
                     let anthropic_base_url = user_anthropic_base_url(bind_override);
                     render_claude_code_block(&mut out, &anthropic_base_url, key, model)
