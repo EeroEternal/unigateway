@@ -70,7 +70,16 @@ For fallback path, emit minimal Responses-compatible event sequence:
 - `response.output_text.delta` (repeat)
 - `response.completed`
 
-This is enough for Codex basic text output path.
+For each SSE chunk, `data` JSON MUST include the event discriminator field:
+
+- `type` = event name (for example: `response.created`, `response.output_text.delta`, `response.completed`)
+
+Notes:
+
+- Keep `event:` line for SSE interoperability, but do not rely on it as the only discriminator.
+- Do not overwrite `type` if upstream already provides it.
+
+This is required for strict Responses clients (including Codex) and improves generic compatibility.
 
 ### 5) Error model
 
@@ -125,6 +134,7 @@ Given an upstream that supports `/v1/responses`:
 
 - Non-stream call succeeds with `ResponsesResponse`
 - Stream call yields valid ordered `ResponsesStreamEvent`
+- Stream `data` JSON contains `type` for each emitted event
 
 ### B) Fallback provider
 
@@ -133,6 +143,7 @@ Given an upstream that does not support `/v1/responses` but supports `/v1/chat/c
 - Connector automatically falls back
 - Non-stream and stream both succeed
 - Codex no longer fails with endpoint-404-based retries
+- Fallback SSE `data` JSON contains `type` for `response.created`, `response.output_text.delta`, `response.completed`
 
 ### C) Regression safety
 
@@ -154,7 +165,8 @@ Connector logs must clearly indicate which path was used:
 3. Integration test: direct `/v1/responses`
 4. Integration test: forced `/responses` 404 then fallback success
 5. Integration test: stream fallback event ordering
-6. Error-path tests for auth/rate-limit/invalid payload
+6. Integration test: stream payload contains `data.type` for each event
+7. Error-path tests for auth/rate-limit/invalid payload
 
 ## Integration contract for UniGateway
 
