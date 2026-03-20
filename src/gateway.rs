@@ -58,6 +58,7 @@ fn build_responses_stream_response_from_full(
     let mut chunks: Vec<Result<Bytes, std::io::Error>> = Vec::new();
 
     let created = serde_json::json!({
+        "type": "response.created",
         "response": {
             "id": response_id,
             "object": "response",
@@ -72,6 +73,7 @@ fn build_responses_stream_response_from_full(
 
     if !text.is_empty() {
         let delta = serde_json::json!({
+            "type": "response.output_text.delta",
             "response_id": response_id,
             "delta": text,
         });
@@ -82,6 +84,7 @@ fn build_responses_stream_response_from_full(
     }
 
     let completed = serde_json::json!({
+        "type": "response.completed",
         "response": {
             "id": response_id,
             "object": "response",
@@ -115,7 +118,12 @@ async fn invoke_responses_stream_with_fallback(
         Ok(stream) => {
             let sse_stream = stream.map(|event| match event {
                 Ok(event) => {
-                    let data = serde_json::to_string(&event.data)
+                    // Ensure SSE data JSON carries `type` for strict Responses clients.
+                    let mut event_data = event.data;
+                    event_data
+                        .entry("type".to_string())
+                        .or_insert_with(|| serde_json::Value::String(event.event_type.clone()));
+                    let data = serde_json::to_string(&event_data)
                         .unwrap_or_else(|_| String::from("{}"));
                     let chunk = format!("event: {}\ndata: {}\n\n", event.event_type, data);
                     Ok::<Bytes, std::io::Error>(Bytes::from(chunk))
@@ -349,14 +357,14 @@ pub(crate) async fn openai_responses(
                 .map(|resp| (StatusCode::OK, Json(resp)).into_response())
             };
 
-            // Compatibility retry: some clients send tool schemas that are valid for
-            // OpenAI Responses API but cannot be mapped to chat fallback tool types.
-            if let Err(err) = &result {
-                let err_msg = format!("{err:#}");
-                let should_retry_without_tools = err_msg.contains("Failed to map responses.tools")
-                    || err_msg.contains("Failed to map responses.tool_choice");
+            // Compatibility retry: when the request contains tools and the
+            // upstream fails (e.g. tool schemas that cannot be mapped to chat
+            // fallback types, or providers that don't support them), retry
+            // without tools so the model can still produce a text response.
+            if let Err(_err) = &result {
+                let has_tools = req_primary.tools.as_ref().is_some_and(|t| t.as_array().is_some_and(|a| !a.is_empty()));
 
-                if should_retry_without_tools {
+                if has_tools {
                     let mut req_compat = req_primary.clone();
                     req_compat.tools = None;
                     req_compat.tool_choice = None;
