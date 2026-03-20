@@ -23,6 +23,52 @@ impl GatewayAuth {
         token: &str,
     ) -> Result<Option<Self>, Response> {
         if token.is_empty() {
+            // Compatibility fallback for local-only usage:
+            // Some clients (e.g. Codex in ChatGPT-auth mode) may omit API key
+            // headers even when targeting a local OpenAI-compatible base URL.
+            // To keep this safe, only apply implicit auth when:
+            // 1) gateway bind address is localhost, and
+            // 2) there is exactly one active gateway API key.
+            let is_local_bind = state.config.bind.starts_with("127.0.0.1")
+                || state.config.bind.starts_with("localhost");
+
+            if is_local_bind {
+                let active_keys: Vec<_> = state
+                    .gateway
+                    .list_api_keys()
+                    .await
+                    .into_iter()
+                    .filter(|k| k.is_active)
+                    .collect();
+
+                if active_keys.len() == 1 {
+                    let k = &active_keys[0];
+                    let gk = GatewayApiKey {
+                        key: k.key.clone(),
+                        service_id: k.service_id.clone(),
+                        quota_limit: k.quota_limit,
+                        used_quota: k.used_quota,
+                        is_active: if k.is_active { 1 } else { 0 },
+                        qps_limit: k.qps_limit,
+                        concurrency_limit: k.concurrency_limit,
+                    };
+
+                    if gk.is_active == 0 {
+                        return Err(error_json(StatusCode::UNAUTHORIZED, "api key is inactive"));
+                    }
+                    if let Some(limit) = gk.quota_limit
+                        && gk.used_quota >= limit
+                    {
+                        return Err(error_json(
+                            StatusCode::TOO_MANY_REQUESTS,
+                            "api key quota exceeded",
+                        ));
+                    }
+                    acquire_runtime_limit(state, &gk).await?;
+                    return Ok(Some(Self { key: gk }));
+                }
+            }
+
             return Ok(None);
         }
         let Some(gk) = state.gateway.find_gateway_api_key(token).await else {

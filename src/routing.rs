@@ -13,13 +13,16 @@ pub struct ResolvedProvider {
     pub base_url: String,
     pub api_key: String,
     pub family_id: Option<String>,
+    pub default_model: Option<String>,
     pub model_mapping: Option<String>,
 }
 
 impl ResolvedProvider {
     /// Apply model_mapping to get the upstream model name.
+    /// Falls back to default_model if no explicit mapping matches.
     pub fn map_model(&self, original_model: &str) -> String {
         map_model_name(self.model_mapping.as_deref(), original_model)
+            .or_else(|| self.default_model.clone())
             .unwrap_or_else(|| original_model.to_string())
     }
 }
@@ -37,6 +40,7 @@ fn resolve_service_provider(sp: &ServiceProvider) -> Option<ResolvedProvider> {
         base_url,
         api_key,
         family_id,
+        default_model: sp.default_model.clone(),
         model_mapping: sp.model_mapping.clone(),
     })
 }
