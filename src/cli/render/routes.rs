@@ -30,11 +30,11 @@ pub(crate) fn render_route_explanation(mode: &ModeView) -> String {
     let mut out = String::new();
     let protocols = supported_protocols(mode);
 
-    let _ = writeln!(&mut out, "Mode: {} ({})", mode.id, mode.name);
-    let _ = writeln!(&mut out, "Routing: {}", mode.routing_strategy);
+    let _ = writeln!(&mut out, "mode:     {} ({})", mode.id, mode.name);
+    let _ = writeln!(&mut out, "routing:  {}", mode.routing_strategy);
     let _ = writeln!(
         &mut out,
-        "Protocols: {}",
+        "protocol: {}",
         if protocols.is_empty() {
             "none".to_string()
         } else {
@@ -43,7 +43,7 @@ pub(crate) fn render_route_explanation(mode: &ModeView) -> String {
     );
 
     if protocols.is_empty() {
-        let _ = writeln!(&mut out, "No enabled providers are bound to this mode.");
+        let _ = writeln!(&mut out, "no enabled providers");
         return out.trim_end().to_string();
     }
 
@@ -51,11 +51,6 @@ pub(crate) fn render_route_explanation(mode: &ModeView) -> String {
         let providers = mode_providers_for(mode, protocol);
         let _ = writeln!(&mut out);
         let _ = writeln!(&mut out, "{}:", protocol);
-        let _ = writeln!(
-            &mut out,
-            "  Effective strategy: {}",
-            route_strategy_summary(mode, &providers)
-        );
 
         for (index, provider) in providers.iter().enumerate() {
             let (resolved_base_url, family_id) =
@@ -70,30 +65,19 @@ pub(crate) fn render_route_explanation(mode: &ModeView) -> String {
                         )
                     });
 
-            let _ = writeln!(&mut out, "  {}. {}", index + 1, provider.name);
-            let _ = writeln!(&mut out, "     provider_type: {}", provider.provider_type);
-            let _ = writeln!(
-                &mut out,
-                "     endpoint_id: {}",
-                provider.endpoint_id.as_deref().unwrap_or("-")
-            );
-            let _ = writeln!(
-                &mut out,
-                "     default_model: {}",
-                provider.default_model.as_deref().unwrap_or("-")
-            );
-            let _ = writeln!(&mut out, "     resolved_base_url: {}", resolved_base_url);
-            let _ = writeln!(
-                &mut out,
-                "     family: {}",
-                family_id.as_deref().unwrap_or("-")
-            );
-            let _ = writeln!(
-                &mut out,
-                "     model_mapping: {}",
-                provider.model_mapping.as_deref().unwrap_or("-")
-            );
-            let _ = writeln!(&mut out, "     binding_priority: {}", provider.priority);
+            let _ = writeln!(out, "  {}. {}", index + 1, provider.name);
+            let _ = writeln!(out, "     type:   {}", provider.provider_type);
+            if let Some(eid) = &provider.endpoint_id {
+                let _ = writeln!(out, "     id:     {}", eid);
+            }
+            if let Some(model) = &provider.default_model {
+                let _ = writeln!(out, "     model:  {}", model);
+            }
+            let _ = writeln!(&mut out, "     url:    {}", resolved_base_url);
+            if let Some(family) = family_id {
+                let _ = writeln!(out, "     family: {}", family);
+            }
+            let _ = writeln!(&mut out, "     prio:   {}", provider.priority);
         }
     }
 

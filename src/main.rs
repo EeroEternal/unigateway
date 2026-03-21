@@ -139,6 +139,25 @@ Examples:
         #[arg(long, default_value_t = config_default())]
         config: String,
     },
+    /// Interactive launch/setup for AI tools.
+    #[command(about = "Interactive launch/setup for AI tools", long_about = "Interactive launch/setup for AI tools.
+
+Examples:
+  # Launch the interactive tool picker
+  ug launch
+
+  # Directly show setup for a tool
+  ug launch claudecode")]
+    Launch {
+        /// Optional tool name to bypass picker
+        tool: Option<String>,
+        #[arg(long)]
+        mode: Option<String>,
+        #[arg(long)]
+        bind: Option<String>,
+        #[arg(long, default_value_t = config_default())]
+        config: String,
+    },
     /// Run a smoke test against the local gateway for a mode.
     #[command(about = "Run a smoke test against the local gateway for a mode", long_about = "Run a smoke test against the local gateway for a mode.
 
@@ -444,6 +463,14 @@ async fn main() -> Result<()> {
         }) => {
             cli::print_integrations(&config, mode.as_deref(), tool.as_deref(), bind.as_deref())
                 .await
+        }
+        Some(Commands::Launch {
+            tool,
+            mode,
+            bind,
+            config,
+        }) => {
+            cli::interactive_launch(&config, tool, mode, bind).await
         }
         Some(Commands::Test {
             mode,

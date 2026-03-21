@@ -31,7 +31,7 @@ pub(crate) use render::{
     routes::render_route_explanation,
 };
 pub use render::{
-    integrations::{print_integrations, print_integrations_with_key},
+    integrations::{print_integrations, print_integrations_with_key, interactive_launch},
     routes::explain_route,
 };
 
@@ -46,7 +46,7 @@ pub async fn config_set(config_path: &str, key: &str, value: &str) -> Result<()>
     let state = GatewayState::load(Path::new(config_path)).await?;
     state.set_config_value(key, value).await?;
     state.persist_if_dirty().await?;
-    println!("✅ Set '{}' to '{}'", key, value);
+    println!("set '{}' to '{}'", key, value);
     Ok(())
 }
 

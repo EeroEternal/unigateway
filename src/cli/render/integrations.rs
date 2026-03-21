@@ -1,5 +1,6 @@
 use anyhow::{Result, bail};
 use console::style;
+use dialoguer::{Select, theme::ColorfulTheme};
 use std::fmt::Write as _;
 
 use super::super::modes::{
@@ -60,15 +61,15 @@ pub(crate) fn parse_integration_tool(tool: Option<&str>) -> Result<IntegrationTo
 }
 
 fn render_anthropic_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
-    let _ = writeln!(out, "Anthropic-compatible (e.g. Cursor, Claude Dev):");
-    let _ = writeln!(out, "  Base URL: {}", style(base_url).cyan());
-    let _ = writeln!(out, "  API Key: {}", style(key.unwrap_or("<gateway api key>")).cyan());
-    let _ = writeln!(out, "  Model: {}", style(model).cyan());
+    let _ = writeln!(out, "anthropic-compatible (e.g. cursor, claude dev):");
+    let _ = writeln!(out, "  base url: {}", style(base_url).cyan());
+    let _ = writeln!(out, "  api key:  {}", style(key.unwrap_or("<gateway api key>")).cyan());
+    let _ = writeln!(out, "  model:    {}", style(model).cyan());
 }
 
 fn render_claude_code_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let key = key.unwrap_or("<gateway api key>");
-    let _ = writeln!(out, "Claude Code:");
+    let _ = writeln!(out, "claude code:");
     let _ = writeln!(
         out,
         "  {}",
@@ -81,7 +82,7 @@ fn render_claude_code_block(out: &mut String, base_url: &str, key: Option<&str>,
     );
     let _ = writeln!(out, "  {}", style(format!("export ANTHROPIC_MODEL={}", model)).cyan());
     let _ = writeln!(out);
-    let _ = writeln!(out, "  Start Claude Code with:");
+    let _ = writeln!(out, "  launch:");
     let _ = writeln!(
         out,
         "  {}",
@@ -100,30 +101,27 @@ fn render_openai_tool_settings(
     key: Option<&str>,
     model: &str,
 ) {
-    let _ = writeln!(out, "{}:", title);
-    let _ = writeln!(out, "  Base URL: {}", style(base_url).cyan());
-    let _ = writeln!(out, "  API Key: {}", style(key.unwrap_or("<gateway api key>")).cyan());
-    let _ = writeln!(out, "  Model: {}", style(model).cyan());
+    let _ = writeln!(out, "{}:", title.to_lowercase());
+    let _ = writeln!(out, "  base url: {}", style(base_url).cyan());
+    let _ = writeln!(out, "  api key:  {}", style(key.unwrap_or("<gateway api key>")).cyan());
+    let _ = writeln!(out, "  model:    {}", style(model).cyan());
 }
 
 fn render_codex_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let api_key = key.unwrap_or("<gateway api key>");
-    let _ = writeln!(out, "Codex / codex-cli:");
-    let _ = writeln!(out, "  Base URL: {}", style(base_url).cyan());
-    let _ = writeln!(out, "  API Key: {}", style(api_key).cyan());
-    let _ = writeln!(out, "  Model: {}", style(model).cyan());
+    let _ = writeln!(out, "codex / codex-cli:");
+    let _ = writeln!(out, "  base url: {}", style(base_url).cyan());
+    let _ = writeln!(out, "  api key:  {}", style(api_key).cyan());
+    let _ = writeln!(out, "  model:    {}", style(model).cyan());
     let _ = writeln!(out);
-    let _ = writeln!(out, "  Recommended env (avoid local proxy hijacking):");
-    let _ = writeln!(out, "  {}", style("export NO_PROXY=127.0.0.1,localhost").cyan());
-    let _ = writeln!(out, "  {}", style("export no_proxy=127.0.0.1,localhost").cyan());
+    let _ = writeln!(out, "  launch:");
     let _ = writeln!(out, "  {}", style(format!("export OPENAI_BASE_URL={}", base_url)).cyan());
     let _ = writeln!(out, "  {}", style(format!("export OPENAI_API_KEY={}", api_key)).cyan());
     let _ = writeln!(out, "  {}", style(format!("export OPENAI_MODEL={}", model)).cyan());
-    let _ = writeln!(out, "  {}", style("codex exec \"reply only: OK\"").cyan());
 }
 
 fn render_openai_env_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
-    let _ = writeln!(out, "Shell environment:");
+    let _ = writeln!(out, "shell environment:");
     let _ = writeln!(out, "  {}", style(format!("export OPENAI_BASE_URL={}", base_url)).cyan());
     let _ = writeln!(
         out,
@@ -323,11 +321,11 @@ pub(crate) fn render_integration_output_for_tool(
     let model = default_model.as_str();
 
     if let Some(key) = key {
-        let _ = writeln!(&mut out, "Gateway API Key: {}", key);
+        let _ = writeln!(&mut out, "api key: {}", key);
     } else {
         let _ = writeln!(
             &mut out,
-            "Gateway API Key: <create one with ug create-api-key>"
+            "api key: <none> (create with ug create-api-key)"
         );
     }
 
@@ -345,11 +343,11 @@ pub(crate) fn render_integration_output_for_tool(
 
     if let Some(mode) = mode {
         let protocols = supported_protocols(mode);
-        let _ = writeln!(&mut out, "Mode: {} ({})", mode.id, mode.name);
-        let _ = writeln!(&mut out, "Routing: {}", mode.routing_strategy);
+        let _ = writeln!(&mut out, "mode:    {} ({})", mode.id, mode.name);
+        let _ = writeln!(&mut out, "routing: {}", mode.routing_strategy);
         let _ = writeln!(
             &mut out,
-            "Protocols: {}",
+            "proto:   {}",
             if protocols.is_empty() {
                 "none".to_string()
             } else {
@@ -382,7 +380,7 @@ pub(crate) fn render_integration_output_for_tool(
 
         if wants_openai {
             if tool == IntegrationTool::All {
-                let _ = writeln!(&mut out, "OpenAI-compatible integrations:");
+                let _ = writeln!(&mut out, "openai-compatible integrations:");
             }
             match tool {
                 IntegrationTool::All => {
@@ -391,7 +389,7 @@ pub(crate) fn render_integration_output_for_tool(
                     let _ = writeln!(&mut out);
                     render_openai_tool_settings(
                         &mut out,
-                        "  Cursor (OpenAI-compatible provider)",
+                        "  cursor (openai-compatible provider)",
                         &base_url,
                         key,
                         model,
@@ -411,7 +409,7 @@ pub(crate) fn render_integration_output_for_tool(
                     let _ = writeln!(&mut out);
                     render_openai_tool_settings(
                         &mut out,
-                        "  Trae Configuration",
+                        "  trae configuration",
                         &base_url,
                         key,
                         model,
@@ -429,7 +427,7 @@ pub(crate) fn render_integration_output_for_tool(
                 IntegrationTool::Zed => render_zed_block(&mut out, &base_url, key, model),
                 IntegrationTool::Cursor => render_openai_tool_settings(
                     &mut out,
-                    "  Cursor (OpenAI-compatible provider)",
+                    "  cursor (openai-compatible provider)",
                     &base_url,
                     key,
                     model,
@@ -445,7 +443,7 @@ pub(crate) fn render_integration_output_for_tool(
                 IntegrationTool::OpenHands => render_openhands_block(&mut out, &base_url, key, model),
                 IntegrationTool::Trae => render_openai_tool_settings(
                     &mut out,
-                    "  Trae Configuration",
+                    "  trae configuration",
                     &base_url,
                     key,
                     model,
@@ -539,5 +537,59 @@ pub async fn print_integrations_with_key(
         "{}",
         render_integration_output_for_tool(Some(mode), key.as_deref(), bind_override, tool)
     );
+    Ok(())
+}
+
+pub async fn interactive_launch(
+    config_path: &str,
+    tool: Option<String>,
+    mode_id: Option<String>,
+    bind_override: Option<String>,
+) -> Result<()> {
+    let modes = load_mode_views(config_path).await?;
+    let mode = select_mode(&modes, mode_id.as_deref())?;
+
+    let tool_choice = if let Some(t) = tool {
+        parse_integration_tool(Some(&t))?
+    } else {
+        let tools = [
+            ("Claude Code", IntegrationTool::ClaudeCode),
+            ("OpenClaw", IntegrationTool::OpenClaw),
+            ("Zed", IntegrationTool::Zed),
+            ("Cursor", IntegrationTool::Cursor),
+            ("OpenCode", IntegrationTool::OpenCode),
+            ("Cline", IntegrationTool::Cline),
+            ("OpenHands", IntegrationTool::OpenHands),
+            ("Trae", IntegrationTool::Trae),
+            ("Codex", IntegrationTool::Codex),
+            ("Droid", IntegrationTool::Droid),
+            ("Shell Env", IntegrationTool::Env),
+            ("Python SDK", IntegrationTool::Python),
+            ("Node SDK", IntegrationTool::Node),
+            ("curl", IntegrationTool::Curl),
+        ];
+
+        let selection = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("select a tool to launch")
+            .items(&tools.iter().map(|(n, _)| *n).collect::<Vec<_>>())
+            .default(0)
+            .interact()?;
+
+        tools[selection].1
+    };
+
+    let key = mode
+        .keys
+        .iter()
+        .find(|key| key.is_active)
+        .or_else(|| mode.keys.first())
+        .map(|key| key.key.clone());
+
+    println!("\n🎉 ready to use with {}!", style(format!("{:?}", tool_choice).to_lowercase()).green().bold());
+    println!(
+        "{}",
+        render_integration_output_for_tool(Some(mode), key.as_deref(), bind_override.as_deref(), tool_choice)
+    );
+
     Ok(())
 }

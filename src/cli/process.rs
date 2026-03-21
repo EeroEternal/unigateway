@@ -57,7 +57,6 @@ pub fn is_running() -> Option<u32> {
 
 pub fn stop_server() -> Result<()> {
     if let Some(pid) = is_running() {
-        println!("Stopping UniGateway (PID: {})...", pid);
         #[cfg(unix)]
         {
             let status = Command::new("kill")
@@ -73,19 +72,18 @@ pub fn stop_server() -> Result<()> {
             bail!("Stop command not yet supported on this platform. Please kill PID {} manually.", pid);
         }
         let _ = fs::remove_file(pid_path());
-        println!("Stopped.");
+        println!("stopped");
     } else {
-        println!("UniGateway is not running.");
+        println!("unigateway is not running");
     }
     Ok(())
 }
 
 pub fn status_server() -> Result<()> {
     if let Some(pid) = is_running() {
-        println!("UniGateway is running (PID: {}).", pid);
-        println!("Logs: {}", log_path().display());
+        println!("unigateway is running (pid: {})", pid);
     } else {
-        println!("UniGateway is not running.");
+        println!("unigateway is not running");
     }
     Ok(())
 }

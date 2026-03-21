@@ -45,8 +45,8 @@ ug serve          # Starts in background by default
 UniGateway runs in the background. Use these commands to manage it:
 
 ```bash
-ug status         # Check if the gateway is running
-ug stop           # Stop the background gateway
+ug status         # unigateway is running (pid: 1234)
+ug stop           # stopped
 ug logs           # View or tail the logs
 ug serve -f       # Run in the foreground (blocking)
 ```
@@ -56,17 +56,17 @@ UniGateway organizes providers into **Modes**. Use the CLI to manage them:
 
 ```bash
 ug mode list          # See all available modes
-ug mode show fast     # Inspect providers/keys for a specific mode
-ug mode use strong    # Set 'strong' as the default mode
+ug mode show fast     # mode: fast (Fast) | routing: fallback
+ug mode use strong    # set 'default' to 'strong'
 ```
 
 ### 3. Tool Integrations
-Get ready-to-use configuration snippets for your favorite AI tools:
+Get ready-to-use configuration snippets or interactively set up your favorite AI tools:
 
 ```bash
-ug integrations --tool cursor
-ug integrations --tool zed
-ug integrations --tool claudecode
+ug launch claudecode  # interactive configuration for Claude Code
+ug launch             # open interactive tool picker
+ug integrations       # list all integration hints
 ```
 
 ### 4. Diagnostics & Testing
@@ -84,32 +84,18 @@ UniGateway is designed for the modern AI ecosystem.
 
 ### Popular Tool Configs
 
-#### 🦞 OpenClaw
-Connect OpenClaw to UniGateway as a unified local OpenAI-compatible entry point. See [OpenClaw Integration Example](docs/openclaw-integration-example.md) for full details.
-
-Add to `~/.openclaw/openclaw.json`:
-```json
-{
-  "agents": { "defaults": { "model": { "primary": "unigateway/deepseek-chat" } } },
-  "models": {
-    "providers": {
-      "unigateway": {
-        "baseUrl": "http://127.0.0.1:3210/v1",
-        "apiKey": "${UNIGATEWAY_API_KEY}",
-        "api": "openai-completions",
-        "models": [{ "id": "deepseek-chat", "name": "UniGateway Chat" }]
-      }
-    }
-  }
-}
-```
-
 #### 🛠️ Claude Code
 Configure Claude Code to use UniGateway via the Anthropic-compatible endpoint:
 ```bash
 export ANTHROPIC_BASE_URL="http://127.0.0.1:3210"
 export ANTHROPIC_API_KEY="ugk_your_key"
 export ANTHROPIC_MODEL="kimi-k2.5"
+
+# launch
+ANTHROPIC_BASE_URL=http://127.0.0.1:3210 \
+ANTHROPIC_API_KEY=ugk_your_key \
+ANTHROPIC_MODEL=kimi-k2.5 \
+claude
 ```
 
 Note: `claude -p` typically honors these env vars directly. In some CLI versions,
