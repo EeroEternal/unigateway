@@ -1,8 +1,8 @@
 use anyhow::Result;
 
 use super::{
-    ApiKeyEntry, BindingEntry, GatewayState, ProviderEntry, ProviderModelOptions, ServiceEntry,
-    default_round_robin,
+    ApiKeyEntry, BindingEntry, GatewayState, ModeView, ProviderEntry, ProviderModelOptions,
+    ServiceEntry, build_mode_views, default_round_robin,
 };
 
 impl GatewayState {
@@ -44,6 +44,12 @@ impl GatewayState {
         } else {
             Some(default_mode.to_string())
         }
+    }
+
+    pub async fn list_mode_views(&self) -> Vec<ModeView> {
+        let guard = self.inner.read().await;
+        let default_mode = guard.file.preferences.default_mode.clone();
+        build_mode_views(&guard.file, &default_mode)
     }
 
     pub async fn set_default_mode(&self, mode_id: &str) -> Result<()> {
@@ -263,6 +269,29 @@ impl GatewayState {
         guard.dirty = true;
     }
 
+    pub async fn rebind_api_key_service(&self, key: &str, service_id: &str) -> Result<()> {
+        let mut guard = self.inner.write().await;
+        if !guard
+            .file
+            .services
+            .iter()
+            .any(|service| service.id == service_id)
+        {
+            anyhow::bail!("service '{}' not found", service_id);
+        }
+
+        let Some(api_key) = guard.file.api_keys.iter_mut().find(|api_key| api_key.key == key)
+        else {
+            anyhow::bail!("api key '{}' not found", key);
+        };
+
+        if api_key.service_id != service_id {
+            api_key.service_id = service_id.to_string();
+            guard.dirty = true;
+        }
+        Ok(())
+    }
+
     pub async fn set_provider_model_options(
         &self,
         provider_id: i64,
@@ -282,5 +311,126 @@ impl GatewayState {
         }
         guard.dirty = true;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GatewayState;
+    use std::path::Path;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn list_mode_views_reflects_default_and_bindings() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        state.create_service("fast", "Fast").await;
+        state.create_service("strong", "Strong").await;
+        let provider_id = state
+            .create_provider(
+                "deepseek-main",
+                "openai",
+                "deepseek:global",
+                Some("https://api.deepseek.com"),
+                "sk-provider",
+                None,
+            )
+            .await;
+        state
+            .bind_provider_to_service_with_priority("fast", provider_id, 10)
+            .await
+            .expect("bind provider");
+        state.set_default_mode("fast").await.expect("set default mode");
+
+        let modes = state.list_mode_views().await;
+        let fast = modes
+            .iter()
+            .find(|mode| mode.id == "fast")
+            .expect("fast mode present");
+        let strong = modes
+            .iter()
+            .find(|mode| mode.id == "strong")
+            .expect("strong mode present");
+
+        assert!(fast.is_default);
+        assert!(!strong.is_default);
+        assert_eq!(fast.providers.len(), 1);
+        assert_eq!(fast.providers[0].name, "deepseek-main");
+    }
+
+    #[tokio::test]
+    async fn rebind_api_key_service_preserves_limits_and_usage() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        state.create_service("fast", "Fast").await;
+        state.create_service("strong", "Strong").await;
+        state
+            .create_api_key("ugk_test_key", "fast", Some(100), Some(2.5), Some(3))
+            .await;
+
+        {
+            let mut guard = state.inner.write().await;
+            let key = guard
+                .file
+                .api_keys
+                .iter_mut()
+                .find(|item| item.key == "ugk_test_key")
+                .expect("key exists");
+            key.used_quota = 37;
+            key.is_active = false;
+            guard.dirty = false;
+        }
+
+        state
+            .rebind_api_key_service("ugk_test_key", "strong")
+            .await
+            .expect("rebind key");
+
+        let keys = state.list_api_keys().await;
+        let key = keys
+            .iter()
+            .find(|item| item.key == "ugk_test_key")
+            .expect("key exists");
+
+        assert_eq!(key.service_id, "strong");
+        assert_eq!(key.used_quota, 37);
+        assert_eq!(key.quota_limit, Some(100));
+        assert_eq!(key.qps_limit, Some(2.5));
+        assert_eq!(key.concurrency_limit, Some(3));
+        assert!(!key.is_active);
+    }
+
+    #[tokio::test]
+    async fn rebind_api_key_service_rejects_unknown_inputs() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        state.create_service("fast", "Fast").await;
+        state
+            .create_api_key("ugk_test_key", "fast", None, None, None)
+            .await;
+
+        let missing_service = state
+            .rebind_api_key_service("ugk_test_key", "missing")
+            .await
+            .expect_err("missing service should fail");
+        assert!(missing_service.to_string().contains("service 'missing' not found"));
+
+        let missing_key = state
+            .rebind_api_key_service("ugk_missing", "fast")
+            .await
+            .expect_err("missing key should fail");
+        assert!(missing_key.to_string().contains("api key 'ugk_missing' not found"));
     }
 }

@@ -60,6 +60,111 @@ ug mode show fast     # mode: fast (Fast) | routing: fallback
 ug mode use strong    # set 'default' to 'strong'
 ```
 
+### 3.5 External Admin API (Headless)
+UniGateway does not embed a Web UI. External admin clients (for example UniAdmin)
+should call JSON endpoints under `/api/admin/*`.
+
+Authentication:
+- If `UNIGATEWAY_ADMIN_TOKEN` is set, include `x-admin-token` on all admin requests.
+- If not set, behavior follows existing admin API defaults and is recommended only on trusted local networks.
+
+Useful endpoints for external admin tools:
+- `GET /api/admin/modes`: list mode summaries for selector UIs
+- `POST /api/admin/preferences/default-mode`: set `preferences.default_mode`
+- `PATCH /api/admin/api-keys`: rebind an existing API key to a target `service_id`
+
+Routing semantics:
+- Runtime HTTP routing uses the API key's `service_id`.
+- `preferences.default_mode` affects CLI defaults and integration guidance.
+- To provide a one-click "switch mode" UX, admin clients should typically update default mode and key binding together.
+
+Example curl flow:
+```bash
+export UG_BASE_URL="http://127.0.0.1:3210"
+export UG_ADMIN_TOKEN="your-admin-token"
+
+# 1) List modes (summary)
+curl -sS "$UG_BASE_URL/api/admin/modes" \
+  -H "x-admin-token: $UG_ADMIN_TOKEN"
+
+# Optional: detailed mode payload (providers + keys)
+curl -sS "$UG_BASE_URL/api/admin/modes?detailed=true" \
+  -H "x-admin-token: $UG_ADMIN_TOKEN"
+
+# 2) Set default mode
+curl -sS -X POST "$UG_BASE_URL/api/admin/preferences/default-mode" \
+  -H "content-type: application/json" \
+  -H "x-admin-token: $UG_ADMIN_TOKEN" \
+  -d '{"mode_id":"strong"}'
+
+# 3) Rebind an existing gateway key to a mode/service
+curl -sS -X PATCH "$UG_BASE_URL/api/admin/api-keys" \
+  -H "content-type: application/json" \
+  -H "x-admin-token: $UG_ADMIN_TOKEN" \
+  -d '{"key":"ugk_xxx","service_id":"strong"}'
+```
+
+Minimal JSON contract examples:
+
+`GET /api/admin/modes` (summary)
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "fast",
+      "name": "Fast",
+      "routing_strategy": "round_robin",
+      "is_default": true,
+      "provider_count": 1,
+      "provider_names": ["deepseek-main"]
+    }
+  ]
+}
+```
+
+`POST /api/admin/preferences/default-mode`
+Request:
+```json
+{"mode_id":"strong"}
+```
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "mode_id": "strong"
+  }
+}
+```
+
+`PATCH /api/admin/api-keys`
+Request:
+```json
+{"key":"ugk_fast_123","service_id":"strong"}
+```
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "key": "ugk_fast_123",
+    "service_id": "strong"
+  }
+}
+```
+
+Development networking notes:
+- Preferred: configure a reverse proxy so UniAdmin and UniGateway share one origin.
+- Local-only alternative: allow CORS in your dev stack (do not expose permissive CORS on public listeners).
+
+One-click switch pattern for admin clients:
+1. `POST /api/admin/preferences/default-mode` to update user-facing default
+2. `PATCH /api/admin/api-keys` to update runtime routing for the selected key
+
+Detailed integration guide:
+- See [docs/admin-ui-support.md](docs/admin-ui-support.md) for endpoint contracts, suggested frontend workflow, and error handling recommendations.
+
 ### 3. Tool Integrations
 Get ready-to-use configuration snippets or interactively set up your favorite AI tools:
 

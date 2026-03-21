@@ -131,7 +131,6 @@ fn daemonize_internal(print_messages: bool) -> Result<u32> {
                     i += 1;
                 }
             }
-            "--no-ui" => args.push(raw_args[i].clone()),
             _ => {}
         }
         i += 1;

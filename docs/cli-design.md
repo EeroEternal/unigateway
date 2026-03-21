@@ -2,7 +2,7 @@
 
 ### 1. Goals
 
-- Position UniGateway as **HTTP gateway + scenario-oriented CLI**: no default Web admin UI.
+- Position UniGateway as **HTTP gateway + scenario-oriented CLI**: no Web UI; programmatic admin is limited to `/api/admin/*` (services, providers, bindings, API keys)—mode switching stays in CLI (`ug mode use`, etc.).
 - All management (create/list/delete service, provider, api-key; view metrics) via CLI, with:
   - Human-friendly flags and help;
   - Stable subcommands and parseable output for AI/scripts.
@@ -63,7 +63,7 @@ So AI/scripts can parse stdout for automation.
 
 - No `src/app/` directory: `src/server.rs` has `run()` and route registration; `AppConfig` in `types.rs`; gateway and admin logic in single-file modules under `src/`.
 - `src/cli.rs`: CLI parsing and dispatch; uses `GatewayState` for create/bind/print_metrics.
-- `src/ui/` removed: no Web UI; management is CLI + `/api/admin/*` JSON API.
+- No `src/ui/` in this repo; primary management is CLI + `/api/admin/*` JSON API.
 
 ### 6. Suggested Next Steps
 

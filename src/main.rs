@@ -53,8 +53,6 @@ Examples:
         bind: Option<String>,
         #[arg(long)]
         config: Option<String>,
-        #[arg(long, default_value_t = false)]
-        no_ui: bool,
         /// Run in the foreground (blocking).
         #[arg(short, long, default_value_t = false)]
         foreground: bool,
@@ -420,7 +418,6 @@ async fn main() -> Result<()> {
         Some(Commands::Serve {
             bind,
             config: config_path,
-            no_ui,
             foreground,
             detached,
         }) => {
@@ -435,9 +432,6 @@ async fn main() -> Result<()> {
             }
             if let Some(c) = config_path {
                 app_config.config_path = c;
-            }
-            if no_ui {
-                app_config.enable_ui = false;
             }
             server::run(app_config).await
         }

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::config::GatewayState;
 
@@ -15,7 +15,6 @@ pub fn default_config_path() -> String {
 pub struct AppConfig {
     pub bind: String,
     pub config_path: String,
-    pub enable_ui: bool,
     pub admin_token: String,
     pub openai_base_url: String,
     pub openai_api_key: String,
@@ -37,9 +36,6 @@ impl AppConfig {
             bind,
             config_path: std::env::var("UNIGATEWAY_CONFIG")
                 .unwrap_or_else(|_| default_config_path()),
-            enable_ui: std::env::var("UNIGATEWAY_ENABLE_UI")
-                .map(|v| v != "0" && v.to_lowercase() != "false")
-                .unwrap_or(false),
             admin_token: std::env::var("UNIGATEWAY_ADMIN_TOKEN").unwrap_or_default(),
             openai_base_url: std::env::var("OPENAI_BASE_URL")
                 .unwrap_or_else(|_| "https://api.openai.com".to_string()),
@@ -59,13 +55,6 @@ impl AppConfig {
 pub(crate) struct AppState {
     pub config: AppConfig,
     pub gateway: Arc<GatewayState>,
-}
-
-#[derive(Deserialize)]
-#[allow(dead_code)]
-pub(crate) struct LoginForm {
-    pub username: String,
-    pub password: String,
 }
 
 #[derive(Serialize)]

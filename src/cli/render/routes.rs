@@ -1,10 +1,11 @@
 use anyhow::Result;
 use std::fmt::Write as _;
 
+use crate::config::{ModeProvider, ModeView};
 use crate::routing::resolve_upstream;
 
 use super::super::modes::{
-    ModeProvider, ModeView, load_mode_views, mode_providers_for, select_mode, supported_protocols,
+    load_mode_views, mode_providers_for, select_mode, supported_protocols,
 };
 
 pub(crate) fn route_strategy_summary(mode: &ModeView, providers: &[&ModeProvider]) -> String {
@@ -41,6 +42,10 @@ pub(crate) fn render_route_explanation(mode: &ModeView) -> String {
             protocols.join(", ")
         }
     );
+
+    let openai_providers = mode_providers_for(mode, "openai");
+    let strategy = route_strategy_summary(mode, &openai_providers);
+    let _ = writeln!(&mut out, "Effective strategy: {}", strategy);
 
     if protocols.is_empty() {
         let _ = writeln!(&mut out, "no enabled providers");
