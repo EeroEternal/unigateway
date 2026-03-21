@@ -13,9 +13,9 @@ use crate::config::GatewayState;
 pub(crate) use diagnostics::summarize_response_text;
 pub use diagnostics::{doctor, test_mode};
 #[cfg(test)]
-pub(crate) use modes::{
-    ModeKey, ModeProvider, ModeView, effective_default_mode_id, user_bind_address,
-};
+pub(crate) use crate::config::{ModeKey, ModeProvider, ModeView};
+#[cfg(test)]
+pub(crate) use modes::{effective_default_mode_id, user_bind_address};
 pub use modes::{list_modes, show_mode, use_mode};
 pub use process::{daemonize, is_running, status_server, stop_server, view_logs};
 #[cfg(test)]

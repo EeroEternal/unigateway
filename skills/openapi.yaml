@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: UniGateway API
-  version: 0.5.0
+  version: 0.9.17
   description: >
     Unified LLM gateway supporting OpenAI, Anthropic, DeepSeek, Groq, MiniMax,
     and any OpenAI-compatible provider. Provides chat completions, messages,
@@ -173,9 +173,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Service"
+                $ref: "#/components/schemas/AdminServiceListResponse"
     post:
       operationId: createService
       summary: Create or update a service
@@ -200,6 +198,125 @@ paths:
       responses:
         "200":
           description: Service created/updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminServiceUpsertResponse"
+
+  /api/admin/modes:
+    get:
+      operationId: listModes
+      summary: List service modes for external admin clients
+      description: >
+        Returns mode summaries derived from services, bindings, and preferences.default_mode.
+        This endpoint is intended for external admin tools such as UniAdmin.
+      security:
+        - AdminToken: []
+      parameters:
+        - name: detailed
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Return full mode details (providers and keys) when true
+      responses:
+        "200":
+          description: Mode summaries
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/AdminModeListSummaryResponse"
+                  - $ref: "#/components/schemas/AdminModeListDetailedResponse"
+              examples:
+                summary:
+                  summary: Summary mode list
+                  value:
+                    success: true
+                    data:
+                      - id: fast
+                        name: Fast
+                        routing_strategy: round_robin
+                        is_default: true
+                        provider_count: 1
+                        provider_names: [deepseek-main]
+                      - id: strong
+                        name: Strong
+                        routing_strategy: fallback
+                        is_default: false
+                        provider_count: 2
+                        provider_names: [openai-main, openai-backup]
+                detailed:
+                  summary: Detailed mode list
+                  value:
+                    success: true
+                    data:
+                      - id: fast
+                        name: Fast
+                        is_default: true
+                        routing_strategy: round_robin
+                        providers:
+                          - name: deepseek-main
+                            provider_type: openai
+                            endpoint_id: deepseek:global
+                            base_url: https://api.deepseek.com
+                            default_model: deepseek-chat
+                            model_mapping: null
+                            has_api_key: true
+                            is_enabled: true
+                            priority: 0
+                        keys:
+                          - key: ugk_fast_123
+                            is_active: true
+                            quota_limit: null
+                            qps_limit: null
+                            concurrency_limit: null
+
+  /api/admin/preferences/default-mode:
+    post:
+      operationId: setDefaultMode
+      summary: Set default mode
+      security:
+        - AdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode_id]
+              properties:
+                mode_id:
+                  type: string
+            examples:
+              switchToStrong:
+                value:
+                  mode_id: strong
+      responses:
+        "200":
+          description: Default mode updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminDefaultModeResponse"
+              examples:
+                ok:
+                  value:
+                    success: true
+                    data:
+                      mode_id: strong
+        "400":
+          description: Unknown mode
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminErrorResponse"
+              examples:
+                invalidMode:
+                  value:
+                    success: false
+                    error: mode 'missing' not found
 
   /api/admin/providers:
     get:
@@ -213,9 +330,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Provider"
+                $ref: "#/components/schemas/AdminProviderListResponse"
     post:
       operationId: createProvider
       summary: Create or update a provider
@@ -230,6 +345,10 @@ paths:
       responses:
         "200":
           description: Provider created/updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminProviderUpsertResponse"
 
   /api/admin/bindings:
     post:
@@ -253,6 +372,16 @@ paths:
       responses:
         "200":
           description: Binding created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminBindingResponse"
+        "400":
+          description: Invalid service_id or provider_id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminErrorResponse"
 
   /api/admin/api-keys:
     get:
@@ -266,9 +395,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ApiKey"
+                $ref: "#/components/schemas/AdminApiKeyListResponse"
     post:
       operationId: createApiKey
       summary: Create or update an API key
@@ -283,6 +410,59 @@ paths:
       responses:
         "200":
           description: API key created/updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminApiKeyUpsertResponse"
+    patch:
+      operationId: rebindApiKeyService
+      summary: Rebind an existing API key to a service
+      description: >
+        Updates only the API key's service_id. Existing quota and rate-limit fields are preserved.
+      security:
+        - AdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, service_id]
+              properties:
+                key:
+                  type: string
+                service_id:
+                  type: string
+            examples:
+              rebindToStrong:
+                value:
+                  key: ugk_fast_123
+                  service_id: strong
+      responses:
+        "200":
+          description: API key rebind succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminApiKeyUpsertResponse"
+              examples:
+                ok:
+                  value:
+                    success: true
+                    data:
+                      key: ugk_fast_123
+                      service_id: strong
+        "400":
+          description: Unknown key or service_id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminErrorResponse"
+              examples:
+                unknownKey:
+                  value:
+                    success: false
+                    error: api key 'ugk_missing' not found
 
 components:
   securitySchemes:
@@ -473,3 +653,252 @@ components:
         concurrency_limit:
           type: integer
           nullable: true
+
+    AdminErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: string
+
+    AdminServiceListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+
+    AdminServiceUpsertResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+
+    AdminModeSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        routing_strategy:
+          type: string
+          enum: [round_robin, fallback]
+        is_default:
+          type: boolean
+        provider_count:
+          type: integer
+        provider_names:
+          type: array
+          items:
+            type: string
+
+    AdminModeProvider:
+      type: object
+      properties:
+        name:
+          type: string
+        provider_type:
+          type: string
+        endpoint_id:
+          type: string
+          nullable: true
+        base_url:
+          type: string
+          nullable: true
+        default_model:
+          type: string
+          nullable: true
+        model_mapping:
+          type: string
+          nullable: true
+        has_api_key:
+          type: boolean
+        is_enabled:
+          type: boolean
+        priority:
+          type: integer
+
+    AdminModeKey:
+      type: object
+      properties:
+        key:
+          type: string
+        is_active:
+          type: boolean
+        quota_limit:
+          type: integer
+          nullable: true
+        qps_limit:
+          type: number
+          nullable: true
+        concurrency_limit:
+          type: integer
+          nullable: true
+
+    AdminModeDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        is_default:
+          type: boolean
+        routing_strategy:
+          type: string
+          enum: [round_robin, fallback]
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminModeProvider"
+        keys:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminModeKey"
+
+    AdminModeListSummaryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminModeSummary"
+
+    AdminModeListDetailedResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminModeDetail"
+
+    AdminDefaultModeResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          properties:
+            mode_id:
+              type: string
+
+    AdminProviderListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              provider_type:
+                type: string
+              endpoint_id:
+                type: string
+                nullable: true
+              base_url:
+                type: string
+                nullable: true
+
+    AdminProviderUpsertResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          properties:
+            provider_id:
+              type: integer
+
+    AdminBindingResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          properties:
+            service_id:
+              type: string
+            provider_id:
+              type: integer
+
+    AdminApiKeyListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              service_id:
+                type: string
+              quota_limit:
+                type: integer
+                nullable: true
+              used_quota:
+                type: integer
+              is_active:
+                type: integer
+              qps_limit:
+                type: number
+                nullable: true
+              concurrency_limit:
+                type: integer
+                nullable: true
+
+    AdminApiKeyUpsertResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          properties:
+            key:
+              type: string
+            service_id:
+              type: string

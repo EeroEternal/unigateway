@@ -1,4 +1,4 @@
-// DTOs for admin API / future UI; allow dead_code until used.
+// DTOs for admin API; allow dead_code until used.
 #![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
@@ -124,6 +124,16 @@ pub(crate) struct ApiKeyOut {
     pub(crate) concurrency_limit: Option<i64>,
 }
 
+#[derive(Serialize)]
+pub(crate) struct ModeSummaryOut {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) routing_strategy: String,
+    pub(crate) is_default: bool,
+    pub(crate) provider_count: usize,
+    pub(crate) provider_names: Vec<String>,
+}
+
 #[derive(Deserialize)]
 pub(crate) struct CreateServiceReq {
     pub(crate) id: String,
@@ -153,6 +163,17 @@ pub(crate) struct CreateApiKeyReq {
     pub(crate) quota_limit: Option<i64>,
     pub(crate) qps_limit: Option<f64>,
     pub(crate) concurrency_limit: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct UpdateApiKeyServiceReq {
+    pub(crate) key: String,
+    pub(crate) service_id: String,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct SetDefaultModeReq {
+    pub(crate) mode_id: String,
 }
 
 #[derive(Deserialize)]

@@ -40,6 +40,11 @@ pub async fn run(config: AppConfig) -> Result<()> {
             "/api/admin/services",
             get(crate::service::api_list_services).post(crate::service::api_create_service),
         )
+        .route("/api/admin/modes", get(crate::service::api_list_modes))
+        .route(
+            "/api/admin/preferences/default-mode",
+            post(crate::service::api_set_default_mode),
+        )
         .route(
             "/api/admin/providers",
             get(crate::provider::api_list_providers).post(crate::provider::api_create_provider),
@@ -50,12 +55,16 @@ pub async fn run(config: AppConfig) -> Result<()> {
         )
         .route(
             "/api/admin/api-keys",
-            get(crate::api_key::api_list_api_keys).post(crate::api_key::api_create_api_key),
+            get(crate::api_key::api_list_api_keys)
+                .post(crate::api_key::api_create_api_key)
+                .patch(crate::api_key::api_update_api_key_service),
         )
         .route("/v1/responses", post(crate::gateway::openai_responses))
         .route("/v1/chat/completions", post(crate::gateway::openai_chat))
         .route("/v1/embeddings", post(crate::gateway::openai_embeddings))
-        .route("/v1/messages", post(crate::gateway::anthropic_messages))
+        .route("/v1/messages", post(crate::gateway::anthropic_messages));
+
+    let app = app
         .with_state(Arc::new(state))
         .layer(TraceLayer::new_for_http());
 
@@ -65,6 +74,3 @@ pub async fn run(config: AppConfig) -> Result<()> {
     axum::serve(listener, app).await?;
     Ok(())
 }
-
-#[allow(unused_imports)]
-pub use crate::storage::hash_password;

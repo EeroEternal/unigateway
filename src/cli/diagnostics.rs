@@ -6,13 +6,17 @@ use serde_json::Value;
 use std::path::Path;
 use std::time::Duration;
 
-use crate::{routing::resolve_upstream, types::AppConfig};
+use crate::{
+    config::{ModeProvider, ModeView},
+    routing::resolve_upstream,
+    types::AppConfig,
+};
 
 use super::{
     modes::{
-        ModeProvider, ModeView, effective_default_mode_id, load_mode_views, mode_providers_for,
-        pick_mode_key, pick_mode_protocol, provider_default_model, select_mode,
-        supported_protocols, user_anthropic_base_url, user_bind_address, user_openai_base_url,
+        effective_default_mode_id, load_mode_views, mode_providers_for, pick_mode_key,
+        pick_mode_protocol, provider_default_model, select_mode, supported_protocols,
+        user_anthropic_base_url, user_bind_address, user_openai_base_url,
     },
     render::routes::route_strategy_summary,
 };

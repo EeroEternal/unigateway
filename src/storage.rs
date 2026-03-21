@@ -1,12 +1,4 @@
 use serde_json::Value;
-use sha2::Digest;
-
-#[allow(dead_code)]
-pub fn hash_password(raw: &str) -> String {
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(raw.as_bytes());
-    hex::encode(hasher.finalize())
-}
 
 pub(crate) fn map_model_name(model_mapping: Option<&str>, requested_model: &str) -> Option<String> {
     let raw_mapping = model_mapping?;

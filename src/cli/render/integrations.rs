@@ -3,9 +3,10 @@ use console::style;
 use dialoguer::{Select, theme::ColorfulTheme};
 use std::fmt::Write as _;
 
+use crate::config::ModeView;
 use super::super::modes::{
-    ModeView, load_mode_views, mode_providers_for, select_mode, supported_protocols,
-    user_anthropic_base_url, user_bind_address, user_openai_base_url,
+    load_mode_views, mode_providers_for, select_mode, supported_protocols, user_anthropic_base_url,
+    user_bind_address, user_openai_base_url,
 };
 use crate::types::AppConfig;
 
@@ -101,7 +102,7 @@ fn render_openai_tool_settings(
     key: Option<&str>,
     model: &str,
 ) {
-    let _ = writeln!(out, "{}:", title.to_lowercase());
+    let _ = writeln!(out, "{}:", title);
     let _ = writeln!(out, "  base url: {}", style(base_url).cyan());
     let _ = writeln!(out, "  api key:  {}", style(key.unwrap_or("<gateway api key>")).cyan());
     let _ = writeln!(out, "  model:    {}", style(model).cyan());
@@ -109,12 +110,13 @@ fn render_openai_tool_settings(
 
 fn render_codex_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let api_key = key.unwrap_or("<gateway api key>");
-    let _ = writeln!(out, "codex / codex-cli:");
+    let _ = writeln!(out, "Codex / codex-cli:");
     let _ = writeln!(out, "  base url: {}", style(base_url).cyan());
     let _ = writeln!(out, "  api key:  {}", style(api_key).cyan());
     let _ = writeln!(out, "  model:    {}", style(model).cyan());
     let _ = writeln!(out);
     let _ = writeln!(out, "  launch:");
+    let _ = writeln!(out, "  {}", style("export NO_PROXY=127.0.0.1,localhost").cyan());
     let _ = writeln!(out, "  {}", style(format!("export OPENAI_BASE_URL={}", base_url)).cyan());
     let _ = writeln!(out, "  {}", style(format!("export OPENAI_API_KEY={}", api_key)).cyan());
     let _ = writeln!(out, "  {}", style(format!("export OPENAI_MODEL={}", model)).cyan());
@@ -389,7 +391,7 @@ pub(crate) fn render_integration_output_for_tool(
                     let _ = writeln!(&mut out);
                     render_openai_tool_settings(
                         &mut out,
-                        "  cursor (openai-compatible provider)",
+                        "Cursor (OpenAI-compatible provider)",
                         &base_url,
                         key,
                         model,
@@ -409,7 +411,7 @@ pub(crate) fn render_integration_output_for_tool(
                     let _ = writeln!(&mut out);
                     render_openai_tool_settings(
                         &mut out,
-                        "  trae configuration",
+                        "Trae configuration",
                         &base_url,
                         key,
                         model,
@@ -427,7 +429,7 @@ pub(crate) fn render_integration_output_for_tool(
                 IntegrationTool::Zed => render_zed_block(&mut out, &base_url, key, model),
                 IntegrationTool::Cursor => render_openai_tool_settings(
                     &mut out,
-                    "  cursor (openai-compatible provider)",
+                    "Cursor (OpenAI-compatible provider)",
                     &base_url,
                     key,
                     model,
@@ -443,7 +445,7 @@ pub(crate) fn render_integration_output_for_tool(
                 IntegrationTool::OpenHands => render_openhands_block(&mut out, &base_url, key, model),
                 IntegrationTool::Trae => render_openai_tool_settings(
                     &mut out,
-                    "  trae configuration",
+                    "Trae configuration",
                     &base_url,
                     key,
                     model,

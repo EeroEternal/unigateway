@@ -77,6 +77,121 @@ pub struct ApiKeyEntry {
     pub concurrency_limit: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ModeProvider {
+    pub name: String,
+    pub provider_type: String,
+    pub endpoint_id: Option<String>,
+    pub base_url: Option<String>,
+    pub default_model: Option<String>,
+    pub model_mapping: Option<String>,
+    pub has_api_key: bool,
+    pub is_enabled: bool,
+    pub priority: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModeKey {
+    pub key: String,
+    pub is_active: bool,
+    pub quota_limit: Option<i64>,
+    pub qps_limit: Option<f64>,
+    pub concurrency_limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModeView {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+    pub routing_strategy: String,
+    pub providers: Vec<ModeProvider>,
+    pub keys: Vec<ModeKey>,
+}
+
+pub fn build_mode_views(file: &GatewayConfigFile, default_mode: &str) -> Vec<ModeView> {
+    let mut modes = Vec::new();
+    for service in &file.services {
+        let mut providers: Vec<ModeProvider> = file
+            .bindings
+            .iter()
+            .filter(|binding| binding.service_id == service.id)
+            .map(|binding| {
+                let provider = file
+                    .providers
+                    .iter()
+                    .find(|provider| provider.name == binding.provider_name);
+                ModeProvider {
+                    name: binding.provider_name.clone(),
+                    provider_type: provider
+                        .map(|provider| provider.provider_type.clone())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    endpoint_id: provider.and_then(|provider| {
+                        if provider.endpoint_id.is_empty() {
+                            None
+                        } else {
+                            Some(provider.endpoint_id.clone())
+                        }
+                    }),
+                    base_url: provider.and_then(|provider| {
+                        if provider.base_url.is_empty() {
+                            None
+                        } else {
+                            Some(provider.base_url.clone())
+                        }
+                    }),
+                    default_model: provider.and_then(|provider| {
+                        if provider.default_model.is_empty() {
+                            None
+                        } else {
+                            Some(provider.default_model.clone())
+                        }
+                    }),
+                    model_mapping: provider.and_then(|provider| {
+                        if provider.model_mapping.is_empty() {
+                            None
+                        } else {
+                            Some(provider.model_mapping.clone())
+                        }
+                    }),
+                    has_api_key: provider
+                        .map(|provider| !provider.api_key.is_empty())
+                        .unwrap_or(false),
+                    is_enabled: provider
+                        .map(|provider| provider.is_enabled)
+                        .unwrap_or(false),
+                    priority: binding.priority,
+                }
+            })
+            .collect();
+        providers.sort_by_key(|provider| provider.priority);
+
+        let keys = file
+            .api_keys
+            .iter()
+            .filter(|key| key.service_id == service.id)
+            .map(|key| ModeKey {
+                key: key.key.clone(),
+                is_active: key.is_active,
+                quota_limit: key.quota_limit,
+                qps_limit: key.qps_limit,
+                concurrency_limit: key.concurrency_limit,
+            })
+            .collect();
+
+        modes.push(ModeView {
+            id: service.id.clone(),
+            name: service.name.clone(),
+            is_default: !default_mode.is_empty() && default_mode == service.id,
+            routing_strategy: service.routing_strategy.clone(),
+            providers,
+            keys,
+        });
+    }
+
+    modes
+}
+
 impl Default for ApiKeyEntry {
     fn default() -> Self {
         Self {

@@ -1,40 +1,8 @@
 use anyhow::{Context, Result, bail};
-use serde::Serialize;
 use std::path::Path;
 
-use crate::{config::GatewayState, types::AppConfig};
-
-#[derive(Clone, Serialize)]
-pub(crate) struct ModeProvider {
-    pub(crate) name: String,
-    pub(crate) provider_type: String,
-    pub(crate) endpoint_id: Option<String>,
-    pub(crate) base_url: Option<String>,
-    pub(crate) default_model: Option<String>,
-    pub(crate) model_mapping: Option<String>,
-    pub(crate) has_api_key: bool,
-    pub(crate) is_enabled: bool,
-    pub(crate) priority: i64,
-}
-
-#[derive(Clone, Serialize)]
-pub(crate) struct ModeKey {
-    pub(crate) key: String,
-    pub(crate) is_active: bool,
-    pub(crate) quota_limit: Option<i64>,
-    pub(crate) qps_limit: Option<f64>,
-    pub(crate) concurrency_limit: Option<i64>,
-}
-
-#[derive(Clone, Serialize)]
-pub(crate) struct ModeView {
-    pub(crate) id: String,
-    pub(crate) name: String,
-    pub(crate) is_default: bool,
-    pub(crate) routing_strategy: String,
-    pub(crate) providers: Vec<ModeProvider>,
-    pub(crate) keys: Vec<ModeKey>,
-}
+use crate::config::{GatewayState, ModeKey, ModeProvider, ModeView, build_mode_views};
+use crate::types::AppConfig;
 
 pub(crate) fn mask_key(key: &str) -> String {
     if key.len() <= 8 {
@@ -85,90 +53,7 @@ pub(crate) async fn load_mode_views(config_path: &str) -> Result<Vec<ModeView>> 
     let state = GatewayState::load(Path::new(config_path)).await?;
     let default_mode = state.get_default_mode().await.unwrap_or_default();
     let guard = state.inner.read().await;
-
-    let mut modes = Vec::new();
-    for service in &guard.file.services {
-        let mut providers: Vec<ModeProvider> = guard
-            .file
-            .bindings
-            .iter()
-            .filter(|binding| binding.service_id == service.id)
-            .map(|binding| {
-                let provider = guard
-                    .file
-                    .providers
-                    .iter()
-                    .find(|provider| provider.name == binding.provider_name);
-                ModeProvider {
-                    name: binding.provider_name.clone(),
-                    provider_type: provider
-                        .map(|provider| provider.provider_type.clone())
-                        .unwrap_or_else(|| "unknown".to_string()),
-                    endpoint_id: provider.and_then(|provider| {
-                        if provider.endpoint_id.is_empty() {
-                            None
-                        } else {
-                            Some(provider.endpoint_id.clone())
-                        }
-                    }),
-                    base_url: provider.and_then(|provider| {
-                        if provider.base_url.is_empty() {
-                            None
-                        } else {
-                            Some(provider.base_url.clone())
-                        }
-                    }),
-                    default_model: provider.and_then(|provider| {
-                        if provider.default_model.is_empty() {
-                            None
-                        } else {
-                            Some(provider.default_model.clone())
-                        }
-                    }),
-                    model_mapping: provider.and_then(|provider| {
-                        if provider.model_mapping.is_empty() {
-                            None
-                        } else {
-                            Some(provider.model_mapping.clone())
-                        }
-                    }),
-                    has_api_key: provider
-                        .map(|provider| !provider.api_key.is_empty())
-                        .unwrap_or(false),
-                    is_enabled: provider
-                        .map(|provider| provider.is_enabled)
-                        .unwrap_or(false),
-                    priority: binding.priority,
-                }
-            })
-            .collect();
-        providers.sort_by_key(|provider| provider.priority);
-
-        let keys = guard
-            .file
-            .api_keys
-            .iter()
-            .filter(|key| key.service_id == service.id)
-            .map(|key| ModeKey {
-                key: key.key.clone(),
-                is_active: key.is_active,
-                quota_limit: key.quota_limit,
-                qps_limit: key.qps_limit,
-                concurrency_limit: key.concurrency_limit,
-            })
-            .collect();
-
-        modes.push(ModeView {
-            id: service.id.clone(),
-            name: service.name.clone(),
-            is_default: !default_mode.is_empty() && default_mode == service.id,
-            routing_strategy: service.routing_strategy.clone(),
-            providers,
-            keys,
-        });
-    }
-
-    Ok(modes)
+    Ok(build_mode_views(&guard.file, &default_mode))
 }
 
 pub(crate) fn supported_protocols(mode: &ModeView) -> Vec<&'static str> {
@@ -256,17 +141,18 @@ pub(crate) fn provider_default_model<'a>(provider: &'a ModeProvider, fallback: &
 }
 
 pub(crate) fn pick_mode_key(mode: &ModeView) -> Result<String> {
-    mode.keys
+    let selected: Option<&ModeKey> = mode
+        .keys
         .iter()
         .find(|key| key.is_active)
-        .or_else(|| mode.keys.first())
-        .map(|key| key.key.clone())
-        .with_context(|| {
-            format!(
-                "mode '{}' has no API key; create one with `ug create-api-key`",
-                mode.id
-            )
-        })
+        .or_else(|| mode.keys.first());
+
+    selected.map(|key| key.key.clone()).with_context(|| {
+        format!(
+            "mode '{}' has no API key; create one with `ug create-api-key`",
+            mode.id
+        )
+    })
 }
 
 pub(crate) fn pick_mode_protocol<'a>(
