@@ -10,6 +10,7 @@ use crate::storage::map_model_name;
 pub struct ResolvedProvider {
     pub name: String,
     pub provider_type: String,
+    pub endpoint_id: Option<String>,
     pub base_url: String,
     pub api_key: String,
     pub family_id: Option<String>,
@@ -21,15 +22,37 @@ impl ResolvedProvider {
     /// Apply model_mapping to get the upstream model name.
     /// Falls back to default_model if no explicit mapping matches.
     pub fn map_model(&self, original_model: &str) -> String {
+        // Volcengine specific logic: endpoint_id (ep-xxx) takes precedence over model
+        if self.provider_type == "volcengine" {
+            if let Some(ref eid) = self.endpoint_id {
+                if !eid.is_empty() && !eid.contains(':') {
+                    return eid.clone();
+                }
+            }
+        }
+
         map_model_name(self.model_mapping.as_deref(), original_model)
             .or_else(|| self.default_model.clone())
             .unwrap_or_else(|| original_model.to_string())
     }
 }
 
+/// Normalize a base_url by ensuring it has a trailing slash.
+pub fn normalize_base_url(url: &str) -> String {
+    let mut s = url.trim().to_string();
+    if s.is_empty() {
+        return s;
+    }
+    if !s.ends_with('/') {
+        s.push('/');
+    }
+    s
+}
+
 /// Resolve a ServiceProvider into a ResolvedProvider (validate base_url + api_key).
 fn resolve_service_provider(sp: &ServiceProvider) -> Option<ResolvedProvider> {
     let (base_url, family_id) = resolve_upstream(sp.base_url.clone(), sp.endpoint_id.as_deref())?;
+    let base_url = normalize_base_url(&base_url);
     let api_key = sp.api_key.clone()?;
     if api_key.is_empty() {
         return None;
@@ -37,6 +60,7 @@ fn resolve_service_provider(sp: &ServiceProvider) -> Option<ResolvedProvider> {
     Some(ResolvedProvider {
         name: sp.name.clone(),
         provider_type: sp.provider_type.clone(),
+        endpoint_id: sp.endpoint_id.clone(),
         base_url,
         api_key,
         family_id,
@@ -46,6 +70,10 @@ fn resolve_service_provider(sp: &ServiceProvider) -> Option<ResolvedProvider> {
 }
 
 /// Resolves upstream base_url and optional family_id.
+///
+/// Priority:
+/// 1. If `endpoint_id` is provided and recognized by `llm_providers`, use its `base_url`.
+/// 2. Otherwise, use `provider_base_url` (if it's not empty).
 pub fn resolve_upstream(
     provider_base_url: Option<String>,
     endpoint_id: Option<&str>,
@@ -54,7 +82,11 @@ pub fn resolve_upstream(
         let eid = eid.trim();
         if !eid.is_empty() {
             if let Some((family_id, endpoint)) = get_endpoint(eid) {
-                return Some((endpoint.base_url.to_string(), Some(family_id.to_string())));
+                // Priority 1: Use llm_providers data as single source of truth
+                return Some((
+                    normalize_base_url(endpoint.base_url),
+                    Some(family_id.to_string()),
+                ));
             }
             tracing::debug!(
                 "get_endpoint({:?}) returned None, falling back to provider base_url",
@@ -62,11 +94,13 @@ pub fn resolve_upstream(
             );
         }
     }
+
+    // Priority 2: User-provided base_url (or custom Provider not in registry)
     let url = provider_base_url.as_deref()?.trim();
     if url.is_empty() {
         return None;
     }
-    Some((url.to_string(), None))
+    Some((normalize_base_url(url), None))
 }
 
 /// Extract target provider hint from request headers or body.

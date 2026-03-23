@@ -65,6 +65,9 @@ pub struct CreateApiKeyParams {
     pub concurrency_limit: Option<i64>,
 }
 
+#[derive(Deserialize, JsonSchema)]
+pub struct EmptyParams {}
+
 // --- Tool implementations ---
 
 #[tool_router]
@@ -245,6 +248,31 @@ impl McpServer {
         format!(
             "Metrics:\n  total_requests: {total}\n  openai_chat: {openai}\n  anthropic_messages: {anthropic}\n  embeddings: {embeddings}"
         )
+    }
+
+    #[tool(description = "Check if the UniGateway server process is running")]
+    async fn server_status(&self, _params: Parameters<EmptyParams>) -> String {
+        if let Some(pid) = crate::cli::process::is_running() {
+            format!("UniGateway is running (pid: {})", pid)
+        } else {
+            "UniGateway is not running".to_string()
+        }
+    }
+
+    #[tool(description = "Stop the background UniGateway server process")]
+    async fn server_stop(&self, _params: Parameters<EmptyParams>) -> String {
+        match crate::cli::process::stop_server() {
+            Ok(()) => "UniGateway stopped successfully".to_string(),
+            Err(e) => format!("Failed to stop UniGateway: {e}"),
+        }
+    }
+
+    #[tool(description = "Start the UniGateway server process in background")]
+    async fn server_start(&self, _params: Parameters<EmptyParams>) -> String {
+        match crate::cli::process::daemonize() {
+            Ok(()) => "UniGateway started successfully in background".to_string(),
+            Err(e) => format!("Failed to start UniGateway: {e}"),
+        }
     }
 }
 

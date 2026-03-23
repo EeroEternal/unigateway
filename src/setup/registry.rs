@@ -50,18 +50,22 @@ pub(super) fn registry_provider_options() -> Vec<RegistryProviderOption> {
         if endpoint.region != "global" {
             continue;
         }
+
+        // Logic check: only proceed if we can determine a provider_type (openai/anthropic)
         let Some(provider_type) = registry_provider_type(family_id, endpoint.base_url) else {
             continue;
         };
 
         let endpoint_id = format!("{}:global", family_id);
         let model_ids = list_models_for_endpoint(&endpoint_id).unwrap_or_default();
+
         options.push(RegistryProviderOption {
             display_name: endpoint.label.to_string(),
             family_id: family_id.to_string(),
             provider_type: provider_type.to_string(),
             endpoint_id,
-            default_base_url: endpoint.base_url.to_string(),
+            // Keep empty to indicate we should use llm_providers truth at runtime
+            default_base_url: String::new(),
             model_ids,
         });
     }

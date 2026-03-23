@@ -4,6 +4,7 @@ use super::{
     ApiKeyEntry, BindingEntry, GatewayState, ModeView, ProviderEntry, ProviderModelOptions,
     ServiceEntry, build_mode_views, default_round_robin,
 };
+use crate::routing::normalize_base_url;
 
 impl GatewayState {
     pub async fn set_config_value(&self, key: &str, value: &str) -> Result<()> {
@@ -162,11 +163,24 @@ impl GatewayState {
         model_options: ProviderModelOptions<'_>,
     ) -> i64 {
         let mut guard = self.inner.write().await;
+
+        // If base_url is provided but matches the default base_url for this endpoint_id,
+        // we store it as empty to keep config.toml clean and rely on single source of truth.
+        let mut final_base_url = base_url.map(normalize_base_url).unwrap_or_default();
+        if !endpoint_id.is_empty() {
+            if let Some((_, endpoint)) = llm_providers::get_endpoint(endpoint_id) {
+                let default_url = normalize_base_url(endpoint.base_url);
+                if final_base_url == default_url {
+                    final_base_url = String::new();
+                }
+            }
+        }
+
         let entry = ProviderEntry {
             name: name.to_string(),
             provider_type: provider_type.to_string(),
             endpoint_id: endpoint_id.to_string(),
-            base_url: base_url.unwrap_or("").to_string(),
+            base_url: final_base_url,
             api_key: api_key.to_string(),
             default_model: model_options.default_model.unwrap_or("").to_string(),
             model_mapping: model_options.model_mapping.unwrap_or("").to_string(),
