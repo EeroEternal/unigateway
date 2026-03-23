@@ -172,6 +172,7 @@ Get ready-to-use configuration snippets or interactively set up your favorite AI
 ug launch claudecode  # interactive configuration for Claude Code
 ug launch             # open interactive tool picker
 ug integrations       # list all integration hints
+ug integrations --tool aider  # get Aider management skill
 ```
 
 ### 4. Diagnostics & Testing
@@ -179,6 +180,7 @@ Understand routing and verify connectivity:
 
 ```bash
 ug route explain      # Explain how the current mode routes requests
+ug status             # Check process status and MCP readiness
 ug test               # Send a smoke test request to the gateway
 ug doctor             # Run a full diagnostic check on your setup
 ```
@@ -188,6 +190,17 @@ ug doctor             # Run a full diagnostic check on your setup
 UniGateway is designed for the modern AI ecosystem.
 
 ### Popular Tool Configs
+
+#### 🛠️ Aider
+You can now manage UniGateway directly through Aider using the built-in Management Skill:
+```bash
+# Generate the skill file
+ug integrations --tool aider > .aider.conf.md
+
+# Launch Aider with the skill
+aider --read .aider.conf.md
+```
+Once loaded, you can ask Aider to "start the gateway", "switch to fast mode", or "check logs".
 
 #### 🛠️ Claude Code
 Configure Claude Code to use UniGateway via the Anthropic-compatible endpoint:
