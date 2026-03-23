@@ -34,7 +34,15 @@ Client Request (via Mode API Key)
 │  /v1/embeddings         →  openai_embeddings          │
 │  /v1/messages           →  anthropic_messages         │
 │  /api/admin/*           →  Admin API handlers         │
-│  /health, /metrics      →  System endpoints           │
+│  STDIO (MCP)           →  Admin & Proc tools         │
+│  /health, /metrics      │  System endpoints           │
+└───────────────────┬──────────────────────────────────┘
+                    ▼
+┌──────────────────────────────────────────────────────┐
+│  mcp.rs — Process & Admin Protocol Toolset            │
+│  server_start() / server_stop() / server_status()    │
+│  get_config() / set_config()                         │
+│  → Manage background `ug` daemon via MCP tools       │
 └───────────────────┬──────────────────────────────────┘
                     ▼
 ┌──────────────────────────────────────────────────────┐
