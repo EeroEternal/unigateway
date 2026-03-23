@@ -23,12 +23,12 @@ impl ResolvedProvider {
     /// Falls back to default_model if no explicit mapping matches.
     pub fn map_model(&self, original_model: &str) -> String {
         // Volcengine specific logic: endpoint_id (ep-xxx) takes precedence over model
-        if self.provider_type == "volcengine" {
-            if let Some(ref eid) = self.endpoint_id {
-                if !eid.is_empty() && !eid.contains(':') {
-                    return eid.clone();
-                }
-            }
+        if self.provider_type == "volcengine"
+            && let Some(ref eid) = self.endpoint_id
+            && !eid.is_empty()
+            && !eid.contains(':')
+        {
+            return eid.clone();
         }
 
         map_model_name(self.model_mapping.as_deref(), original_model)

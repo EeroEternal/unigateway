@@ -143,7 +143,7 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                     loop {
                         match Select::with_theme(&theme)
                             .with_prompt("How would you like to proceed?")
-                            .items(&options)
+                            .items(options)
                             .default(selection)
                             .interact_opt()
                             .unwrap()
@@ -279,11 +279,7 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                         step = 4;
                     }
                     SetupFlow::Back => {
-                        if !interactive {
-                            step = 2;
-                        } else {
-                            step = 2;
-                        }
+                        step = 2;
                     }
                 }
             }
@@ -299,7 +295,7 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                 ];
                 match Select::with_theme(&theme)
                     .with_prompt("Choose setup type")
-                    .items(&options)
+                    .items(options)
                     .default(setup_type_selection)
                     .interact_opt()
                     .unwrap()

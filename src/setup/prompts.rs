@@ -36,19 +36,22 @@ pub(super) fn resolve_provider_setup(
     labels: ProviderPromptLabels<'_>,
     input: ProviderSetupInput,
 ) -> SetupFlow<ProviderSetup> {
-    if input.provider_type.is_some() && input.endpoint_id.is_some() && input.api_key.is_some() {
-        let endpoint_id = input.endpoint_id.unwrap();
+    if let (Some(provider_type), Some(endpoint_id), Some(api_key)) = (
+        input.provider_type.clone(),
+        input.endpoint_id.clone(),
+        input.api_key.clone(),
+    ) {
         let default_model = input.default_model.or_else(|| {
             let model_ids = list_models_for_endpoint(&endpoint_id).unwrap_or_default();
             preferred_model_for_endpoint(&endpoint_id, &model_ids)
         });
         return SetupFlow::Next(ProviderSetup {
-            name: input.provider_type.clone().unwrap(),
-            provider_type: input.provider_type.unwrap(),
+            name: provider_type.clone(),
+            provider_type,
             endpoint_id,
             default_model,
             base_url: input.base_url,
-            api_key: input.api_key.unwrap(),
+            api_key,
         });
     }
 
