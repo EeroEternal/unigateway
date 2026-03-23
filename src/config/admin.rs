@@ -167,12 +167,12 @@ impl GatewayState {
         // If base_url is provided but matches the default base_url for this endpoint_id,
         // we store it as empty to keep config.toml clean and rely on single source of truth.
         let mut final_base_url = base_url.map(normalize_base_url).unwrap_or_default();
-        if !endpoint_id.is_empty() {
-            if let Some((_, endpoint)) = llm_providers::get_endpoint(endpoint_id) {
-                let default_url = normalize_base_url(endpoint.base_url);
-                if final_base_url == default_url {
-                    final_base_url = String::new();
-                }
+        if !endpoint_id.is_empty()
+            && let Some((_, endpoint)) = llm_providers::get_endpoint(endpoint_id)
+        {
+            let default_url = normalize_base_url(endpoint.base_url);
+            if final_base_url == default_url {
+                final_base_url = String::new();
             }
         }
 

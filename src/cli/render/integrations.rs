@@ -405,7 +405,7 @@ fn render_aider_skill_block(out: &mut String, base_url: &str, key: Option<&str>,
         style("--------------------------------------------------").dim()
     );
     let _ = writeln!(out, "# UniGateway Management Skill");
-    let _ = writeln!(out, "");
+    let _ = writeln!(out);
     let _ = writeln!(out, "You are an expert administrator for UniGateway (ug).");
     let _ = writeln!(out, "Access Point: {}", base_url);
     let _ = writeln!(out, "Current Model ID: {}", model);
@@ -413,7 +413,7 @@ fn render_aider_skill_block(out: &mut String, base_url: &str, key: Option<&str>,
         out,
         "Documentation: [CLI Design](docs/cli-design.md), [Architecture](docs/architecture.md)"
     );
-    let _ = writeln!(out, "");
+    let _ = writeln!(out);
     let _ = writeln!(out, "## Operational Rules:");
     let _ = writeln!(
         out,
@@ -435,7 +435,7 @@ fn render_aider_skill_block(out: &mut String, base_url: &str, key: Option<&str>,
         out,
         "5. **Deployment**: If deploying as a daemon, ensure PID file is readable/writable at `~/.config/unigateway/ug.pid`."
     );
-    let _ = writeln!(out, "");
+    let _ = writeln!(out);
     let _ = writeln!(out, "## Execution Context:");
     let _ = writeln!(out, "  export OPENAI_API_BASE={}", base_url);
     let _ = writeln!(out, "  export OPENAI_API_KEY={}", key);
@@ -731,7 +731,7 @@ pub async fn interactive_launch(
 
         let selection = Select::with_theme(&ColorfulTheme::default())
             .with_prompt("select a tool to launch")
-            .items(&tools.iter().map(|(n, _)| *n).collect::<Vec<_>>())
+            .items(tools.iter().map(|(n, _)| *n).collect::<Vec<_>>())
             .default(0)
             .interact()?;
 
