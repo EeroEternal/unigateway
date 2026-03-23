@@ -28,6 +28,7 @@ pub(crate) enum IntegrationTool {
     Node,
     Curl,
     Anthropic,
+    Aider,
 }
 
 const DEFAULT_CONTEXT_WINDOW_HINT: u32 = 128_000;
@@ -54,8 +55,9 @@ pub(crate) fn parse_integration_tool(tool: Option<&str>) -> Result<IntegrationTo
         Some(tool) if tool == "node" || tool == "javascript" => Ok(IntegrationTool::Node),
         Some(tool) if tool == "curl" => Ok(IntegrationTool::Curl),
         Some(tool) if tool == "anthropic" => Ok(IntegrationTool::Anthropic),
+        Some(tool) if tool == "aider" => Ok(IntegrationTool::Aider),
         Some(tool) => bail!(
-            "unknown integration target '{}'; use one of: openclaw, zed, cursor, claude-code, droid, opencode, codex, cline, openhands, trae, env, python, node, curl, anthropic",
+            "unknown integration target '{}'; use one of: openclaw, zed, cursor, claude-code, droid, opencode, codex, cline, openhands, trae, env, python, node, curl, anthropic, aider",
             tool
         ),
     }
@@ -299,6 +301,31 @@ fn render_openhands_block(out: &mut String, base_url: &str, key: Option<&str>, m
     let _ = writeln!(out, "  {}", style(format!("LLM_MODEL=\"{}\"", model)).cyan());
 }
 
+fn render_aider_skill_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
+    let key = key.unwrap_or("<gateway api key>");
+    let _ = writeln!(out, "Aider Management Skill (Copy to Aider or save as .aider.conf.md):");
+    let _ = writeln!(out, "{}", style("--------------------------------------------------").dim());
+    let _ = writeln!(out, "# UniGateway Management Skill");
+    let _ = writeln!(out, "");
+    let _ = writeln!(out, "You are an expert administrator for UniGateway (ug).");
+    let _ = writeln!(out, "Access Point: {}", base_url);
+    let _ = writeln!(out, "Current Model ID: {}", model);
+    let _ = writeln!(out, "Documentation: [CLI Design](docs/cli-design.md), [Architecture](docs/architecture.md)");
+    let _ = writeln!(out, "");
+    let _ = writeln!(out, "## Operational Rules:");
+    let _ = writeln!(out, "1. **Discovery**: Always use `ug --help` or `ug <cmd> --help` to verify CLI syntax before execution.");
+    let _ = writeln!(out, "2. **Status**: Always run `ug status` before attempting to start/stop the service.");
+    let _ = writeln!(out, "3. **Validation**: After modifying providers, keys, or modes, run `ug test` to verify the gateway is still healthy.");
+    let _ = writeln!(out, "4. **Maintenance**: If the service fails to start, check logs via `ug logs` or `~/.config/unigateway/ug.log`.");
+    let _ = writeln!(out, "5. **Deployment**: If deploying as a daemon, ensure PID file is readable/writable at `~/.config/unigateway/ug.pid`.");
+    let _ = writeln!(out, "");
+    let _ = writeln!(out, "## Execution Context:");
+    let _ = writeln!(out, "  export OPENAI_API_BASE={}", base_url);
+    let _ = writeln!(out, "  export OPENAI_API_KEY={}", key);
+    let _ = writeln!(out, "  export AIDER_MODEL=openai/{}", model);
+    let _ = writeln!(out, "{}", style("--------------------------------------------------").dim());
+}
+
 pub(crate) fn render_integration_output_for_tool(
     mode: Option<&ModeView>,
     key: Option<&str>,
@@ -311,7 +338,7 @@ pub(crate) fn render_integration_output_for_tool(
         Some(b) => user_bind_address(b),
         None => user_bind_address(&AppConfig::from_env().bind),
     };
-    let _base_url = format!("http://{}/v1", bind_addr);
+    let base_url = format!("http://{}/v1", bind_addr);
 
     let default_model = if let Some(mode) = mode {
         let providers = mode_providers_for(mode, "openai");
@@ -321,6 +348,11 @@ pub(crate) fn render_integration_output_for_tool(
         "default".to_string()
     };
     let model = default_model.as_str();
+
+    if tool == IntegrationTool::Aider {
+        render_aider_skill_block(&mut out, &base_url, key, model);
+        return out.trim_end().to_string();
+    }
 
     if let Some(key) = key {
         let _ = writeln!(&mut out, "api key: {}", key);
@@ -456,7 +488,7 @@ pub(crate) fn render_integration_output_for_tool(
                 }
                 IntegrationTool::Node => render_openai_node_block(&mut out, &base_url, key, model),
                 IntegrationTool::Curl => render_openai_curl_block(&mut out, &base_url, key, model),
-                IntegrationTool::Anthropic => {}
+                IntegrationTool::Anthropic | IntegrationTool::Aider => {}
             }
         }
     } else if matches!(
@@ -475,6 +507,7 @@ pub(crate) fn render_integration_output_for_tool(
             | IntegrationTool::Python
             | IntegrationTool::Node
             | IntegrationTool::Curl
+            | IntegrationTool::Aider
     ) {
         let _ = writeln!(&mut out);
         let _ = writeln!(

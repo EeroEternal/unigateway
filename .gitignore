@@ -38,3 +38,4 @@ config.toml
 .AppleDouble
 .LSOverride
 ._*
+.aider*
