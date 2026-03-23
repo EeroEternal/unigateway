@@ -20,7 +20,7 @@ mod upgrade;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
-use clap_complete::{generate, Shell};
+use clap_complete::{Shell, generate};
 use std::io;
 
 fn config_default() -> String {
@@ -37,7 +37,9 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Start the gateway server.
-    #[command(about = "Start the gateway server", long_about = "Starts the UniGateway server.
+    #[command(
+        about = "Start the gateway server",
+        long_about = "Starts the UniGateway server.
 
 Examples:
   # Start server in background (default)
@@ -47,7 +49,8 @@ Examples:
   ug serve --foreground
 
   # Bind to a specific address
-  ug serve --bind 0.0.0.0:8000")]
+  ug serve --bind 0.0.0.0:8000"
+    )]
     Serve {
         #[arg(long)]
         bind: Option<String>,
@@ -67,14 +70,17 @@ Examples:
     #[command(about = "Check the status of the background gateway process")]
     Status,
     /// View the background gateway logs.
-    #[command(about = "View the background gateway logs", long_about = "View the background gateway logs.
+    #[command(
+        about = "View the background gateway logs",
+        long_about = "View the background gateway logs.
 
 Examples:
   # Print current logs
   ug logs
 
   # Follow log output (tail -f)
-  ug logs --follow")]
+  ug logs --follow"
+    )]
     Logs {
         /// Tail the logs.
         #[arg(short, long, default_value_t = false)]
@@ -87,7 +93,10 @@ Examples:
         config: String,
     },
     /// Explore user-facing modes (semantic alias over services).
-    #[command(alias = "models", about = "Explore user-facing modes", long_about = "Explore user-facing modes (semantic alias over services).
+    #[command(
+        alias = "models",
+        about = "Explore user-facing modes",
+        long_about = "Explore user-facing modes (semantic alias over services).
 
 Examples:
   # List all modes
@@ -97,26 +106,32 @@ Examples:
   ug mode show default
 
   # Set the default mode
-  ug mode use fast")]
+  ug mode use fast"
+    )]
     Mode {
         #[command(subcommand)]
         action: ModeAction,
     },
     /// Explain how a mode routes requests to providers.
-    #[command(about = "Explain how a mode routes requests to providers", long_about = "Explain how a mode routes requests to providers.
+    #[command(
+        about = "Explain how a mode routes requests to providers",
+        long_about = "Explain how a mode routes requests to providers.
 
 Examples:
   # Explain routing for the default mode
   ug route explain
 
   # Explain routing for a specific mode
-  ug route explain --mode fast")]
+  ug route explain --mode fast"
+    )]
     Route {
         #[command(subcommand)]
         action: RouteAction,
     },
     /// Print tool integration hints for a configured mode.
-    #[command(about = "Print tool integration hints for a configured mode", long_about = "Print tool integration hints for a configured mode.
+    #[command(
+        about = "Print tool integration hints for a configured mode",
+        long_about = "Print tool integration hints for a configured mode.
 
 Examples:
   # Show integration hints for all tools
@@ -126,7 +141,8 @@ Examples:
   ug integrations --tool cursor
 
   # Show hints for a specific mode
-  ug integrations --mode fast")]
+  ug integrations --mode fast"
+    )]
     Integrations {
         #[arg(long)]
         mode: Option<String>,
@@ -138,14 +154,17 @@ Examples:
         config: String,
     },
     /// Interactive launch/setup for AI tools.
-    #[command(about = "Interactive launch/setup for AI tools", long_about = "Interactive launch/setup for AI tools.
+    #[command(
+        about = "Interactive launch/setup for AI tools",
+        long_about = "Interactive launch/setup for AI tools.
 
 Examples:
   # Launch the interactive tool picker
   ug launch
 
   # Directly show setup for a tool
-  ug launch claudecode")]
+  ug launch claudecode"
+    )]
     Launch {
         /// Optional tool name to bypass picker
         tool: Option<String>,
@@ -157,7 +176,9 @@ Examples:
         config: String,
     },
     /// Run a smoke test against the local gateway for a mode.
-    #[command(about = "Run a smoke test against the local gateway for a mode", long_about = "Run a smoke test against the local gateway for a mode.
+    #[command(
+        about = "Run a smoke test against the local gateway for a mode",
+        long_about = "Run a smoke test against the local gateway for a mode.
 
 Examples:
   # Test the default mode
@@ -167,7 +188,8 @@ Examples:
   ug test --mode fast
 
   # Test using Anthropic protocol
-  ug test --protocol anthropic")]
+  ug test --protocol anthropic"
+    )]
     Test {
         #[arg(long)]
         mode: Option<String>,
@@ -189,20 +211,25 @@ Examples:
         config: String,
     },
     /// Manage services (logical groupings of models).
-    #[command(about = "Manage services (logical groupings of models)", long_about = "Manage services (logical groupings of models).
+    #[command(
+        about = "Manage services (logical groupings of models)",
+        long_about = "Manage services (logical groupings of models).
 
 Examples:
   # List services
   ug service list
 
   # Create a new service
-  ug service create --id my-service --name \"My Service\"")]
+  ug service create --id my-service --name \"My Service\""
+    )]
     Service {
         #[command(subcommand)]
         action: ServiceAction,
     },
     /// Manage LLM providers.
-    #[command(about = "Manage LLM providers", long_about = "Manage LLM providers.
+    #[command(
+        about = "Manage LLM providers",
+        long_about = "Manage LLM providers.
     
 Examples:
   # List all providers
@@ -212,20 +239,24 @@ Examples:
   ug provider create --name deepseek --provider-type openai --base-url https://api.deepseek.com --api-key sk-xxx --endpoint-id deepseek-chat
 
   # Bind a provider to a service
-  ug provider bind --service-id default --provider-id 1")]
+  ug provider bind --service-id default --provider-id 1"
+    )]
     Provider {
         #[command(subcommand)]
         action: ProviderAction,
     },
     /// Manage API keys.
-    #[command(about = "Manage API keys", long_about = "Manage API keys.
+    #[command(
+        about = "Manage API keys",
+        long_about = "Manage API keys.
 
 Examples:
   # Create a new API key
   ug key create --key my-key --service-id default
 
   # Create a key with quota limit
-  ug key create --key limited-key --service-id default --quota-limit 1000")]
+  ug key create --key limited-key --service-id default --quota-limit 1000"
+    )]
     Key {
         #[command(subcommand)]
         action: KeyAction,
@@ -249,14 +280,17 @@ Examples:
     #[command(alias = "quickstart", about = "Interactive setup guide")]
     Guide(Box<setup::GuideCommand>),
     /// Generate shell completion scripts.
-    #[command(about = "Generate shell completion scripts", long_about = "Generate shell completion scripts.
+    #[command(
+        about = "Generate shell completion scripts",
+        long_about = "Generate shell completion scripts.
 
 Examples:
   # Generate Zsh completion
   ug completion zsh > _ug
 
   # Generate Bash completion
-  ug completion bash > /etc/bash_completion.d/ug")]
+  ug completion bash > /etc/bash_completion.d/ug"
+    )]
     Completion {
         #[arg(value_enum)]
         shell: Shell,
@@ -463,9 +497,7 @@ async fn main() -> Result<()> {
             mode,
             bind,
             config,
-        }) => {
-            cli::interactive_launch(&config, tool, mode, bind).await
-        }
+        }) => cli::interactive_launch(&config, tool, mode, bind).await,
         Some(Commands::Test {
             mode,
             protocol,
@@ -569,10 +601,7 @@ async fn main() -> Result<()> {
             ConfigAction::Edit { config } => {
                 let path = std::path::Path::new(&config);
                 if !path.exists() {
-                    anyhow::bail!(
-                        "Config file not found: {}. Run `ug guide` first.",
-                        config
-                    );
+                    anyhow::bail!("Config file not found: {}. Run `ug guide` first.", config);
                 }
                 let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
                 let status = std::process::Command::new(&editor).arg(path).status()?;
@@ -582,7 +611,9 @@ async fn main() -> Result<()> {
                 Ok(())
             }
             ConfigAction::Get { key, config } => cli::config_get(&config, &key).await,
-            ConfigAction::Set { key, value, config } => cli::config_set(&config, &key, &value).await,
+            ConfigAction::Set { key, value, config } => {
+                cli::config_set(&config, &key, &value).await
+            }
         },
         Some(Commands::Mcp { config }) => mcp::run(&config).await,
         Some(Commands::Upgrade) => upgrade::run_upgrade().await,

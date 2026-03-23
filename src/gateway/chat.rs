@@ -25,10 +25,14 @@ pub(super) async fn invoke_provider_chat(
         // However, `gateway.rs` calls this with specific function pointers.
         // `chat_response_to_anthropic_json` is used for Anthropic downstream.
         // `chat_response_to_openai_json` is used for OpenAI downstream.
-        
+
         use llm_connector::ChatResponse;
-        let is_anthropic = std::ptr::fn_addr_eq(response_json, crate::protocol::chat_response_to_anthropic_json as for<'a> fn(&'a ChatResponse) -> serde_json::Value);
-        
+        let is_anthropic = std::ptr::fn_addr_eq(
+            response_json,
+            crate::protocol::chat_response_to_anthropic_json
+                as for<'a> fn(&'a ChatResponse) -> serde_json::Value,
+        );
+
         try_chat_stream(protocol, provider, request, is_anthropic).await
     } else {
         invoke_with_connector(
@@ -53,8 +57,20 @@ pub(super) async fn invoke_direct_chat(
 ) -> Result<Response, anyhow::Error> {
     if request.stream == Some(true) {
         use llm_connector::ChatResponse;
-        let is_anthropic = std::ptr::fn_addr_eq(response_json, crate::protocol::chat_response_to_anthropic_json as for<'a> fn(&'a ChatResponse) -> serde_json::Value);
-        try_chat_stream_raw(protocol, base_url, api_key, request, family_id, is_anthropic).await
+        let is_anthropic = std::ptr::fn_addr_eq(
+            response_json,
+            crate::protocol::chat_response_to_anthropic_json
+                as for<'a> fn(&'a ChatResponse) -> serde_json::Value,
+        );
+        try_chat_stream_raw(
+            protocol,
+            base_url,
+            api_key,
+            request,
+            family_id,
+            is_anthropic,
+        )
+        .await
     } else {
         invoke_with_connector(protocol, base_url, api_key, request, family_id)
             .await

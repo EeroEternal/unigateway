@@ -161,7 +161,9 @@ pub async fn doctor(
     );
 
     if !is_healthy {
-        println!("\n💡 Tip: The gateway is not running. Start it with `ug serve` to enable LLM routing.");
+        println!(
+            "\n💡 Tip: The gateway is not running. Start it with `ug serve` to enable LLM routing."
+        );
     }
 
     if modes.is_empty() {
@@ -187,7 +189,11 @@ pub async fn doctor(
             println!("  {}", style("★ Default Mode").yellow());
         }
         println!("  Routing:   {}", mode.routing_strategy);
-        println!("  Auth:      {} / {} active keys", active_keys, mode.keys.len());
+        println!(
+            "  Auth:      {} / {} active keys",
+            active_keys,
+            mode.keys.len()
+        );
         let protocol_list = protocols.join(", ");
         println!(
             "  Protocols: {}",
@@ -199,7 +205,11 @@ pub async fn doctor(
         );
 
         if active_keys == 0 {
-            println!("  {}", style("⚠️ Warning: No active gateway key for this mode. Requests will fail.").yellow());
+            println!(
+                "  {}",
+                style("⚠️ Warning: No active gateway key for this mode. Requests will fail.")
+                    .yellow()
+            );
         }
 
         for protocol in protocols {
@@ -242,9 +252,18 @@ pub async fn doctor(
         }
 
         println!("\n  Next Steps:");
-        println!("    ug route explain {}  # See detailed routing logic", mode.id);
-        println!("    ug test --mode {}     # Send a smoke test request", mode.id);
-        println!("    ug integrations --mode {} # Get tool config snippets", mode.id);
+        println!(
+            "    ug route explain {}  # See detailed routing logic",
+            mode.id
+        );
+        println!(
+            "    ug test --mode {}     # Send a smoke test request",
+            mode.id
+        );
+        println!(
+            "    ug integrations --mode {} # Get tool config snippets",
+            mode.id
+        );
     }
 
     Ok(())

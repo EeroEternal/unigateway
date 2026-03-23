@@ -10,14 +10,10 @@ use std::path::Path;
 use crate::config::GatewayState;
 
 #[cfg(test)]
-pub(crate) use diagnostics::summarize_response_text;
-pub use diagnostics::{doctor, test_mode};
-#[cfg(test)]
 pub(crate) use crate::config::{ModeKey, ModeProvider, ModeView};
 #[cfg(test)]
-pub(crate) use modes::{effective_default_mode_id, user_bind_address};
-pub use modes::{list_modes, show_mode, use_mode};
-pub use process::{daemonize, is_running, status_server, stop_server, view_logs};
+pub(crate) use diagnostics::summarize_response_text;
+pub use diagnostics::{doctor, test_mode};
 #[cfg(test)]
 pub(crate) use guide::planned_modes;
 pub use guide::{
@@ -26,12 +22,16 @@ pub use guide::{
     list_providers, list_services,
 };
 #[cfg(test)]
+pub(crate) use modes::{effective_default_mode_id, user_bind_address};
+pub use modes::{list_modes, show_mode, use_mode};
+pub use process::{daemonize, is_running, status_server, stop_server, view_logs};
+#[cfg(test)]
 pub(crate) use render::{
     integrations::{IntegrationTool, parse_integration_tool, render_integration_output_for_tool},
     routes::render_route_explanation,
 };
 pub use render::{
-    integrations::{print_integrations, print_integrations_with_key, interactive_launch},
+    integrations::{interactive_launch, print_integrations, print_integrations_with_key},
     routes::explain_route,
 };
 

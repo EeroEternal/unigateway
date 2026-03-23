@@ -1,8 +1,8 @@
+use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
-use anyhow::{Result, Context, bail};
 
 pub fn pid_path() -> PathBuf {
     let config_dir = Path::new(&crate::types::default_config_path())
@@ -69,7 +69,10 @@ pub fn stop_server() -> Result<()> {
         }
         #[cfg(not(unix))]
         {
-            bail!("Stop command not yet supported on this platform. Please kill PID {} manually.", pid);
+            bail!(
+                "Stop command not yet supported on this platform. Please kill PID {} manually.",
+                pid
+            );
         }
         let _ = fs::remove_file(pid_path());
         println!("stopped");
@@ -157,7 +160,10 @@ fn daemonize_internal(print_messages: bool) -> Result<u32> {
 
     let pid = child.id();
     std::thread::sleep(Duration::from_millis(150));
-    if let Some(status) = child.try_wait().context("failed to check background process status")? {
+    if let Some(status) = child
+        .try_wait()
+        .context("failed to check background process status")?
+    {
         bail!(
             "failed to start background process (exit: {}). See logs: {}",
             status,

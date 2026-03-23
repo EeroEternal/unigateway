@@ -3,11 +3,11 @@ use console::style;
 use dialoguer::{Select, theme::ColorfulTheme};
 use std::fmt::Write as _;
 
-use crate::config::ModeView;
 use super::super::modes::{
     load_mode_views, mode_providers_for, select_mode, supported_protocols, user_anthropic_base_url,
     user_bind_address, user_openai_base_url,
 };
+use crate::config::ModeView;
 use crate::types::AppConfig;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,7 +66,11 @@ pub(crate) fn parse_integration_tool(tool: Option<&str>) -> Result<IntegrationTo
 fn render_anthropic_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let _ = writeln!(out, "anthropic-compatible (e.g. cursor, claude dev):");
     let _ = writeln!(out, "  base url: {}", style(base_url).cyan());
-    let _ = writeln!(out, "  api key:  {}", style(key.unwrap_or("<gateway api key>")).cyan());
+    let _ = writeln!(
+        out,
+        "  api key:  {}",
+        style(key.unwrap_or("<gateway api key>")).cyan()
+    );
     let _ = writeln!(out, "  model:    {}", style(model).cyan());
 }
 
@@ -83,7 +87,11 @@ fn render_claude_code_block(out: &mut String, base_url: &str, key: Option<&str>,
         "  {}",
         style(format!("export ANTHROPIC_API_KEY={}", key)).cyan()
     );
-    let _ = writeln!(out, "  {}", style(format!("export ANTHROPIC_MODEL={}", model)).cyan());
+    let _ = writeln!(
+        out,
+        "  {}",
+        style(format!("export ANTHROPIC_MODEL={}", model)).cyan()
+    );
     let _ = writeln!(out);
     let _ = writeln!(out, "  launch:");
     let _ = writeln!(
@@ -106,7 +114,11 @@ fn render_openai_tool_settings(
 ) {
     let _ = writeln!(out, "{}:", title);
     let _ = writeln!(out, "  base url: {}", style(base_url).cyan());
-    let _ = writeln!(out, "  api key:  {}", style(key.unwrap_or("<gateway api key>")).cyan());
+    let _ = writeln!(
+        out,
+        "  api key:  {}",
+        style(key.unwrap_or("<gateway api key>")).cyan()
+    );
     let _ = writeln!(out, "  model:    {}", style(model).cyan());
 }
 
@@ -118,21 +130,49 @@ fn render_codex_block(out: &mut String, base_url: &str, key: Option<&str>, model
     let _ = writeln!(out, "  model:    {}", style(model).cyan());
     let _ = writeln!(out);
     let _ = writeln!(out, "  launch:");
-    let _ = writeln!(out, "  {}", style("export NO_PROXY=127.0.0.1,localhost").cyan());
-    let _ = writeln!(out, "  {}", style(format!("export OPENAI_BASE_URL={}", base_url)).cyan());
-    let _ = writeln!(out, "  {}", style(format!("export OPENAI_API_KEY={}", api_key)).cyan());
-    let _ = writeln!(out, "  {}", style(format!("export OPENAI_MODEL={}", model)).cyan());
+    let _ = writeln!(
+        out,
+        "  {}",
+        style("export NO_PROXY=127.0.0.1,localhost").cyan()
+    );
+    let _ = writeln!(
+        out,
+        "  {}",
+        style(format!("export OPENAI_BASE_URL={}", base_url)).cyan()
+    );
+    let _ = writeln!(
+        out,
+        "  {}",
+        style(format!("export OPENAI_API_KEY={}", api_key)).cyan()
+    );
+    let _ = writeln!(
+        out,
+        "  {}",
+        style(format!("export OPENAI_MODEL={}", model)).cyan()
+    );
 }
 
 fn render_openai_env_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let _ = writeln!(out, "shell environment:");
-    let _ = writeln!(out, "  {}", style(format!("export OPENAI_BASE_URL={}", base_url)).cyan());
     let _ = writeln!(
         out,
         "  {}",
-        style(format!("export OPENAI_API_KEY={}", key.unwrap_or("<gateway api key>"))).cyan()
+        style(format!("export OPENAI_BASE_URL={}", base_url)).cyan()
     );
-    let _ = writeln!(out, "  {}", style(format!("export OPENAI_MODEL={}", model)).cyan());
+    let _ = writeln!(
+        out,
+        "  {}",
+        style(format!(
+            "export OPENAI_API_KEY={}",
+            key.unwrap_or("<gateway api key>")
+        ))
+        .cyan()
+    );
+    let _ = writeln!(
+        out,
+        "  {}",
+        style(format!("export OPENAI_MODEL={}", model)).cyan()
+    );
 }
 
 fn render_openai_python_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
@@ -200,9 +240,17 @@ fn render_openclaw_block(out: &mut String, base_url: &str, key: Option<&str>, mo
             }
         }
     });
-    let _ = writeln!(out, "{}", style(serde_json::to_string_pretty(&config).unwrap()).dim());
+    let _ = writeln!(
+        out,
+        "{}",
+        style(serde_json::to_string_pretty(&config).unwrap()).dim()
+    );
     if let Some(k) = key {
-        let _ = writeln!(out, "  {}", style(format!("export UNIGATEWAY_API_KEY={}", k)).cyan());
+        let _ = writeln!(
+            out,
+            "  {}",
+            style(format!("export UNIGATEWAY_API_KEY={}", k)).cyan()
+        );
     }
 }
 
@@ -228,9 +276,17 @@ fn render_zed_block(out: &mut String, base_url: &str, key: Option<&str>, model: 
             }
         }
     });
-    let _ = writeln!(out, "{}", style(serde_json::to_string_pretty(&config).unwrap()).dim());
+    let _ = writeln!(
+        out,
+        "{}",
+        style(serde_json::to_string_pretty(&config).unwrap()).dim()
+    );
     if let Some(k) = key {
-        let _ = writeln!(out, "  {}", style(format!("export UNIGATEWAY_API_KEY={}", k)).cyan());
+        let _ = writeln!(
+            out,
+            "  {}",
+            style(format!("export UNIGATEWAY_API_KEY={}", k)).cyan()
+        );
     }
 }
 
@@ -248,9 +304,17 @@ fn render_droid_block(out: &mut String, base_url: &str, key: Option<&str>, model
             }
         ]
     });
-    let _ = writeln!(out, "{}", style(serde_json::to_string_pretty(&config).unwrap()).dim());
+    let _ = writeln!(
+        out,
+        "{}",
+        style(serde_json::to_string_pretty(&config).unwrap()).dim()
+    );
     if let Some(k) = key {
-        let _ = writeln!(out, "  {}", style(format!("export UNIGATEWAY_API_KEY={}", k)).cyan());
+        let _ = writeln!(
+            out,
+            "  {}",
+            style(format!("export UNIGATEWAY_API_KEY={}", k)).cyan()
+        );
     }
 }
 
@@ -278,10 +342,18 @@ fn render_opencode_block(out: &mut String, base_url: &str, key: Option<&str>, mo
             }
         }
     });
-    let _ = writeln!(out, "{}", style(serde_json::to_string_pretty(&config).unwrap()).dim());
+    let _ = writeln!(
+        out,
+        "{}",
+        style(serde_json::to_string_pretty(&config).unwrap()).dim()
+    );
     let _ = writeln!(out, "  Then run `/connect` -> Other -> unigateway");
     if let Some(k) = key {
-        let _ = writeln!(out, "  {}", style(format!("export UNIGATEWAY_API_KEY={}", k)).cyan());
+        let _ = writeln!(
+            out,
+            "  {}",
+            style(format!("export UNIGATEWAY_API_KEY={}", k)).cyan()
+        );
     }
 }
 
@@ -290,40 +362,89 @@ fn render_cline_block(out: &mut String, base_url: &str, key: Option<&str>, model
     let _ = writeln!(out, "  1. Open Cline settings");
     let _ = writeln!(out, "  2. Select API Provider: OpenAI Compatible");
     let _ = writeln!(out, "  3. Set Base URL: {}", style(base_url).cyan());
-    let _ = writeln!(out, "  4. Set API Key: {}", style(key.unwrap_or("<gateway api key>")).cyan());
+    let _ = writeln!(
+        out,
+        "  4. Set API Key: {}",
+        style(key.unwrap_or("<gateway api key>")).cyan()
+    );
     let _ = writeln!(out, "  5. Model ID: {}", style(model).cyan());
 }
 
 fn render_openhands_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let _ = writeln!(out, "OpenHands (env or config.toml):");
-    let _ = writeln!(out, "  {}", style(format!("LLM_BASE_URL=\"{}\"", base_url)).cyan());
-    let _ = writeln!(out, "  {}", style(format!("LLM_API_KEY=\"{}\"", key.unwrap_or("<gateway api key>"))).cyan());
-    let _ = writeln!(out, "  {}", style(format!("LLM_MODEL=\"{}\"", model)).cyan());
+    let _ = writeln!(
+        out,
+        "  {}",
+        style(format!("LLM_BASE_URL=\"{}\"", base_url)).cyan()
+    );
+    let _ = writeln!(
+        out,
+        "  {}",
+        style(format!(
+            "LLM_API_KEY=\"{}\"",
+            key.unwrap_or("<gateway api key>")
+        ))
+        .cyan()
+    );
+    let _ = writeln!(
+        out,
+        "  {}",
+        style(format!("LLM_MODEL=\"{}\"", model)).cyan()
+    );
 }
 
 fn render_aider_skill_block(out: &mut String, base_url: &str, key: Option<&str>, model: &str) {
     let key = key.unwrap_or("<gateway api key>");
-    let _ = writeln!(out, "Aider Management Skill (Copy to Aider or save as .aider.conf.md):");
-    let _ = writeln!(out, "{}", style("--------------------------------------------------").dim());
+    let _ = writeln!(
+        out,
+        "Aider Management Skill (Copy to Aider or save as .aider.conf.md):"
+    );
+    let _ = writeln!(
+        out,
+        "{}",
+        style("--------------------------------------------------").dim()
+    );
     let _ = writeln!(out, "# UniGateway Management Skill");
     let _ = writeln!(out, "");
     let _ = writeln!(out, "You are an expert administrator for UniGateway (ug).");
     let _ = writeln!(out, "Access Point: {}", base_url);
     let _ = writeln!(out, "Current Model ID: {}", model);
-    let _ = writeln!(out, "Documentation: [CLI Design](docs/cli-design.md), [Architecture](docs/architecture.md)");
+    let _ = writeln!(
+        out,
+        "Documentation: [CLI Design](docs/cli-design.md), [Architecture](docs/architecture.md)"
+    );
     let _ = writeln!(out, "");
     let _ = writeln!(out, "## Operational Rules:");
-    let _ = writeln!(out, "1. **Discovery**: Always use `ug --help` or `ug <cmd> --help` to verify CLI syntax before execution.");
-    let _ = writeln!(out, "2. **Status**: Always run `ug status` before attempting to start/stop the service.");
-    let _ = writeln!(out, "3. **Validation**: After modifying providers, keys, or modes, run `ug test` to verify the gateway is still healthy.");
-    let _ = writeln!(out, "4. **Maintenance**: If the service fails to start, check logs via `ug logs` or `~/.config/unigateway/ug.log`.");
-    let _ = writeln!(out, "5. **Deployment**: If deploying as a daemon, ensure PID file is readable/writable at `~/.config/unigateway/ug.pid`.");
+    let _ = writeln!(
+        out,
+        "1. **Discovery**: Always use `ug --help` or `ug <cmd> --help` to verify CLI syntax before execution."
+    );
+    let _ = writeln!(
+        out,
+        "2. **Status**: Always run `ug status` before attempting to start/stop the service."
+    );
+    let _ = writeln!(
+        out,
+        "3. **Validation**: After modifying providers, keys, or modes, run `ug test` to verify the gateway is still healthy."
+    );
+    let _ = writeln!(
+        out,
+        "4. **Maintenance**: If the service fails to start, check logs via `ug logs` or `~/.config/unigateway/ug.log`."
+    );
+    let _ = writeln!(
+        out,
+        "5. **Deployment**: If deploying as a daemon, ensure PID file is readable/writable at `~/.config/unigateway/ug.pid`."
+    );
     let _ = writeln!(out, "");
     let _ = writeln!(out, "## Execution Context:");
     let _ = writeln!(out, "  export OPENAI_API_BASE={}", base_url);
     let _ = writeln!(out, "  export OPENAI_API_KEY={}", key);
     let _ = writeln!(out, "  export AIDER_MODEL=openai/{}", model);
-    let _ = writeln!(out, "{}", style("--------------------------------------------------").dim());
+    let _ = writeln!(
+        out,
+        "{}",
+        style("--------------------------------------------------").dim()
+    );
 }
 
 pub(crate) fn render_integration_output_for_tool(
@@ -343,7 +464,9 @@ pub(crate) fn render_integration_output_for_tool(
     let default_model = if let Some(mode) = mode {
         let providers = mode_providers_for(mode, "openai");
         let provider = providers.first();
-        provider.and_then(|p| p.default_model.clone()).unwrap_or_else(|| "default".to_string())
+        provider
+            .and_then(|p| p.default_model.clone())
+            .unwrap_or_else(|| "default".to_string())
     } else {
         "default".to_string()
     };
@@ -357,10 +480,7 @@ pub(crate) fn render_integration_output_for_tool(
     if let Some(key) = key {
         let _ = writeln!(&mut out, "api key: {}", key);
     } else {
-        let _ = writeln!(
-            &mut out,
-            "api key: <none> (create with ug create-api-key)"
-        );
+        let _ = writeln!(&mut out, "api key: <none> (create with ug create-api-key)");
     }
 
     let openai_provider = mode.and_then(|m| {
@@ -474,7 +594,9 @@ pub(crate) fn render_integration_output_for_tool(
                 IntegrationTool::Droid => render_droid_block(&mut out, &base_url, key, model),
                 IntegrationTool::OpenCode => render_opencode_block(&mut out, &base_url, key, model),
                 IntegrationTool::Cline => render_cline_block(&mut out, &base_url, key, model),
-                IntegrationTool::OpenHands => render_openhands_block(&mut out, &base_url, key, model),
+                IntegrationTool::OpenHands => {
+                    render_openhands_block(&mut out, &base_url, key, model)
+                }
                 IntegrationTool::Trae => render_openai_tool_settings(
                     &mut out,
                     "Trae configuration",
@@ -518,7 +640,10 @@ pub(crate) fn render_integration_output_for_tool(
 
     if mode.is_none() || anthropic_provider.is_some() {
         let base_url = user_anthropic_base_url(bind_override);
-        if matches!(tool, IntegrationTool::All | IntegrationTool::Anthropic | IntegrationTool::ClaudeCode) {
+        if matches!(
+            tool,
+            IntegrationTool::All | IntegrationTool::Anthropic | IntegrationTool::ClaudeCode
+        ) {
             let _ = writeln!(&mut out);
             if tool == IntegrationTool::ClaudeCode {
                 render_claude_code_block(&mut out, &base_url, key, model);
@@ -620,10 +745,20 @@ pub async fn interactive_launch(
         .or_else(|| mode.keys.first())
         .map(|key| key.key.clone());
 
-    println!("\n🎉 ready to use with {}!", style(format!("{:?}", tool_choice).to_lowercase()).green().bold());
+    println!(
+        "\n🎉 ready to use with {}!",
+        style(format!("{:?}", tool_choice).to_lowercase())
+            .green()
+            .bold()
+    );
     println!(
         "{}",
-        render_integration_output_for_tool(Some(mode), key.as_deref(), bind_override.as_deref(), tool_choice)
+        render_integration_output_for_tool(
+            Some(mode),
+            key.as_deref(),
+            bind_override.as_deref(),
+            tool_choice
+        )
     );
 
     Ok(())

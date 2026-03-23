@@ -12,9 +12,8 @@ use tokio::sync::{Mutex, RwLock};
 
 use self::schema::default_round_robin;
 pub use self::schema::{
-    ApiKeyEntry, BindingEntry, GatewayApiKey, GatewayConfigFile, ModeKey, ModeProvider,
-    ModeView, ProviderEntry, ProviderModelOptions, ServiceEntry, ServiceProvider,
-    build_mode_views,
+    ApiKeyEntry, BindingEntry, GatewayApiKey, GatewayConfigFile, ModeKey, ModeProvider, ModeView,
+    ProviderEntry, ProviderModelOptions, ServiceEntry, ServiceProvider, build_mode_views,
 };
 
 #[derive(Debug, Clone)]

@@ -294,7 +294,11 @@ impl GatewayState {
             anyhow::bail!("service '{}' not found", service_id);
         }
 
-        let Some(api_key) = guard.file.api_keys.iter_mut().find(|api_key| api_key.key == key)
+        let Some(api_key) = guard
+            .file
+            .api_keys
+            .iter_mut()
+            .find(|api_key| api_key.key == key)
         else {
             anyhow::bail!("api key '{}' not found", key);
         };
@@ -358,7 +362,10 @@ mod tests {
             .bind_provider_to_service_with_priority("fast", provider_id, 10)
             .await
             .expect("bind provider");
-        state.set_default_mode("fast").await.expect("set default mode");
+        state
+            .set_default_mode("fast")
+            .await
+            .expect("set default mode");
 
         let modes = state.list_mode_views().await;
         let fast = modes
@@ -439,12 +446,20 @@ mod tests {
             .rebind_api_key_service("ugk_test_key", "missing")
             .await
             .expect_err("missing service should fail");
-        assert!(missing_service.to_string().contains("service 'missing' not found"));
+        assert!(
+            missing_service
+                .to_string()
+                .contains("service 'missing' not found")
+        );
 
         let missing_key = state
             .rebind_api_key_service("ugk_missing", "fast")
             .await
             .expect_err("missing key should fail");
-        assert!(missing_key.to_string().contains("api key 'ugk_missing' not found"));
+        assert!(
+            missing_key
+                .to_string()
+                .contains("api key 'ugk_missing' not found")
+        );
     }
 }

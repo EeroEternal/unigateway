@@ -52,11 +52,7 @@ pub fn openai_payload_to_responses_request(
     default_model: &str,
 ) -> Result<ResponsesRequest> {
     let mut normalized = payload.clone();
-    if normalized
-        .get("model")
-        .and_then(Value::as_str)
-        .is_none()
-    {
+    if normalized.get("model").and_then(Value::as_str).is_none() {
         normalized["model"] = Value::String(default_model.to_string());
     }
 

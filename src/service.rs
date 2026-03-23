@@ -79,7 +79,11 @@ pub(crate) async fn api_list_modes(
                 routing_strategy: mode.routing_strategy,
                 is_default: mode.is_default,
                 provider_count: mode.providers.len(),
-                provider_names: mode.providers.into_iter().map(|provider| provider.name).collect(),
+                provider_names: mode
+                    .providers
+                    .into_iter()
+                    .map(|provider| provider.name)
+                    .collect(),
             })
             .collect();
         json!(rows)
@@ -141,9 +145,7 @@ mod tests {
             .await
             .expect("load state");
         gateway.create_service("fast", "Fast").await;
-        gateway
-            .create_service("strong", "Strong")
-            .await;
+        gateway.create_service("strong", "Strong").await;
 
         let config = AppConfig {
             bind: "127.0.0.1:3210".to_string(),

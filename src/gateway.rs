@@ -114,7 +114,15 @@ async fn invoke_responses_stream_with_fallback(
     request: &llm_connector::types::ResponsesRequest,
     provider_family: Option<&str>,
 ) -> anyhow::Result<Response> {
-    match invoke_responses_stream_with_connector(protocol, base_url, api_key, request, provider_family).await {
+    match invoke_responses_stream_with_connector(
+        protocol,
+        base_url,
+        api_key,
+        request,
+        provider_family,
+    )
+    .await
+    {
         Ok(stream) => {
             let sse_stream = stream.map(|event| match event {
                 Ok(event) => {
@@ -123,8 +131,8 @@ async fn invoke_responses_stream_with_fallback(
                     event_data
                         .entry("type".to_string())
                         .or_insert_with(|| serde_json::Value::String(event.event_type.clone()));
-                    let data = serde_json::to_string(&event_data)
-                        .unwrap_or_else(|_| String::from("{}"));
+                    let data =
+                        serde_json::to_string(&event_data).unwrap_or_else(|_| String::from("{}"));
                     let chunk = format!("event: {}\ndata: {}\n\n", event.event_type, data);
                     Ok::<Bytes, std::io::Error>(Bytes::from(chunk))
                 }
@@ -146,9 +154,9 @@ async fn invoke_responses_stream_with_fallback(
                 provider_family,
             )
             .await
-            .map_err(|e| anyhow::anyhow!(
-                "stream failed: {stream_err}; non-stream fallback failed: {e}"
-            ))?;
+            .map_err(|e| {
+                anyhow::anyhow!("stream failed: {stream_err}; non-stream fallback failed: {e}")
+            })?;
 
             build_responses_stream_response_from_full(full_resp)
         }
@@ -289,11 +297,13 @@ pub(crate) async fn openai_responses(
     let start = Instant::now();
     let token = extract_openai_api_key(&headers, &state.config.openai_api_key);
 
-    let mut request = match openai_payload_to_responses_request(&payload, &state.config.openai_model)
-    {
-        Ok(req) => req,
-        Err(err) => return error_json(StatusCode::BAD_REQUEST, &format!("invalid request: {err}")),
-    };
+    let mut request =
+        match openai_payload_to_responses_request(&payload, &state.config.openai_model) {
+            Ok(req) => req,
+            Err(err) => {
+                return error_json(StatusCode::BAD_REQUEST, &format!("invalid request: {err}"));
+            }
+        };
     let stream = request.stream.unwrap_or(false);
 
     let hint = target_provider_hint(&headers, &payload);
@@ -362,7 +372,10 @@ pub(crate) async fn openai_responses(
             // fallback types, or providers that don't support them), retry
             // without tools so the model can still produce a text response.
             if let Err(_err) = &result {
-                let has_tools = req_primary.tools.as_ref().is_some_and(|t| t.as_array().is_some_and(|a| !a.is_empty()));
+                let has_tools = req_primary
+                    .tools
+                    .as_ref()
+                    .is_some_and(|t| t.as_array().is_some_and(|a| !a.is_empty()));
 
                 if has_tools {
                     let mut req_compat = req_primary.clone();

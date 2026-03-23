@@ -6,9 +6,9 @@ use clap::Args;
 use console::style;
 use dialoguer::{Confirm, Select, theme::ColorfulTheme};
 use indicatif::{ProgressBar, ProgressStyle};
+use std::fs;
 use std::path::Path;
 use std::time::Duration;
-use std::fs;
 
 use crate::cli;
 
@@ -408,7 +408,11 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                 )
                 .await?;
 
-                let default_mode = result.modes.first().map(|m| m.id.as_str()).unwrap_or("default");
+                let default_mode = result
+                    .modes
+                    .first()
+                    .map(|m| m.id.as_str())
+                    .unwrap_or("default");
 
                 println!(
                     "\n  {} Configuration complete! Mode: {}",
@@ -419,10 +423,7 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                     "  Provider '{}' configured with API key.",
                     style(&provider_name).bold()
                 );
-                println!(
-                    "\n  Start the gateway:\n    {}\n",
-                    style("ug serve").cyan()
-                );
+                println!("\n  Start the gateway:\n    {}\n", style("ug serve").cyan());
                 println!(
                     "  {} Run '{}' to see hints for other tools.",
                     style("💡").dim(),
@@ -497,14 +498,18 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                                 endpoint_id: &provider_setup.endpoint_id,
                                 default_model: provider_setup.default_model.as_deref(),
                                 fast_model: fast_model.as_deref().or(command.fast_model.as_deref()),
-                                strong_model: strong_model.as_deref().or(command.strong_model.as_deref()),
+                                strong_model: strong_model
+                                    .as_deref()
+                                    .or(command.strong_model.as_deref()),
                                 base_url: provider_setup.base_url.as_deref(),
                                 api_key: &provider_setup.api_key,
                                 model_mapping: model_mapping.as_deref(),
                                 backup_provider_name: backup_setup.as_ref().map(|s| s.0.as_str()),
                                 backup_provider_type: backup_setup.as_ref().map(|s| s.1.as_str()),
                                 backup_endpoint_id: backup_setup.as_ref().map(|s| s.2.as_str()),
-                                backup_default_model: backup_setup.as_ref().and_then(|s| s.3.as_deref()),
+                                backup_default_model: backup_setup
+                                    .as_ref()
+                                    .and_then(|s| s.3.as_deref()),
                                 backup_base_url: backup_setup.as_ref().and_then(|s| s.4.as_deref()),
                                 backup_api_key: backup_setup.as_ref().map(|s| s.5.as_str()),
                                 backup_model_mapping: backup_model_mapping.as_deref(),
@@ -524,7 +529,11 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                         tokio::time::sleep(Duration::from_millis(800)).await;
                         spinner.finish_and_clear();
 
-                        let default_mode = result.modes.first().map(|m| m.id.as_str()).unwrap_or("default");
+                        let default_mode = result
+                            .modes
+                            .first()
+                            .map(|m| m.id.as_str())
+                            .unwrap_or("default");
 
                         // -- All output at once --
                         println!();
@@ -541,8 +550,15 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                                 style(pid).bold(),
                             );
                             println!("  New config is saved, but restart is required to apply it.");
-                            println!("  Restart now: {}  then  {}", style("ug stop").cyan(), style("ug serve").cyan());
-                            println!("  Logs: {}", style(cli::process::log_path().display().to_string()).dim());
+                            println!(
+                                "  Restart now: {}  then  {}",
+                                style("ug stop").cyan(),
+                                style("ug serve").cyan()
+                            );
+                            println!(
+                                "  Logs: {}",
+                                style(cli::process::log_path().display().to_string()).dim()
+                            );
                             println!("  Stop: {}", style("ug stop").cyan());
                         } else if let Some(pid) = started_pid {
                             println!(
@@ -550,7 +566,10 @@ pub async fn run_guide(command: GuideCommand) -> Result<()> {
                                 style("🟢").green(),
                                 style(pid).bold()
                             );
-                            println!("  Logs: {}", style(cli::process::log_path().display().to_string()).dim());
+                            println!(
+                                "  Logs: {}",
+                                style(cli::process::log_path().display().to_string()).dim()
+                            );
                             println!("  Stop: {}", style("ug stop").cyan());
                         } else {
                             println!("  {} Not started automatically.", style("🟡").yellow());

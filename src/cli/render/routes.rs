@@ -4,9 +4,7 @@ use std::fmt::Write as _;
 use crate::config::{ModeProvider, ModeView};
 use crate::routing::resolve_upstream;
 
-use super::super::modes::{
-    load_mode_views, mode_providers_for, select_mode, supported_protocols,
-};
+use super::super::modes::{load_mode_views, mode_providers_for, select_mode, supported_protocols};
 
 pub(crate) fn route_strategy_summary(mode: &ModeView, providers: &[&ModeProvider]) -> String {
     if providers.is_empty() {

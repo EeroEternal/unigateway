@@ -147,13 +147,7 @@ pub async fn create_api_key(
 ) -> Result<()> {
     let state = GatewayState::load(Path::new(config_path)).await?;
     state
-        .create_api_key(
-            key,
-            service_id,
-            quota_limit,
-            qps_limit,
-            concurrency_limit,
-        )
+        .create_api_key(key, service_id, quota_limit, qps_limit, concurrency_limit)
         .await;
     state.persist_if_dirty().await?;
     println!("✅ Created API key '{}' for service '{}'", key, service_id);
@@ -195,13 +189,16 @@ pub async fn list_providers(config_path: &str, json: bool) -> Result<()> {
             return Ok(());
         }
 
-        println!("{:<4} {:<20} {:<15} {:<30} {:<20}", "ID", "NAME", "TYPE", "BASE URL", "ENDPOINT ID");
+        println!(
+            "{:<4} {:<20} {:<15} {:<30} {:<20}",
+            "ID", "NAME", "TYPE", "BASE URL", "ENDPOINT ID"
+        );
         println!("{:-<4} {:-<20} {:-<15} {:-<30} {:-<20}", "", "", "", "", "");
 
         for (id, name, provider_type, base_url, endpoint_id) in providers {
             let base_url = base_url.as_deref().unwrap_or("-");
             let endpoint_id = endpoint_id.as_deref().unwrap_or("-");
-            
+
             println!(
                 "{:<4} {:<20} {:<15} {:<30} {:<20}",
                 id,
@@ -241,13 +238,17 @@ pub async fn interactive_create_service(config_path: &str) -> Result<()> {
         .interact_text()?;
 
     create_service(config_path, &id, &name).await?;
-    println!("{} Service '{}' created.", style("✅").green(), style(id).bold());
+    println!(
+        "{} Service '{}' created.",
+        style("✅").green(),
+        style(id).bold()
+    );
     Ok(())
 }
 
 pub async fn interactive_create_provider(config_path: &str) -> Result<()> {
     let theme = ColorfulTheme::default();
-    
+
     let name: String = Input::with_theme(&theme)
         .with_prompt("Provider Name")
         .interact_text()?;
@@ -268,12 +269,16 @@ pub async fn interactive_create_provider(config_path: &str) -> Result<()> {
         .with_prompt("Base URL (optional)")
         .allow_empty(true)
         .interact_text()?;
-    
+
     let api_key: String = Input::with_theme(&theme)
         .with_prompt("API Key")
         .interact_text()?;
 
-    let base_url = if base_url.is_empty() { None } else { Some(base_url.as_str()) };
+    let base_url = if base_url.is_empty() {
+        None
+    } else {
+        Some(base_url.as_str())
+    };
 
     let id = create_provider(
         config_path,
@@ -282,21 +287,27 @@ pub async fn interactive_create_provider(config_path: &str) -> Result<()> {
         &endpoint_id,
         base_url,
         &api_key,
-        None
-    ).await?;
+        None,
+    )
+    .await?;
 
-    println!("{} Provider '{}' created with ID: {}", style("✅").green(), style(name).bold(), id);
+    println!(
+        "{} Provider '{}' created with ID: {}",
+        style("✅").green(),
+        style(name).bold(),
+        id
+    );
     Ok(())
 }
 
 pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
     let theme = ColorfulTheme::default();
-    
+
     let key: String = Input::with_theme(&theme)
         .with_prompt("API Key Value (leave empty to generate)")
         .allow_empty(true)
         .interact_text()?;
-    
+
     let key = if key.is_empty() {
         format!("ugk_{}", hex::encode(rand::random::<[u8; 16]>()))
     } else {
@@ -309,7 +320,7 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
         .interact_text()?;
 
     create_api_key(config_path, &key, &service_id, None, None, None).await?;
-    
+
     // Ask for AI Agent integration preference
     let agent_options = vec![
         "OpenClaw",
@@ -329,118 +340,170 @@ pub async fn interactive_create_api_key(config_path: &str) -> Result<()> {
         .items(&agent_options)
         .default(0)
         .interact()?;
-    
+
     println!("\n{} API Key created successfully!", style("✅").green());
     println!("   Key: {}", style(&key).cyan().bold());
     println!("   Service: {}", style(&service_id).dim());
 
     let bind_addr = crate::types::AppConfig::from_env().bind;
-    let _base_url = format!("http://{}/v1", crate::cli::modes::user_bind_address(&bind_addr));
+    let _base_url = format!(
+        "http://{}/v1",
+        crate::cli::modes::user_bind_address(&bind_addr)
+    );
 
     match agent_selection {
-        0 => { // OpenClaw
-            println!("\n🎉 {}", style("Ready to use with OpenClaw!").green().bold());
-            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
-                None,
-                Some(&key),
-                Some(&bind_addr),
-                crate::cli::render::integrations::IntegrationTool::OpenClaw,
-            ));
-        },
-        1 => { // Claude Code
-            println!("\n🎉 {}", style("Ready to use with Claude Code!").green().bold());
-            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
-                None,
-                Some(&key),
-                Some(&bind_addr),
-                crate::cli::render::integrations::IntegrationTool::ClaudeCode,
-            ));
-        },
-        2 => { // Cursor
+        0 => {
+            // OpenClaw
+            println!(
+                "\n🎉 {}",
+                style("Ready to use with OpenClaw!").green().bold()
+            );
+            println!(
+                "{}",
+                crate::cli::render::integrations::render_integration_output_for_tool(
+                    None,
+                    Some(&key),
+                    Some(&bind_addr),
+                    crate::cli::render::integrations::IntegrationTool::OpenClaw,
+                )
+            );
+        }
+        1 => {
+            // Claude Code
+            println!(
+                "\n🎉 {}",
+                style("Ready to use with Claude Code!").green().bold()
+            );
+            println!(
+                "{}",
+                crate::cli::render::integrations::render_integration_output_for_tool(
+                    None,
+                    Some(&key),
+                    Some(&bind_addr),
+                    crate::cli::render::integrations::IntegrationTool::ClaudeCode,
+                )
+            );
+        }
+        2 => {
+            // Cursor
             println!("\n🎉 {}", style("Ready to use with Cursor!").green().bold());
-            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
-                None,
-                Some(&key),
-                Some(&bind_addr),
-                crate::cli::render::integrations::IntegrationTool::Cursor,
-            ));
-        },
-        3 => { // OpenCode
-            println!("\n🎉 {}", style("Ready to use with OpenCode!").green().bold());
-            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
-                None,
-                Some(&key),
-                Some(&bind_addr),
-                crate::cli::render::integrations::IntegrationTool::OpenCode,
-            ));
-        },
-        4 => { // Droid
+            println!(
+                "{}",
+                crate::cli::render::integrations::render_integration_output_for_tool(
+                    None,
+                    Some(&key),
+                    Some(&bind_addr),
+                    crate::cli::render::integrations::IntegrationTool::Cursor,
+                )
+            );
+        }
+        3 => {
+            // OpenCode
+            println!(
+                "\n🎉 {}",
+                style("Ready to use with OpenCode!").green().bold()
+            );
+            println!(
+                "{}",
+                crate::cli::render::integrations::render_integration_output_for_tool(
+                    None,
+                    Some(&key),
+                    Some(&bind_addr),
+                    crate::cli::render::integrations::IntegrationTool::OpenCode,
+                )
+            );
+        }
+        4 => {
+            // Droid
             println!("\n🎉 {}", style("Ready to use with Droid!").green().bold());
-            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
-                None,
-                Some(&key),
-                Some(&bind_addr),
-                crate::cli::render::integrations::IntegrationTool::Droid,
-            ));
-        },
-        5 => { // Cline
+            println!(
+                "{}",
+                crate::cli::render::integrations::render_integration_output_for_tool(
+                    None,
+                    Some(&key),
+                    Some(&bind_addr),
+                    crate::cli::render::integrations::IntegrationTool::Droid,
+                )
+            );
+        }
+        5 => {
+            // Cline
             println!("\n🎉 {}", style("Ready to use with Cline!").green().bold());
-            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
-                None,
-                Some(&key),
-                Some(&bind_addr),
-                crate::cli::render::integrations::IntegrationTool::Cline,
-            ));
-        },
-        6 => { // OpenHands
-            println!("\n🎉 {}", style("Ready to use with OpenHands!").green().bold());
-            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
-                None,
-                Some(&key),
-                Some(&bind_addr),
-                crate::cli::render::integrations::IntegrationTool::OpenHands,
-            ));
-        },
-        7 => { // Zed
+            println!(
+                "{}",
+                crate::cli::render::integrations::render_integration_output_for_tool(
+                    None,
+                    Some(&key),
+                    Some(&bind_addr),
+                    crate::cli::render::integrations::IntegrationTool::Cline,
+                )
+            );
+        }
+        6 => {
+            // OpenHands
+            println!(
+                "\n🎉 {}",
+                style("Ready to use with OpenHands!").green().bold()
+            );
+            println!(
+                "{}",
+                crate::cli::render::integrations::render_integration_output_for_tool(
+                    None,
+                    Some(&key),
+                    Some(&bind_addr),
+                    crate::cli::render::integrations::IntegrationTool::OpenHands,
+                )
+            );
+        }
+        7 => {
+            // Zed
             println!("\n🎉 {}", style("Ready to use with Zed!").green().bold());
-            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
-                None,
-                Some(&key),
-                Some(&bind_addr),
-                crate::cli::render::integrations::IntegrationTool::Zed,
-            ));
-        },
-        8 => { // Codex
+            println!(
+                "{}",
+                crate::cli::render::integrations::render_integration_output_for_tool(
+                    None,
+                    Some(&key),
+                    Some(&bind_addr),
+                    crate::cli::render::integrations::IntegrationTool::Zed,
+                )
+            );
+        }
+        8 => {
+            // Codex
             println!("\n🎉 {}", style("Ready to use with Codex!").green().bold());
-            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
-                None,
-                Some(&key),
-                Some(&bind_addr),
-                crate::cli::render::integrations::IntegrationTool::Codex,
-            ));
-        },
-        9 => { // Trae
+            println!(
+                "{}",
+                crate::cli::render::integrations::render_integration_output_for_tool(
+                    None,
+                    Some(&key),
+                    Some(&bind_addr),
+                    crate::cli::render::integrations::IntegrationTool::Codex,
+                )
+            );
+        }
+        9 => {
+            // Trae
             println!("\n🎉 {}", style("Ready to use with Trae!").green().bold());
-            println!("{}", crate::cli::render::integrations::render_integration_output_for_tool(
-                None,
-                Some(&key),
-                Some(&bind_addr),
-                crate::cli::render::integrations::IntegrationTool::Trae,
-            ));
-        },
+            println!(
+                "{}",
+                crate::cli::render::integrations::render_integration_output_for_tool(
+                    None,
+                    Some(&key),
+                    Some(&bind_addr),
+                    crate::cli::render::integrations::IntegrationTool::Trae,
+                )
+            );
+        }
         _ => {
             println!("\n💡 Use `ug integrations` to see more configuration examples.");
         }
     }
-    
+
     println!("\n🚀 Ready! Use `ug help` for more commands.");
     Ok(())
 }
 
-pub async fn guide(
-    config_path: &str,
-    params: GuideParams<'_>,
-) -> Result<GuideResult> {
+pub async fn guide(config_path: &str, params: GuideParams<'_>) -> Result<GuideResult> {
     let state = GatewayState::load(Path::new(config_path)).await?;
     let primary_provider_id = state
         .create_provider_with_models(

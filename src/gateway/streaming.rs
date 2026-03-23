@@ -5,7 +5,9 @@ use axum::{
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
-use llm_connector::types::{ChatRequest, StreamChunk, StreamFormat, streaming::AnthropicSseAdapter};
+use llm_connector::types::{
+    ChatRequest, StreamChunk, StreamFormat, streaming::AnthropicSseAdapter,
+};
 
 use crate::{
     protocol::{UpstreamProtocol, invoke_with_connector_stream},
@@ -46,29 +48,32 @@ pub(super) async fn try_chat_stream_raw(
         // We use AnthropicSseAdapter to convert the stream of StreamingResponse chunks.
         // Note: We are using a Mutex to share the adapter state across the stream.
         let adapter = std::sync::Arc::new(std::sync::Mutex::new(AnthropicSseAdapter::new()));
-        
-        let sse_stream = stream.flat_map(move |r: Result<_, llm_connector::error::LlmConnectorError>| {
-            let adapter = adapter.clone();
-            // We need to return a stream of bytes.
-            // Since flat_map expects a stream/iterator, we can return futures::stream::iter
-            
-            let result: Vec<Result<Bytes, BoxErr>> = match r {
-                Ok(resp) => {
-                    let mut guard = adapter.lock().unwrap();
-                    let events = guard.convert(&resp);
-                    events.into_iter()
-                        .map(|s| Ok(Bytes::from(s)))
-                        .collect()
-                }
-                Err(e) => {
-                    // Log the error for debugging
-                    tracing::error!("llm-connector chat_stream failed: {}", e);
-                    vec![Err(Box::new(std::io::Error::other(format!("llm-connector chat_stream failed: {}", e))) as BoxErr)]
-                },
-            };
-            
-            futures_util::stream::iter(result)
-        });
+
+        let sse_stream = stream.flat_map(
+            move |r: Result<_, llm_connector::error::LlmConnectorError>| {
+                let adapter = adapter.clone();
+                // We need to return a stream of bytes.
+                // Since flat_map expects a stream/iterator, we can return futures::stream::iter
+
+                let result: Vec<Result<Bytes, BoxErr>> = match r {
+                    Ok(resp) => {
+                        let mut guard = adapter.lock().unwrap();
+                        let events = guard.convert(&resp);
+                        events.into_iter().map(|s| Ok(Bytes::from(s))).collect()
+                    }
+                    Err(e) => {
+                        // Log the error for debugging
+                        tracing::error!("llm-connector chat_stream failed: {}", e);
+                        vec![Err(Box::new(std::io::Error::other(format!(
+                            "llm-connector chat_stream failed: {}",
+                            e
+                        ))) as BoxErr)]
+                    }
+                };
+
+                futures_util::stream::iter(result)
+            },
+        );
 
         Ok((
             StatusCode::OK,

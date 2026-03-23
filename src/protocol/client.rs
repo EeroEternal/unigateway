@@ -1,7 +1,10 @@
 use anyhow::{Context, Result, anyhow};
 use llm_connector::{
     ChatResponse, LlmClient,
-    types::{ChatRequest, ChatStream, EmbedRequest, EmbedResponse, ResponsesRequest, ResponsesResponse, ResponsesStream},
+    types::{
+        ChatRequest, ChatStream, EmbedRequest, EmbedResponse, ResponsesRequest, ResponsesResponse,
+        ResponsesStream,
+    },
 };
 use tracing::debug;
 

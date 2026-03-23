@@ -181,9 +181,7 @@ pub async fn resolve_providers(
     }
 
     // round-robin
-    let mut sp = gateway
-        .select_provider_for_service(service_id, "")
-        .await;
+    let mut sp = gateway.select_provider_for_service(service_id, "").await;
 
     if sp.is_none() {
         sp = gateway
