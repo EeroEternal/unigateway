@@ -142,6 +142,7 @@ pub fn to_core_embeddings_request(request: &EmbedRequest) -> ProxyEmbeddingsRequ
     ProxyEmbeddingsRequest {
         model: request.model.clone(),
         input: request.input.clone(),
+        encoding_format: request.encoding_format.clone(),
         metadata: std::collections::HashMap::new(),
     }
 }
@@ -240,7 +241,7 @@ mod tests {
 
     use super::{
         anthropic_payload_to_chat_request, openai_payload_to_chat_request,
-        to_core_responses_request,
+        to_core_embeddings_request, to_core_responses_request,
     };
 
     #[test]
@@ -315,5 +316,18 @@ mod tests {
         assert!(filtered.extra.contains_key("reasoning"));
         assert!(!filtered.extra.contains_key("target_provider"));
         assert!(!filtered.extra.contains_key("provider"));
+    }
+
+    #[test]
+    fn embeddings_conversion_preserves_encoding_format() {
+        let request = llm_connector::types::EmbedRequest::new_batch(
+            "text-embedding-3-small",
+            vec!["hello".to_string()],
+        )
+        .with_encoding_format("float");
+
+        let converted = to_core_embeddings_request(&request);
+
+        assert_eq!(converted.encoding_format.as_deref(), Some("float"));
     }
 }

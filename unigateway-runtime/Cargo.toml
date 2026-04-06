@@ -1,6 +1,6 @@
 [package]
 name = "unigateway-runtime"
-version = "0.10.3"
+version = "0.10.4"
 edition = "2024"
 rust-version = "1.92"
 description = "Reusable runtime contracts and compatibility surface for UniGateway embedders."

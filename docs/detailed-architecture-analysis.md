@@ -20,7 +20,7 @@ unigateway/                           # workspace root + product shell binary
 │   │                                 # ✅ 无 axum, 无 llm-connector, 无 DB
 │   └── src/ (13 files, ~4200 行)
 │
-├── unigateway-runtime/               # v0.10.3, 可复用运行时层
+├── unigateway-runtime/               # v0.10.4, 可复用运行时层
 │   ├── Cargo.toml                    # 依赖: axum 0.7, unigateway-core
 │   │                                 # ✅ llm-connector 已移除！
 │   │                                 # ⚠️ 仍依赖 axum（返回 axum::Response）

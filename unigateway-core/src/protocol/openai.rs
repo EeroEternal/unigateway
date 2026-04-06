@@ -563,16 +563,26 @@ pub fn build_embeddings_request(
     endpoint: &DriverEndpointContext,
     request: &ProxyEmbeddingsRequest,
 ) -> Result<TransportRequest, GatewayError> {
-    let payload = json!({
-        "model": resolved_model(endpoint, &request.model),
-        "input": request.input,
-    });
+    let mut payload = serde_json::Map::from_iter([
+        (
+            "model".to_string(),
+            Value::String(resolved_model(endpoint, &request.model)),
+        ),
+        ("input".to_string(), json!(request.input)),
+    ]);
+
+    if let Some(encoding_format) = request.encoding_format.clone() {
+        payload.insert(
+            "encoding_format".to_string(),
+            Value::String(encoding_format),
+        );
+    }
 
     TransportRequest::post_json(
         Some(endpoint.endpoint_id.clone()),
         join_url(&endpoint.base_url, "embeddings"),
         openai_headers(endpoint),
-        &payload,
+        &Value::Object(payload),
         None,
     )
 }
@@ -730,8 +740,8 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{
-        OpenAiCompatibleDriver, build_chat_request, build_responses_request,
-        parse_responses_response,
+        OpenAiCompatibleDriver, build_chat_request, build_embeddings_request,
+        build_responses_request, parse_responses_response,
     };
     use crate::GatewayError;
     use crate::drivers::{DriverEndpointContext, ProviderDriver};
@@ -903,6 +913,30 @@ mod tests {
     }
 
     #[test]
+    fn build_embeddings_request_preserves_encoding_format() {
+        let request = build_embeddings_request(
+            &endpoint(),
+            &ProxyEmbeddingsRequest {
+                model: "text-embedding-3-small".to_string(),
+                input: vec!["hello".to_string()],
+                encoding_format: Some("float".to_string()),
+                metadata: HashMap::new(),
+            },
+        )
+        .expect("embeddings request");
+
+        let body: Value = serde_json::from_slice(&request.body.expect("body")).expect("json body");
+        assert_eq!(
+            body.get("model").and_then(Value::as_str),
+            Some("gpt-4o-mini")
+        );
+        assert_eq!(
+            body.get("encoding_format").and_then(Value::as_str),
+            Some("float")
+        );
+    }
+
+    #[test]
     fn parse_responses_response_reads_responses_usage_shape() {
         let (response, usage) = parse_responses_response(
             &serde_json::to_vec(&json!({
@@ -1005,6 +1039,7 @@ mod tests {
                 ProxyEmbeddingsRequest {
                     model: "text-embedding-3-small".to_string(),
                     input: vec!["hello".to_string()],
+                    encoding_format: Some("float".to_string()),
                     metadata: HashMap::new(),
                 },
             )

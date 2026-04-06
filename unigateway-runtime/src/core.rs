@@ -827,7 +827,7 @@ fn should_retry_responses_without_tools(request: &ProxyResponsesRequest) -> bool
 
 fn should_fallback_to_legacy_responses(error: &GatewayError) -> bool {
     matches!(
-        error,
+        error.terminal_error(),
         GatewayError::NotImplemented(_)
             | GatewayError::UpstreamHttp { status: 404, .. }
             | GatewayError::UpstreamHttp { status: 405, .. }
@@ -842,7 +842,7 @@ pub fn embeddings_payload_is_core_compatible(payload: &serde_json::Value) -> boo
     payload.as_object().is_some_and(|object| {
         object
             .keys()
-            .all(|key| matches!(key.as_str(), "model" | "input"))
+            .all(|key| matches!(key.as_str(), "model" | "input" | "encoding_format"))
     })
 }
 
@@ -968,6 +968,16 @@ mod tests {
                 endpoint_id: "ep-1".to_string(),
             }
         ));
+        assert!(should_fallback_to_legacy_responses(
+            &GatewayError::AllAttemptsFailed {
+                attempts: Vec::new(),
+                last_error: Box::new(GatewayError::UpstreamHttp {
+                    status: 405,
+                    body: Some("method not allowed".to_string()),
+                    endpoint_id: "ep-2".to_string(),
+                }),
+            }
+        ));
         assert!(!should_fallback_to_legacy_responses(
             &GatewayError::UpstreamHttp {
                 status: 500,
@@ -978,15 +988,20 @@ mod tests {
     }
 
     #[test]
-    fn embeddings_core_bridge_only_accepts_minimal_subset() {
+    fn embeddings_core_bridge_accepts_encoding_format() {
         assert!(embeddings_payload_is_core_compatible(&serde_json::json!({
             "model": "text-embedding-3-small",
             "input": ["hello"],
         })));
-        assert!(!embeddings_payload_is_core_compatible(&serde_json::json!({
+        assert!(embeddings_payload_is_core_compatible(&serde_json::json!({
             "model": "text-embedding-3-small",
             "input": ["hello"],
             "encoding_format": "float",
+        })));
+        assert!(!embeddings_payload_is_core_compatible(&serde_json::json!({
+            "model": "text-embedding-3-small",
+            "input": ["hello"],
+            "dimensions": 256,
         })));
     }
 

@@ -17,8 +17,12 @@ pub enum GatewayError {
     #[error("no available endpoint")]
     NoAvailableEndpoint,
 
-    #[error("all attempts failed")]
-    AllAttemptsFailed { attempts: Vec<AttemptReport> },
+    #[error("all attempts failed: {last_error}")]
+    AllAttemptsFailed {
+        attempts: Vec<AttemptReport>,
+        #[source]
+        last_error: Box<GatewayError>,
+    },
 
     #[error("upstream http error: {status}")]
     UpstreamHttp {
@@ -46,5 +50,26 @@ pub enum GatewayError {
 impl GatewayError {
     pub fn not_implemented(feature: &'static str) -> Self {
         Self::NotImplemented(feature)
+    }
+
+    pub fn attempts(&self) -> Option<&[AttemptReport]> {
+        match self {
+            Self::AllAttemptsFailed { attempts, .. } => Some(attempts),
+            _ => None,
+        }
+    }
+
+    pub fn terminal_error(&self) -> &Self {
+        match self {
+            Self::AllAttemptsFailed { last_error, .. } => last_error.terminal_error(),
+            _ => self,
+        }
+    }
+
+    pub fn status_code(&self) -> Option<u16> {
+        match self.terminal_error() {
+            Self::UpstreamHttp { status, .. } => Some(*status),
+            _ => None,
+        }
     }
 }
