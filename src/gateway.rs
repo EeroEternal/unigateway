@@ -1,4 +1,5 @@
 mod chat;
+mod core_adapter;
 mod streaming;
 
 use std::sync::Arc;
@@ -28,6 +29,10 @@ use crate::routing::{resolve_providers, target_provider_hint};
 use crate::types::AppState;
 
 use self::chat::{invoke_direct_chat, invoke_provider_chat};
+use self::core_adapter::{
+    try_anthropic_chat_via_core, try_openai_chat_via_core, try_openai_embeddings_via_core,
+    try_openai_responses_via_core,
+};
 
 fn response_text(resp: &llm_connector::types::ResponsesResponse) -> String {
     if !resp.output_text.is_empty() {
@@ -189,6 +194,27 @@ pub(crate) async fn openai_chat(
     };
 
     if let Some(ref auth) = auth {
+        match try_openai_chat_via_core(&state, &auth.key.service_id, hint.as_deref(), &request)
+            .await
+        {
+            Ok(Some(response)) => {
+                auth.finalize(&state).await;
+                record_stat(&state, endpoint, 200, &start).await;
+                return response;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                auth.release(&state).await;
+                let status = if error.to_string().contains("matches target") {
+                    StatusCode::BAD_REQUEST
+                } else {
+                    StatusCode::BAD_GATEWAY
+                };
+                record_stat(&state, endpoint, 500, &start).await;
+                return error_json(status, &format!("core execution error: {error:#}"));
+            }
+        }
+
         let providers = match resolve_providers(
             &state.gateway,
             &auth.key.service_id,
@@ -316,6 +342,33 @@ pub(crate) async fn openai_responses(
     };
 
     if let Some(ref auth) = auth {
+        match try_openai_responses_via_core(
+            &state,
+            &auth.key.service_id,
+            hint.as_deref(),
+            &request,
+            &payload,
+        )
+        .await
+        {
+            Ok(Some(response)) => {
+                auth.finalize(&state).await;
+                record_stat(&state, endpoint, 200, &start).await;
+                return response;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                auth.release(&state).await;
+                let status = if error.to_string().contains("matches target") {
+                    StatusCode::BAD_REQUEST
+                } else {
+                    StatusCode::BAD_GATEWAY
+                };
+                record_stat(&state, endpoint, 500, &start).await;
+                return error_json(status, &format!("core execution error: {error:#}"));
+            }
+        }
+
         let providers = match resolve_providers(
             &state.gateway,
             &auth.key.service_id,
@@ -535,6 +588,7 @@ pub(crate) async fn anthropic_messages(
         };
 
     let endpoint = "/v1/messages";
+    let hint = target_provider_hint(&headers, &payload);
 
     let auth = match GatewayAuth::try_authenticate(&state, &token).await {
         Ok(a) => a,
@@ -548,11 +602,32 @@ pub(crate) async fn anthropic_messages(
     );
 
     if let Some(ref auth) = auth {
+        match try_anthropic_chat_via_core(&state, &auth.key.service_id, hint.as_deref(), &request)
+            .await
+        {
+            Ok(Some(response)) => {
+                auth.finalize(&state).await;
+                record_stat(&state, endpoint, 200, &start).await;
+                return response;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                auth.release(&state).await;
+                let status = if error.to_string().contains("matches target") {
+                    StatusCode::BAD_REQUEST
+                } else {
+                    StatusCode::BAD_GATEWAY
+                };
+                record_stat(&state, endpoint, 500, &start).await;
+                return error_json(status, &format!("core execution error: {error:#}"));
+            }
+        }
+
         let providers = match resolve_providers(
             &state.gateway,
             &auth.key.service_id,
             "anthropic",
-            None,
+            hint.as_deref(),
         )
         .await
         {
@@ -677,6 +752,7 @@ pub(crate) async fn openai_embeddings(
         };
 
     let endpoint = "/v1/embeddings";
+    let hint = target_provider_hint(&headers, &payload);
 
     let auth = match GatewayAuth::try_authenticate(&state, &token).await {
         Ok(a) => a,
@@ -684,14 +760,47 @@ pub(crate) async fn openai_embeddings(
     };
 
     if let Some(ref auth) = auth {
-        let providers =
-            match resolve_providers(&state.gateway, &auth.key.service_id, "openai", None).await {
-                Ok(p) => p,
-                Err(msg) => {
-                    auth.release(&state).await;
-                    return error_json(StatusCode::SERVICE_UNAVAILABLE, &msg);
-                }
-            };
+        match try_openai_embeddings_via_core(
+            &state,
+            &auth.key.service_id,
+            hint.as_deref(),
+            &embed_request,
+            &payload,
+        )
+        .await
+        {
+            Ok(Some(response)) => {
+                auth.finalize(&state).await;
+                record_stat(&state, endpoint, 200, &start).await;
+                return response;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                auth.release(&state).await;
+                let status = if error.to_string().contains("matches target") {
+                    StatusCode::BAD_REQUEST
+                } else {
+                    StatusCode::BAD_GATEWAY
+                };
+                record_stat(&state, endpoint, 500, &start).await;
+                return error_json(status, &format!("core execution error: {error:#}"));
+            }
+        }
+
+        let providers = match resolve_providers(
+            &state.gateway,
+            &auth.key.service_id,
+            "openai",
+            hint.as_deref(),
+        )
+        .await
+        {
+            Ok(p) => p,
+            Err(msg) => {
+                auth.release(&state).await;
+                return error_json(StatusCode::SERVICE_UNAVAILABLE, &msg);
+            }
+        };
 
         let original_model = embed_request.model.clone();
         let mut last_err = String::from("unknown");

@@ -159,7 +159,7 @@ mod tests {
             anthropic_model: String::new(),
         };
 
-        Arc::new(AppState { config, gateway })
+        Arc::new(AppState::new(config, gateway))
     }
 
     #[tokio::test]

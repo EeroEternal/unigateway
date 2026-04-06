@@ -44,7 +44,7 @@ fn parse_role(role: &str) -> Role {
     }
 }
 
-fn extract_text_content(value: &Value) -> String {
+pub(super) fn extract_text_content(value: &Value) -> String {
     if let Some(text) = value.as_str() {
         return text.to_string();
     }

@@ -167,10 +167,10 @@ async fn drive_chat_stream(
         }
     }
 
-    if !buffer.is_empty() {
-        if let Some(frame) = parse_sse_frame(&buffer) {
-            process_chat_frame(&chunk_tx, &endpoint, &mut state, frame).await?;
-        }
+    if !buffer.is_empty()
+        && let Some(frame) = parse_sse_frame(&buffer)
+    {
+        process_chat_frame(&chunk_tx, &endpoint, &mut state, frame).await?;
     }
 
     finalize_chat_stream(endpoint, started_at, request_id, state)
@@ -196,12 +196,12 @@ async fn process_chat_frame(
     let event_type = frame
         .event
         .or_else(|| raw.get("type").and_then(Value::as_str).map(str::to_string));
-    if let Some(event_type) = event_type.clone() {
-        if let Some(object) = raw.as_object_mut() {
-            object
-                .entry("type".to_string())
-                .or_insert_with(|| Value::String(event_type));
-        }
+    if let Some(event_type) = event_type.clone()
+        && let Some(object) = raw.as_object_mut()
+    {
+        object
+            .entry("type".to_string())
+            .or_insert_with(|| Value::String(event_type));
     }
 
     if state.model.is_none() {

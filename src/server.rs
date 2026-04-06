@@ -17,10 +17,7 @@ pub async fn run(config: AppConfig) -> Result<()> {
     let gateway = GatewayState::load(config_path)
         .await
         .with_context(|| format!("load config: {}", config.config_path))?;
-    let state = AppState {
-        config: config.clone(),
-        gateway: gateway.clone(),
-    };
+    let state = AppState::new(config.clone(), gateway.clone());
 
     // Periodically persist used_quota and other dirty state to config file
     let gw = gateway.clone();

@@ -256,10 +256,10 @@ async fn drive_chat_stream(
         }
     }
 
-    if !buffer.is_empty() {
-        if let Some(frame) = parse_sse_frame(&buffer) {
-            process_chat_frame(&chunk_tx, &endpoint, &mut state, frame).await?;
-        }
+    if !buffer.is_empty()
+        && let Some(frame) = parse_sse_frame(&buffer)
+    {
+        process_chat_frame(&chunk_tx, &endpoint, &mut state, frame).await?;
     }
 
     finalize_chat_stream(endpoint, started_at, request_id, state)
@@ -297,10 +297,10 @@ async fn drive_responses_stream(
         }
     }
 
-    if !buffer.is_empty() {
-        if let Some(frame) = parse_sse_frame(&buffer) {
-            process_responses_frame(&event_tx, &endpoint, &mut state, frame).await?;
-        }
+    if !buffer.is_empty()
+        && let Some(frame) = parse_sse_frame(&buffer)
+    {
+        process_responses_frame(&event_tx, &endpoint, &mut state, frame).await?;
     }
 
     finalize_responses_stream(endpoint, started_at, request_id, state)
@@ -378,10 +378,10 @@ async fn process_responses_frame(
             .or_insert_with(|| Value::String(event_type.clone()));
     }
 
-    if event_type == "response.output_text.delta" {
-        if let Some(delta) = raw.get("delta").and_then(Value::as_str) {
-            state.output_text.push_str(delta);
-        }
+    if event_type == "response.output_text.delta"
+        && let Some(delta) = raw.get("delta").and_then(Value::as_str)
+    {
+        state.output_text.push_str(delta);
     }
 
     if let Some(usage) = parse_responses_usage(&raw) {
@@ -508,17 +508,44 @@ pub fn build_responses_request(
     endpoint: &DriverEndpointContext,
     request: &ProxyResponsesRequest,
 ) -> Result<TransportRequest, GatewayError> {
-    let payload = json!({
-        "model": resolved_model(endpoint, &request.model),
-        "input": request.input,
-        "stream": request.stream,
-    });
+    let mut payload = serde_json::Map::from_iter([
+        (
+            "model".to_string(),
+            Value::String(resolved_model(endpoint, &request.model)),
+        ),
+        ("stream".to_string(), Value::Bool(request.stream)),
+    ]);
+
+    if let Some(input) = request.input.clone() {
+        payload.insert("input".to_string(), input);
+    }
+    if let Some(instructions) = request.instructions.clone() {
+        payload.insert("instructions".to_string(), Value::String(instructions));
+    }
+    if let Some(temperature) = request.temperature {
+        payload.insert("temperature".to_string(), json!(temperature));
+    }
+    if let Some(top_p) = request.top_p {
+        payload.insert("top_p".to_string(), json!(top_p));
+    }
+    if let Some(max_output_tokens) = request.max_output_tokens {
+        payload.insert("max_output_tokens".to_string(), json!(max_output_tokens));
+    }
+    if let Some(previous_response_id) = request.previous_response_id.clone() {
+        payload.insert(
+            "previous_response_id".to_string(),
+            Value::String(previous_response_id),
+        );
+    }
+    if let Some(request_metadata) = request.request_metadata.clone() {
+        payload.insert("metadata".to_string(), request_metadata);
+    }
 
     TransportRequest::post_json(
         Some(endpoint.endpoint_id.clone()),
         join_url(&endpoint.base_url, "responses"),
         openai_headers(endpoint),
-        &payload,
+        &Value::Object(payload),
         None,
     )
 }
@@ -583,7 +610,7 @@ pub fn parse_responses_response(
         .map(str::to_string)
         .or_else(|| extract_responses_output_text(&raw));
 
-    let usage = parse_openai_usage(&raw);
+    let usage = parse_responses_usage(&raw);
 
     Ok((ResponsesFinal { output_text, raw }, usage))
 }
@@ -693,7 +720,10 @@ mod tests {
     use futures_util::future::BoxFuture;
     use serde_json::{Value, json};
 
-    use super::{OpenAiCompatibleDriver, build_chat_request};
+    use super::{
+        OpenAiCompatibleDriver, build_chat_request, build_responses_request,
+        parse_responses_response,
+    };
     use crate::GatewayError;
     use crate::drivers::{DriverEndpointContext, ProviderDriver};
     use crate::pool::{ModelPolicy, ProviderKind, SecretString};
@@ -789,6 +819,71 @@ mod tests {
             body.get("model").and_then(serde_json::Value::as_str),
             Some("mapped-model")
         );
+    }
+
+    #[test]
+    fn build_responses_request_forwards_supported_optional_fields() {
+        let request = build_responses_request(
+            &endpoint(),
+            &ProxyResponsesRequest {
+                model: "alias".to_string(),
+                input: Some(json!([{"role": "user", "content": "hello"}])),
+                instructions: Some("be terse".to_string()),
+                temperature: Some(0.2),
+                top_p: Some(0.9),
+                max_output_tokens: Some(128),
+                stream: true,
+                previous_response_id: Some("resp_prev".to_string()),
+                request_metadata: Some(json!({"trace_id": "abc"})),
+                metadata: HashMap::new(),
+            },
+        )
+        .expect("responses request");
+
+        let body: Value = serde_json::from_slice(&request.body.expect("body")).expect("json body");
+        assert_eq!(
+            body.get("model").and_then(Value::as_str),
+            Some("mapped-model")
+        );
+        assert_eq!(
+            body.get("instructions").and_then(Value::as_str),
+            Some("be terse")
+        );
+        assert_eq!(
+            body.get("max_output_tokens").and_then(Value::as_u64),
+            Some(128)
+        );
+        assert_eq!(
+            body.get("previous_response_id").and_then(Value::as_str),
+            Some("resp_prev")
+        );
+        assert_eq!(
+            body.get("metadata")
+                .and_then(|value| value.get("trace_id"))
+                .and_then(Value::as_str),
+            Some("abc")
+        );
+    }
+
+    #[test]
+    fn parse_responses_response_reads_responses_usage_shape() {
+        let (response, usage) = parse_responses_response(
+            &serde_json::to_vec(&json!({
+                "id": "resp_1",
+                "object": "response",
+                "output_text": "hello",
+                "usage": {
+                    "input_tokens": 7,
+                    "output_tokens": 5,
+                    "total_tokens": 12
+                }
+            }))
+            .expect("response body"),
+        )
+        .expect("parse response");
+
+        assert_eq!(response.output_text.as_deref(), Some("hello"));
+        assert_eq!(usage.and_then(|usage| usage.total_tokens), Some(12));
     }
 
     #[tokio::test]
@@ -900,8 +995,14 @@ mod tests {
                 endpoint(),
                 ProxyResponsesRequest {
                     model: "gpt-4.1-mini".to_string(),
-                    input: json!([{"role": "user", "content": "hello"}]),
+                    input: Some(json!([{"role": "user", "content": "hello"}])),
+                    instructions: None,
+                    temperature: None,
+                    top_p: None,
+                    max_output_tokens: None,
                     stream: false,
+                    previous_response_id: None,
+                    request_metadata: None,
                     metadata: HashMap::new(),
                 },
             )
@@ -1001,8 +1102,14 @@ mod tests {
                 endpoint(),
                 ProxyResponsesRequest {
                     model: "gpt-4.1-mini".to_string(),
-                    input: json!([{"role": "user", "content": "hello"}]),
+                    input: Some(json!([{"role": "user", "content": "hello"}])),
+                    instructions: None,
+                    temperature: None,
+                    top_p: None,
+                    max_output_tokens: None,
                     stream: true,
+                    previous_response_id: None,
+                    request_metadata: None,
                     metadata: HashMap::new(),
                 },
             )

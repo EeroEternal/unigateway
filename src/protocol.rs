@@ -42,7 +42,7 @@ pub fn openai_payload_to_chat_request(payload: &Value, default_model: &str) -> R
         .get("max_tokens")
         .and_then(Value::as_u64)
         .map(|v| v as u32);
-    req.stream = stream_flag(payload, true);
+    req.stream = stream_flag(payload, false);
 
     Ok(req)
 }
@@ -210,7 +210,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn openai_requests_default_to_streaming() {
+    fn openai_requests_default_to_non_streaming() {
         let req = openai_payload_to_chat_request(
             &json!({
                 "messages": [{"role": "user", "content": "hello"}]
@@ -219,7 +219,7 @@ mod tests {
         )
         .expect("request");
 
-        assert_eq!(req.stream, Some(true));
+        assert_eq!(req.stream, Some(false));
     }
 
     #[test]

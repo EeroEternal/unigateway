@@ -30,6 +30,7 @@ pub struct UniGatewayEngine {
     inner: Arc<EngineState>,
 }
 
+#[derive(Default)]
 pub struct UniGatewayEngineBuilder {
     pub hooks: Option<Arc<dyn GatewayHooks>>,
     pub driver_registry: Option<Arc<dyn DriverRegistry>>,
@@ -180,17 +181,6 @@ impl UniGatewayEngine {
             api_key: endpoint.api_key,
             model_policy: endpoint.model_policy,
             metadata,
-        }
-    }
-}
-
-impl Default for UniGatewayEngineBuilder {
-    fn default() -> Self {
-        Self {
-            hooks: None,
-            driver_registry: None,
-            default_retry_policy: RetryPolicy::default(),
-            default_timeout: None,
         }
     }
 }

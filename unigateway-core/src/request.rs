@@ -30,8 +30,14 @@ pub struct ProxyChatRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProxyResponsesRequest {
     pub model: String,
-    pub input: serde_json::Value,
+    pub input: Option<serde_json::Value>,
+    pub instructions: Option<String>,
+    pub temperature: Option<f32>,
+    pub top_p: Option<f32>,
+    pub max_output_tokens: Option<u32>,
     pub stream: bool,
+    pub previous_response_id: Option<String>,
+    pub request_metadata: Option<serde_json::Value>,
     pub metadata: HashMap<String, String>,
 }
 
