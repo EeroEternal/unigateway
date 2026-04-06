@@ -2098,6 +2098,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "unigateway-core",
+ "unigateway-runtime",
  "url",
 ]
 
@@ -2114,6 +2115,21 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "unigateway-runtime"
+version = "0.10.2"
+dependencies = [
+ "anyhow",
+ "axum",
+ "bytes",
+ "futures-util",
+ "http",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "unigateway-core",
 ]
 
 [[package]]

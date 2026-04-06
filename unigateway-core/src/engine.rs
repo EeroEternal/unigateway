@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{Mutex, RwLock};
 
@@ -9,10 +9,10 @@ use crate::hooks::GatewayHooks;
 use crate::pool::{Endpoint, ExecutionTarget, PoolId, PoolSummary, ProviderPool};
 use crate::request::{ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest};
 use crate::response::{
-    ChatResponseChunk, ChatResponseFinal, CompletedResponse, EmbeddingsResponse, ProxySession,
-    ResponsesEvent, ResponsesFinal,
+    AttemptReport, AttemptStatus, ChatResponseChunk, ChatResponseFinal, CompletedResponse,
+    EmbeddingsResponse, ProxySession, ResponsesEvent, ResponsesFinal, StreamingResponse,
 };
-use crate::retry::RetryPolicy;
+use crate::retry::{BackoffPolicy, LoadBalancingStrategy, RetryCondition, RetryPolicy};
 use crate::routing::ExecutionSnapshot;
 
 struct EngineState {
@@ -84,14 +84,56 @@ impl UniGatewayEngine {
         request: ProxyChatRequest,
         target: ExecutionTarget,
     ) -> Result<ProxySession<ChatResponseChunk, ChatResponseFinal>, GatewayError> {
-        let (snapshot, endpoint) = self.select_endpoint_for_target(&target).await?;
-        let driver = self.driver_for_endpoint(&endpoint)?;
-        driver
-            .execute_chat(
-                self.driver_context(snapshot.pool_id, endpoint, snapshot.metadata),
-                request,
+        let snapshot = self.execution_snapshot(&target).await?;
+        let endpoints = self.attempt_endpoints(&snapshot).await?;
+        let total_attempts = endpoints.len();
+        let mut attempts = Vec::new();
+
+        for (attempt_index, endpoint) in endpoints.into_iter().enumerate() {
+            let driver = self.driver_for_endpoint(&endpoint)?;
+            let endpoint_id = endpoint.endpoint_id.clone();
+            let context = self.driver_context(
+                snapshot.pool_id.clone(),
+                endpoint,
+                snapshot.metadata.clone(),
+            );
+            let started_at = Instant::now();
+
+            match execute_chat_attempt(
+                driver,
+                context,
+                request.clone(),
+                snapshot.retry_policy.per_attempt_timeout,
             )
             .await
+            {
+                Ok(session) => {
+                    attempts.push(success_attempt_report(&endpoint_id, started_at.elapsed()));
+                    return Ok(with_chat_attempt_reports(session, attempts));
+                }
+                Err(error) => {
+                    let should_retry = attempt_index + 1 < total_attempts
+                        && should_retry_error(
+                            &snapshot.load_balancing,
+                            &snapshot.retry_policy,
+                            &error,
+                        );
+                    attempts.push(failed_attempt_report(
+                        &endpoint_id,
+                        started_at.elapsed(),
+                        &error,
+                        should_retry,
+                    ));
+                    if should_retry {
+                        apply_retry_backoff(&snapshot.retry_policy.backoff, attempt_index).await;
+                        continue;
+                    }
+                    return Err(error);
+                }
+            }
+        }
+
+        Err(GatewayError::NoAvailableEndpoint)
     }
 
     pub async fn proxy_responses(
@@ -99,14 +141,56 @@ impl UniGatewayEngine {
         request: ProxyResponsesRequest,
         target: ExecutionTarget,
     ) -> Result<ProxySession<ResponsesEvent, ResponsesFinal>, GatewayError> {
-        let (snapshot, endpoint) = self.select_endpoint_for_target(&target).await?;
-        let driver = self.driver_for_endpoint(&endpoint)?;
-        driver
-            .execute_responses(
-                self.driver_context(snapshot.pool_id, endpoint, snapshot.metadata),
-                request,
+        let snapshot = self.execution_snapshot(&target).await?;
+        let endpoints = self.attempt_endpoints(&snapshot).await?;
+        let total_attempts = endpoints.len();
+        let mut attempts = Vec::new();
+
+        for (attempt_index, endpoint) in endpoints.into_iter().enumerate() {
+            let driver = self.driver_for_endpoint(&endpoint)?;
+            let endpoint_id = endpoint.endpoint_id.clone();
+            let context = self.driver_context(
+                snapshot.pool_id.clone(),
+                endpoint,
+                snapshot.metadata.clone(),
+            );
+            let started_at = Instant::now();
+
+            match execute_responses_attempt(
+                driver,
+                context,
+                request.clone(),
+                snapshot.retry_policy.per_attempt_timeout,
             )
             .await
+            {
+                Ok(session) => {
+                    attempts.push(success_attempt_report(&endpoint_id, started_at.elapsed()));
+                    return Ok(with_responses_attempt_reports(session, attempts));
+                }
+                Err(error) => {
+                    let should_retry = attempt_index + 1 < total_attempts
+                        && should_retry_error(
+                            &snapshot.load_balancing,
+                            &snapshot.retry_policy,
+                            &error,
+                        );
+                    attempts.push(failed_attempt_report(
+                        &endpoint_id,
+                        started_at.elapsed(),
+                        &error,
+                        should_retry,
+                    ));
+                    if should_retry {
+                        apply_retry_backoff(&snapshot.retry_policy.backoff, attempt_index).await;
+                        continue;
+                    }
+                    return Err(error);
+                }
+            }
+        }
+
+        Err(GatewayError::NoAvailableEndpoint)
     }
 
     pub async fn proxy_embeddings(
@@ -114,14 +198,56 @@ impl UniGatewayEngine {
         request: ProxyEmbeddingsRequest,
         target: ExecutionTarget,
     ) -> Result<CompletedResponse<EmbeddingsResponse>, GatewayError> {
-        let (snapshot, endpoint) = self.select_endpoint_for_target(&target).await?;
-        let driver = self.driver_for_endpoint(&endpoint)?;
-        driver
-            .execute_embeddings(
-                self.driver_context(snapshot.pool_id, endpoint, snapshot.metadata),
-                request,
+        let snapshot = self.execution_snapshot(&target).await?;
+        let endpoints = self.attempt_endpoints(&snapshot).await?;
+        let total_attempts = endpoints.len();
+        let mut attempts = Vec::new();
+
+        for (attempt_index, endpoint) in endpoints.into_iter().enumerate() {
+            let driver = self.driver_for_endpoint(&endpoint)?;
+            let endpoint_id = endpoint.endpoint_id.clone();
+            let context = self.driver_context(
+                snapshot.pool_id.clone(),
+                endpoint,
+                snapshot.metadata.clone(),
+            );
+            let started_at = Instant::now();
+
+            match execute_embeddings_attempt(
+                driver,
+                context,
+                request.clone(),
+                snapshot.retry_policy.per_attempt_timeout,
             )
             .await
+            {
+                Ok(response) => {
+                    attempts.push(success_attempt_report(&endpoint_id, started_at.elapsed()));
+                    return Ok(with_completed_attempt_reports(response, attempts));
+                }
+                Err(error) => {
+                    let should_retry = attempt_index + 1 < total_attempts
+                        && should_retry_error(
+                            &snapshot.load_balancing,
+                            &snapshot.retry_policy,
+                            &error,
+                        );
+                    attempts.push(failed_attempt_report(
+                        &endpoint_id,
+                        started_at.elapsed(),
+                        &error,
+                        should_retry,
+                    ));
+                    if should_retry {
+                        apply_retry_backoff(&snapshot.retry_policy.backoff, attempt_index).await;
+                        continue;
+                    }
+                    return Err(error);
+                }
+            }
+        }
+
+        Err(GatewayError::NoAvailableEndpoint)
     }
 
     pub(crate) async fn execution_snapshot(
@@ -137,6 +263,7 @@ impl UniGatewayEngine {
         )
     }
 
+    #[cfg(test)]
     pub(crate) async fn select_endpoint_for_target(
         &self,
         target: &ExecutionTarget,
@@ -145,6 +272,14 @@ impl UniGatewayEngine {
         let mut rr_guard = self.inner.rr_counters.lock().await;
         let endpoint = snapshot.select_endpoint(&mut rr_guard)?;
         Ok((snapshot, endpoint))
+    }
+
+    async fn attempt_endpoints(
+        &self,
+        snapshot: &ExecutionSnapshot,
+    ) -> Result<Vec<Endpoint>, GatewayError> {
+        let mut rr_guard = self.inner.rr_counters.lock().await;
+        snapshot.ordered_endpoints(&mut rr_guard, snapshot.retry_policy.max_attempts)
     }
 
     fn driver_for_endpoint(
@@ -182,6 +317,229 @@ impl UniGatewayEngine {
             model_policy: endpoint.model_policy,
             metadata,
         }
+    }
+}
+
+async fn execute_chat_attempt(
+    driver: Arc<dyn ProviderDriver>,
+    endpoint: DriverEndpointContext,
+    request: ProxyChatRequest,
+    timeout: Option<Duration>,
+) -> Result<ProxySession<ChatResponseChunk, ChatResponseFinal>, GatewayError> {
+    let endpoint_id = endpoint.endpoint_id.clone();
+    if let Some(timeout) = timeout {
+        tokio::time::timeout(timeout, driver.execute_chat(endpoint, request))
+            .await
+            .map_err(|_| GatewayError::Transport {
+                message: "attempt timed out".to_string(),
+                endpoint_id: Some(endpoint_id),
+            })?
+    } else {
+        driver.execute_chat(endpoint, request).await
+    }
+}
+
+async fn execute_responses_attempt(
+    driver: Arc<dyn ProviderDriver>,
+    endpoint: DriverEndpointContext,
+    request: ProxyResponsesRequest,
+    timeout: Option<Duration>,
+) -> Result<ProxySession<ResponsesEvent, ResponsesFinal>, GatewayError> {
+    let endpoint_id = endpoint.endpoint_id.clone();
+    if let Some(timeout) = timeout {
+        tokio::time::timeout(timeout, driver.execute_responses(endpoint, request))
+            .await
+            .map_err(|_| GatewayError::Transport {
+                message: "attempt timed out".to_string(),
+                endpoint_id: Some(endpoint_id),
+            })?
+    } else {
+        driver.execute_responses(endpoint, request).await
+    }
+}
+
+async fn execute_embeddings_attempt(
+    driver: Arc<dyn ProviderDriver>,
+    endpoint: DriverEndpointContext,
+    request: ProxyEmbeddingsRequest,
+    timeout: Option<Duration>,
+) -> Result<CompletedResponse<EmbeddingsResponse>, GatewayError> {
+    let endpoint_id = endpoint.endpoint_id.clone();
+    if let Some(timeout) = timeout {
+        tokio::time::timeout(timeout, driver.execute_embeddings(endpoint, request))
+            .await
+            .map_err(|_| GatewayError::Transport {
+                message: "attempt timed out".to_string(),
+                endpoint_id: Some(endpoint_id),
+            })?
+    } else {
+        driver.execute_embeddings(endpoint, request).await
+    }
+}
+
+fn success_attempt_report(endpoint_id: &str, latency: Duration) -> AttemptReport {
+    AttemptReport {
+        endpoint_id: endpoint_id.to_string(),
+        status: AttemptStatus::Succeeded,
+        latency_ms: latency.as_millis() as u64,
+        error: None,
+    }
+}
+
+fn failed_attempt_report(
+    endpoint_id: &str,
+    latency: Duration,
+    error: &GatewayError,
+    retried: bool,
+) -> AttemptReport {
+    AttemptReport {
+        endpoint_id: endpoint_id.to_string(),
+        status: if retried {
+            AttemptStatus::Retried
+        } else {
+            AttemptStatus::Failed
+        },
+        latency_ms: latency.as_millis() as u64,
+        error: Some(error.to_string()),
+    }
+}
+
+fn should_retry_error(
+    strategy: &LoadBalancingStrategy,
+    retry_policy: &RetryPolicy,
+    error: &GatewayError,
+) -> bool {
+    if matches!(strategy, LoadBalancingStrategy::Fallback) {
+        return !matches!(
+            error,
+            GatewayError::PoolNotFound(_) | GatewayError::NoAvailableEndpoint
+        );
+    }
+
+    retry_policy
+        .retry_on
+        .iter()
+        .any(|condition| retry_condition_matches(condition, error))
+}
+
+fn retry_condition_matches(condition: &RetryCondition, error: &GatewayError) -> bool {
+    match condition {
+        RetryCondition::HttpStatus(status) => {
+            matches!(error, GatewayError::UpstreamHttp { status: value, .. } if value == status)
+        }
+        RetryCondition::HttpStatusRange { start, end } => matches!(
+            error,
+            GatewayError::UpstreamHttp { status, .. } if status >= start && status <= end
+        ),
+        RetryCondition::Timeout => matches!(
+            error,
+            GatewayError::Transport { message, .. } if message == "attempt timed out"
+        ),
+        RetryCondition::TransportError => matches!(
+            error,
+            GatewayError::Transport { .. } | GatewayError::StreamAborted { .. }
+        ),
+    }
+}
+
+async fn apply_retry_backoff(policy: &BackoffPolicy, attempt_index: usize) {
+    let delay = match policy {
+        BackoffPolicy::None => None,
+        BackoffPolicy::Fixed(delay) => Some(*delay),
+        BackoffPolicy::Exponential { base, max, jitter } => {
+            let factor = 1u32.checked_shl(attempt_index as u32).unwrap_or(u32::MAX);
+            let mut delay = base.checked_mul(factor).unwrap_or(*max);
+            if delay > *max {
+                delay = *max;
+            }
+            if *jitter {
+                use rand::Rng;
+
+                let upper_ms = delay.as_millis().max(1) as u64;
+                let jitter_ms = rand::thread_rng().gen_range(0..=upper_ms);
+                delay = Duration::from_millis(jitter_ms);
+            }
+            Some(delay)
+        }
+    };
+
+    if let Some(delay) = delay {
+        tokio::time::sleep(delay).await;
+    }
+}
+
+fn with_chat_attempt_reports(
+    session: ProxySession<ChatResponseChunk, ChatResponseFinal>,
+    attempts: Vec<AttemptReport>,
+) -> ProxySession<ChatResponseChunk, ChatResponseFinal> {
+    match session {
+        ProxySession::Completed(mut result) => {
+            result.report.attempts = attempts;
+            ProxySession::Completed(result)
+        }
+        ProxySession::Streaming(streaming) => {
+            ProxySession::Streaming(with_streaming_attempt_reports(streaming, attempts))
+        }
+    }
+}
+
+fn with_responses_attempt_reports(
+    session: ProxySession<ResponsesEvent, ResponsesFinal>,
+    attempts: Vec<AttemptReport>,
+) -> ProxySession<ResponsesEvent, ResponsesFinal> {
+    match session {
+        ProxySession::Completed(mut result) => {
+            result.report.attempts = attempts;
+            ProxySession::Completed(result)
+        }
+        ProxySession::Streaming(streaming) => {
+            ProxySession::Streaming(with_streaming_attempt_reports(streaming, attempts))
+        }
+    }
+}
+
+fn with_completed_attempt_reports<T>(
+    mut response: CompletedResponse<T>,
+    attempts: Vec<AttemptReport>,
+) -> CompletedResponse<T> {
+    response.report.attempts = attempts;
+    response
+}
+
+fn with_streaming_attempt_reports<Chunk, Final>(
+    streaming: StreamingResponse<Chunk, Final>,
+    attempts: Vec<AttemptReport>,
+) -> StreamingResponse<Chunk, Final>
+where
+    Chunk: Send + 'static,
+    Final: Send + 'static,
+{
+    let StreamingResponse {
+        stream,
+        completion,
+        request_id,
+    } = streaming;
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+
+    tokio::spawn(async move {
+        let result = completion.await.map(|outcome| {
+            outcome.map(|mut completed| {
+                completed.report.attempts = attempts;
+                completed
+            })
+        });
+        let _ = sender.send(result.unwrap_or_else(|_| {
+            Err(GatewayError::Transport {
+                message: "stream completion channel dropped".to_string(),
+                endpoint_id: None,
+            })
+        }));
+    });
+
+    StreamingResponse {
+        stream,
+        completion: receiver,
+        request_id,
     }
 }
 
@@ -242,6 +600,13 @@ mod tests {
     use crate::retry::{BackoffPolicy, LoadBalancingStrategy, RetryCondition, RetryPolicy};
 
     use super::UniGatewayEngine;
+
+    #[derive(Clone)]
+    enum TestBehavior {
+        Success,
+        Upstream429,
+        Upstream500,
+    }
 
     fn endpoint(endpoint_id: &str) -> Endpoint {
         Endpoint {
@@ -513,6 +878,127 @@ mod tests {
         }
     }
 
+    struct BehaviorDriver {
+        chat: HashMap<String, TestBehavior>,
+    }
+
+    impl ProviderDriver for BehaviorDriver {
+        fn driver_id(&self) -> &str {
+            "openai-compatible"
+        }
+
+        fn provider_kind(&self) -> ProviderKind {
+            ProviderKind::OpenAiCompatible
+        }
+
+        fn execute_chat(
+            &self,
+            endpoint: DriverEndpointContext,
+            request: ProxyChatRequest,
+        ) -> BoxFuture<
+            'static,
+            Result<ProxySession<ChatResponseChunk, ChatResponseFinal>, crate::error::GatewayError>,
+        > {
+            let behavior = self
+                .chat
+                .get(&endpoint.endpoint_id)
+                .cloned()
+                .unwrap_or(TestBehavior::Success);
+            Box::pin(async move {
+                match behavior {
+                    TestBehavior::Success => Ok(ProxySession::Completed(CompletedResponse {
+                        response: ChatResponseFinal {
+                            model: Some(request.model),
+                            output_text: Some(endpoint.endpoint_id.clone()),
+                            raw: json!({"endpoint_id": endpoint.endpoint_id}),
+                        },
+                        report: RequestReport {
+                            request_id: "req-test".to_string(),
+                            pool_id: endpoint.metadata.get("pool_id").cloned(),
+                            selected_endpoint_id: endpoint.endpoint_id,
+                            selected_provider: endpoint.provider_kind,
+                            attempts: Vec::new(),
+                            usage: None,
+                            latency_ms: 1,
+                            started_at: SystemTime::UNIX_EPOCH,
+                            finished_at: SystemTime::UNIX_EPOCH,
+                            metadata: endpoint.metadata,
+                        },
+                    })),
+                    TestBehavior::Upstream429 => Err(crate::error::GatewayError::UpstreamHttp {
+                        status: 429,
+                        body: Some("rate limited".to_string()),
+                        endpoint_id: endpoint.endpoint_id,
+                    }),
+                    TestBehavior::Upstream500 => Err(crate::error::GatewayError::UpstreamHttp {
+                        status: 500,
+                        body: Some("boom".to_string()),
+                        endpoint_id: endpoint.endpoint_id,
+                    }),
+                }
+            })
+        }
+
+        fn execute_responses(
+            &self,
+            endpoint: DriverEndpointContext,
+            _request: ProxyResponsesRequest,
+        ) -> BoxFuture<
+            'static,
+            Result<ProxySession<ResponsesEvent, ResponsesFinal>, crate::error::GatewayError>,
+        > {
+            Box::pin(async move {
+                Ok(ProxySession::Completed(CompletedResponse {
+                    response: ResponsesFinal {
+                        output_text: Some(endpoint.endpoint_id.clone()),
+                        raw: json!({"endpoint_id": endpoint.endpoint_id}),
+                    },
+                    report: RequestReport {
+                        request_id: "req-resp".to_string(),
+                        pool_id: endpoint.metadata.get("pool_id").cloned(),
+                        selected_endpoint_id: endpoint.endpoint_id,
+                        selected_provider: endpoint.provider_kind,
+                        attempts: Vec::new(),
+                        usage: None,
+                        latency_ms: 1,
+                        started_at: SystemTime::UNIX_EPOCH,
+                        finished_at: SystemTime::UNIX_EPOCH,
+                        metadata: endpoint.metadata,
+                    },
+                }))
+            })
+        }
+
+        fn execute_embeddings(
+            &self,
+            endpoint: DriverEndpointContext,
+            _request: ProxyEmbeddingsRequest,
+        ) -> BoxFuture<
+            'static,
+            Result<CompletedResponse<EmbeddingsResponse>, crate::error::GatewayError>,
+        > {
+            Box::pin(async move {
+                Ok(CompletedResponse {
+                    response: EmbeddingsResponse {
+                        raw: json!({"endpoint_id": endpoint.endpoint_id}),
+                    },
+                    report: RequestReport {
+                        request_id: "req-embed".to_string(),
+                        pool_id: endpoint.metadata.get("pool_id").cloned(),
+                        selected_endpoint_id: endpoint.endpoint_id,
+                        selected_provider: endpoint.provider_kind,
+                        attempts: Vec::new(),
+                        usage: None,
+                        latency_ms: 1,
+                        started_at: SystemTime::UNIX_EPOCH,
+                        finished_at: SystemTime::UNIX_EPOCH,
+                        metadata: endpoint.metadata,
+                    },
+                })
+            })
+        }
+    }
+
     #[tokio::test]
     async fn proxy_chat_delegates_to_registered_driver() {
         let registry = Arc::new(InMemoryDriverRegistry::new());
@@ -592,5 +1078,120 @@ mod tests {
         };
 
         assert!(error.to_string().contains("driver registry not configured"));
+    }
+
+    #[tokio::test]
+    async fn fallback_strategy_tries_next_endpoint_on_failure() {
+        let registry = Arc::new(InMemoryDriverRegistry::new());
+        registry.register(Arc::new(BehaviorDriver {
+            chat: HashMap::from([
+                ("a".to_string(), TestBehavior::Upstream500),
+                ("b".to_string(), TestBehavior::Success),
+            ]),
+        }));
+
+        let engine = UniGatewayEngine::builder()
+            .with_driver_registry(registry)
+            .build();
+        engine
+            .upsert_pool(pool(
+                "alpha",
+                LoadBalancingStrategy::Fallback,
+                vec![endpoint("a"), endpoint("b")],
+            ))
+            .await
+            .expect("upsert pool");
+
+        let session = engine
+            .proxy_chat(
+                ProxyChatRequest {
+                    model: "gpt-4o-mini".to_string(),
+                    messages: Vec::new(),
+                    temperature: None,
+                    top_p: None,
+                    max_tokens: None,
+                    stream: false,
+                    metadata: HashMap::new(),
+                },
+                ExecutionTarget::Pool {
+                    pool_id: "alpha".to_string(),
+                },
+            )
+            .await
+            .expect("proxy chat");
+
+        match session {
+            ProxySession::Completed(result) => {
+                assert_eq!(result.report.selected_endpoint_id, "b");
+                assert_eq!(result.response.output_text.as_deref(), Some("b"));
+                assert_eq!(result.report.attempts.len(), 2);
+                assert_eq!(
+                    result.report.attempts[0].status,
+                    crate::response::AttemptStatus::Retried
+                );
+                assert_eq!(
+                    result.report.attempts[1].status,
+                    crate::response::AttemptStatus::Succeeded
+                );
+            }
+            ProxySession::Streaming(_) => panic!("expected completed response"),
+        }
+    }
+
+    #[tokio::test]
+    async fn round_robin_retries_only_for_configured_conditions() {
+        let registry = Arc::new(InMemoryDriverRegistry::new());
+        registry.register(Arc::new(BehaviorDriver {
+            chat: HashMap::from([
+                ("a".to_string(), TestBehavior::Upstream429),
+                ("b".to_string(), TestBehavior::Success),
+            ]),
+        }));
+
+        let engine = UniGatewayEngine::builder()
+            .with_driver_registry(registry)
+            .build();
+        engine
+            .upsert_pool(pool(
+                "alpha",
+                LoadBalancingStrategy::RoundRobin,
+                vec![endpoint("a"), endpoint("b")],
+            ))
+            .await
+            .expect("upsert pool");
+
+        let session = engine
+            .proxy_chat(
+                ProxyChatRequest {
+                    model: "gpt-4o-mini".to_string(),
+                    messages: Vec::new(),
+                    temperature: None,
+                    top_p: None,
+                    max_tokens: None,
+                    stream: false,
+                    metadata: HashMap::new(),
+                },
+                ExecutionTarget::Pool {
+                    pool_id: "alpha".to_string(),
+                },
+            )
+            .await
+            .expect("proxy chat");
+
+        match session {
+            ProxySession::Completed(result) => {
+                assert_eq!(result.report.selected_endpoint_id, "b");
+                assert_eq!(result.report.attempts.len(), 2);
+                assert_eq!(
+                    result.report.attempts[0].status,
+                    crate::response::AttemptStatus::Retried
+                );
+                assert_eq!(
+                    result.report.attempts[1].status,
+                    crate::response::AttemptStatus::Succeeded
+                );
+            }
+            ProxySession::Streaming(_) => panic!("expected completed response"),
+        }
     }
 }

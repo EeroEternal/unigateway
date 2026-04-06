@@ -1,41 +1,9 @@
 use axum::http::HeaderMap;
 use llm_providers::get_endpoint;
 use serde_json::Value;
+use unigateway_runtime::host::ResolvedProvider;
 
 use crate::config::{GatewayState, ServiceProvider};
-use crate::storage::map_model_name;
-
-/// A provider with its upstream URL already resolved and validated.
-#[derive(Debug, Clone)]
-pub struct ResolvedProvider {
-    pub name: String,
-    pub provider_type: String,
-    pub endpoint_id: Option<String>,
-    pub base_url: String,
-    pub api_key: String,
-    pub family_id: Option<String>,
-    pub default_model: Option<String>,
-    pub model_mapping: Option<String>,
-}
-
-impl ResolvedProvider {
-    /// Apply model_mapping to get the upstream model name.
-    /// Falls back to default_model if no explicit mapping matches.
-    pub fn map_model(&self, original_model: &str) -> String {
-        // Volcengine specific logic: endpoint_id (ep-xxx) takes precedence over model
-        if self.provider_type == "volcengine"
-            && let Some(ref eid) = self.endpoint_id
-            && !eid.is_empty()
-            && !eid.contains(':')
-        {
-            return eid.clone();
-        }
-
-        map_model_name(self.model_mapping.as_deref(), original_model)
-            .or_else(|| self.default_model.clone())
-            .unwrap_or_else(|| original_model.to_string())
-    }
-}
 
 /// Normalize a base_url by ensuring it has a trailing slash.
 pub fn normalize_base_url(url: &str) -> String {

@@ -7,6 +7,7 @@ use unigateway_core::protocol::builtin_drivers;
 use unigateway_core::transport::ReqwestHttpTransport;
 
 use crate::config::GatewayState;
+use crate::config::core_sync::sync_core_pools;
 
 pub fn default_config_path() -> String {
     let dir = dirs::config_dir()
@@ -79,6 +80,10 @@ impl AppState {
             gateway,
             core_engine,
         }
+    }
+
+    pub async fn sync_core_pools(&self) -> anyhow::Result<()> {
+        sync_core_pools(self.gateway.as_ref(), self.core_engine.as_ref()).await
     }
 }
 

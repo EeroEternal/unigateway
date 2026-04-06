@@ -1,7 +1,7 @@
 use anyhow::Error;
-use axum::http::StatusCode;
+use http::StatusCode;
 
-pub(crate) fn status_for_core_error(error: &Error) -> StatusCode {
+pub fn status_for_core_error(error: &Error) -> StatusCode {
     if error.to_string().contains("matches target") {
         StatusCode::BAD_REQUEST
     } else {
@@ -9,7 +9,7 @@ pub(crate) fn status_for_core_error(error: &Error) -> StatusCode {
     }
 }
 
-pub(crate) fn status_for_legacy_error(error: &Error) -> StatusCode {
+pub fn status_for_legacy_error(error: &Error) -> StatusCode {
     if error.to_string().contains("matches target") {
         StatusCode::BAD_REQUEST
     } else if error.to_string().contains("all providers failed") {
@@ -22,7 +22,7 @@ pub(crate) fn status_for_legacy_error(error: &Error) -> StatusCode {
 #[cfg(test)]
 mod tests {
     use anyhow::anyhow;
-    use axum::http::StatusCode;
+    use http::StatusCode;
 
     use super::{status_for_core_error, status_for_legacy_error};
 

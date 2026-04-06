@@ -19,29 +19,41 @@ pub(crate) struct ExecutionSnapshot {
 }
 
 impl ExecutionSnapshot {
-    pub(crate) fn select_endpoint(
+    pub(crate) fn ordered_endpoints(
         &self,
         rr_counters: &mut HashMap<String, usize>,
-    ) -> Result<Endpoint, GatewayError> {
+        max_attempts: usize,
+    ) -> Result<Vec<Endpoint>, GatewayError> {
         if self.endpoints.is_empty() {
             return Err(GatewayError::NoAvailableEndpoint);
         }
 
+        let mut endpoints = self.endpoints.clone();
         match self.load_balancing {
+            LoadBalancingStrategy::Fallback => {}
             LoadBalancingStrategy::Random => {
                 let mut rng = rand::thread_rng();
-                self.endpoints
-                    .choose(&mut rng)
-                    .cloned()
-                    .ok_or(GatewayError::NoAvailableEndpoint)
+                endpoints.shuffle(&mut rng);
             }
             LoadBalancingStrategy::RoundRobin => {
                 let idx = rr_counters.entry(self.selection_key.clone()).or_insert(0);
-                let endpoint = self.endpoints[*idx % self.endpoints.len()].clone();
-                *idx = (*idx + 1) % self.endpoints.len();
-                Ok(endpoint)
+                let start = *idx % endpoints.len();
+                endpoints.rotate_left(start);
+                *idx = (*idx + 1) % endpoints.len();
             }
         }
+
+        endpoints.truncate(max_attempts.max(1).min(endpoints.len()));
+        Ok(endpoints)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn select_endpoint(
+        &self,
+        rr_counters: &mut HashMap<String, usize>,
+    ) -> Result<Endpoint, GatewayError> {
+        self.ordered_endpoints(rr_counters, 1)
+            .map(|mut endpoints| endpoints.remove(0))
     }
 }
 

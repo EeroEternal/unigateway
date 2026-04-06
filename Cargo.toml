@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "api-bindings", "command-line-util
 authors = ["EeroEternal <songmqq@proton.me>"]
 
 [workspace]
-members = ["unigateway-core"]
+members = ["unigateway-core", "unigateway-runtime"]
 
 [[bin]]
 name = "ug"
@@ -48,3 +48,4 @@ clap_complete = "4.6.0"
 console = "0.16.3"
 indicatif = "0.18.4"
 unigateway-core = { path = "unigateway-core" }
+unigateway-runtime = { path = "unigateway-runtime" }

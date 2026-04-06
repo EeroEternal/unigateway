@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LoadBalancingStrategy {
+    Fallback,
     Random,
     RoundRobin,
 }

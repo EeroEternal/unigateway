@@ -9,7 +9,7 @@ mod store;
 use std::collections::HashMap;
 use std::time::Instant;
 
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, mpsc};
 
 use self::schema::default_round_robin;
 pub use self::schema::{
@@ -52,6 +52,7 @@ pub struct GatewayState {
     pub inner: RwLock<GatewayConfig>,
     pub api_key_runtime: Mutex<HashMap<String, RuntimeRateState>>,
     pub service_rr: Mutex<HashMap<String, usize>>,
+    pub core_sync_notifier: Mutex<Option<mpsc::UnboundedSender<()>>>,
 }
 
 #[derive(Debug, Clone)]

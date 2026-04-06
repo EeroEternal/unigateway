@@ -10,12 +10,13 @@ Related documents:
 
 - [docs/unigateway-core-api-draft.md](docs/unigateway-core-api-draft.md)
 - [docs/unigateway-core-implementation-plan.md](docs/unigateway-core-implementation-plan.md)
+- [docs/unigateway-runtime-api-sketch.md](docs/unigateway-runtime-api-sketch.md)
 
 ## 1. Summary
 
 This document defines the next architecture layer above `unigateway-core`.
 
-The repository should not stop at a reusable execution engine. It should also provide a reusable gateway runtime layer that owns HTTP protocol compatibility, request normalization, response shaping, streaming wire output, and controlled fallback behavior.
+The repository should not stop at a reusable execution engine. It should also provide a reusable gateway runtime layer that owns HTTP protocol compatibility, core-bridge execution policy, response shaping, streaming wire output, and controlled fallback behavior.
 
 That layer is intended for embedders such as OpenHub that need a complete gateway runtime, but do not want the current UniGateway product shell with its local config, admin, CLI, and operational behavior.
 
@@ -117,17 +118,22 @@ An external host such as OpenHub should be able to:
 
 The gateway runtime layer should be intentionally narrow.
 
+The current extracted boundary does not include wire-level request normalization or connector-backed legacy transport.
+Those remain product-owned so `unigateway-runtime` can stay free of `llm-connector` and other product-shell transport details.
+
 ### 5.1 In Scope
 
-- HTTP request parsing for OpenAI-compatible and Anthropic-compatible endpoints
-- request-to-core conversion
+- runtime-owned flow resolution and env fallback policy
+- request-to-core execution bridging from normalized `Proxy*Request` inputs
 - core execution bridging
 - HTTP response formatting
 - SSE event formatting for downstream clients
-- compatibility fallback that exists only because some upstreams are not fully uniform yet
+- status shaping for runtime/core failure modes
 
 ### 5.2 Out of Scope
 
+- wire JSON parsing in `src/protocol.rs`
+- connector-backed fallback transport in `src/gateway/legacy_runtime.rs`
 - config-file persistence
 - admin CRUD endpoints
 - API key storage and lifecycle
@@ -150,7 +156,7 @@ Responsibilities:
 
 Current code that already fits this layer:
 
-- `src/protocol.rs`
+- `src/protocol.rs` currently remains in the product shell as an edge adapter
 - parts of `src/gateway/core_adapter.rs`
 - parts of `src/gateway/streaming.rs`
 
@@ -205,24 +211,44 @@ The important point is inversion of control:
 - the host supplies auth and routing context
 - the gateway runtime supplies protocol compatibility and execution behavior
 
+### 7.1 Current Extracted Facade Shape
+
+The extracted `unigateway-runtime` crate now carries the reusable runtime facade directly.
+
+The intended grouped entry points are:
+
+- `unigateway_runtime::host`: host capability contracts and runtime context types
+- `unigateway_runtime::core`: core-first execution bridge entry points
+- `unigateway_runtime::flow`: reusable runtime orchestration and env fallback helpers
+- `unigateway_runtime::status`: status mapping helpers for runtime-owned error classification
+
+Implementation files behind those grouped facade modules should remain private details whenever possible.
+
+Current extraction status:
+
+- `host`, `core`, `flow`, and `status` now exist as real workspace crate surfaces in `unigateway-runtime`
+- product call sites now import `unigateway_runtime` directly
+- `src/runtime_host_adapter.rs` now acts mainly as the compilation unit for `AppState` host adapter wiring
+- `src/protocol.rs` and `src/gateway/legacy_runtime.rs` remain product-owned adapters at the shell boundary
+
+See also: [docs/unigateway-runtime-api-sketch.md](docs/unigateway-runtime-api-sketch.md) for the current first-pass public surface draft.
+
 ## 8. Current Code Mapping to the Future Runtime Layer
 
 The following current modules should be considered candidates for the new reusable gateway runtime package.
 
 | Current module | Future home | Reason |
 | --- | --- | --- |
-| `src/protocol.rs` | gateway runtime | HTTP request normalization and protocol shaping |
-| `src/protocol/messages.rs` | gateway runtime | wire-format request parsing |
-| `src/gateway/core_adapter.rs` | gateway runtime | request and response conversion |
-| `src/gateway/core_bridge.rs` | gateway runtime | execution bridge into core |
-| `src/gateway/responses_compat.rs` | gateway runtime | temporary compatibility fallback |
-| parts of `src/gateway/streaming.rs` | gateway runtime | SSE shaping and stream forwarding |
-| parts of `src/gateway/chat.rs` | gateway runtime | protocol-specific downstream response wiring |
+| `unigateway-runtime/src/core.rs` | gateway runtime | request and response conversion plus execution bridge into core |
+| `unigateway-runtime/src/flow.rs` | gateway runtime | shared runtime flow resolution and env policy |
+| `unigateway-runtime/src/status.rs` | gateway runtime | runtime-owned status mapping |
 
 The following modules should remain product-only.
 
 | Current module | Stay in product shell | Reason |
 | --- | --- | --- |
+| `src/protocol.rs` | yes | wire-level normalization is kept at the shell edge for now |
+| `src/gateway/legacy_runtime.rs` | yes | `llm-connector` fallback remains outside connector-free runtime |
 | `src/middleware.rs` | yes | auth, quota, and stats are product concerns |
 | `src/api_key.rs` | yes | API key lifecycle is not runtime reuse |
 | `src/service.rs` | yes | admin CRUD |
@@ -265,12 +291,12 @@ Exit criteria:
 
 Deliverables:
 
-- gather protocol normalization, bridge, stream shaping, and compat code behind one internal runtime namespace
+- gather bridge, env policy, stream shaping, and status code behind one internal runtime namespace
 - reduce direct dependencies from handlers into scattered helper modules
+- keep wire JSON normalization and connector-backed legacy transport at the product edge until a connector-free abstraction exists
 
 Suggested source moves:
 
-- `src/protocol.rs`
 - `src/gateway/core_adapter.rs`
 - `src/gateway/core_bridge.rs`
 - `src/gateway/responses_compat.rs`

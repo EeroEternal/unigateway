@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+mod legacy_runtime;
 mod support;
 
 use axum::{

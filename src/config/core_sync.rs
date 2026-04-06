@@ -1,15 +1,18 @@
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Result, anyhow};
 use unigateway_core::{
     Endpoint, LoadBalancingStrategy, ModelPolicy, ProviderKind, ProviderPool, RetryPolicy,
-    SecretString,
+    SecretString, UniGatewayEngine,
 };
 
 use super::{BindingEntry, GatewayConfigFile, GatewayState, ProviderEntry, ServiceEntry};
 use crate::routing::resolve_upstream;
+
+const CONFIG_MANAGED_POOL_MARKER_KEY: &str = "managed_by";
+const CONFIG_MANAGED_POOL_MARKER_VALUE: &str = "gateway-config";
 
 pub(crate) async fn build_core_pool_for_service(
     state: &GatewayState,
@@ -28,6 +31,61 @@ pub(crate) async fn build_all_core_pools(state: &GatewayState) -> Result<Vec<Pro
     }
 
     Ok(pools)
+}
+
+pub(crate) async fn sync_core_pools(state: &GatewayState, engine: &UniGatewayEngine) -> Result<()> {
+    let file = {
+        let guard = state.inner.read().await;
+        guard.file.clone()
+    };
+
+    let service_ids: HashSet<String> = file
+        .services
+        .iter()
+        .map(|service| service.id.clone())
+        .collect();
+
+    for service in &file.services {
+        match build_pool_from_file(&file, &service.id) {
+            Ok(pool) => {
+                engine
+                    .upsert_pool(pool)
+                    .await
+                    .map_err(|error| anyhow!(error.to_string()))?;
+            }
+            Err(error) => {
+                engine
+                    .remove_pool(&service.id)
+                    .await
+                    .map_err(|error| anyhow!(error.to_string()))?;
+
+                let message = error.to_string();
+                if message.contains("unsupported core routing strategy")
+                    || message.contains("has no enabled providers for core sync")
+                {
+                    tracing::debug!(service_id = service.id.as_str(), error = %error, "skipping core pool sync for service");
+                } else {
+                    tracing::warn!(service_id = service.id.as_str(), error = %error, "failed to sync core pool for service");
+                }
+            }
+        }
+    }
+
+    for pool in engine.list_pools().await {
+        let is_config_managed = pool
+            .metadata
+            .get(CONFIG_MANAGED_POOL_MARKER_KEY)
+            .is_some_and(|value| value == CONFIG_MANAGED_POOL_MARKER_VALUE);
+
+        if is_config_managed && !service_ids.contains(&pool.pool_id) {
+            engine
+                .remove_pool(&pool.pool_id)
+                .await
+                .map_err(|error| anyhow!(error.to_string()))?;
+        }
+    }
+
+    Ok(())
 }
 
 fn build_pool_from_file(file: &GatewayConfigFile, service_id: &str) -> Result<ProviderPool> {
@@ -68,7 +126,13 @@ fn build_pool_from_file(file: &GatewayConfigFile, service_id: &str) -> Result<Pr
         endpoints,
         load_balancing,
         retry_policy: RetryPolicy::default(),
-        metadata: HashMap::from([("service_name".to_string(), service.name.clone())]),
+        metadata: HashMap::from([
+            ("service_name".to_string(), service.name.clone()),
+            (
+                CONFIG_MANAGED_POOL_MARKER_KEY.to_string(),
+                CONFIG_MANAGED_POOL_MARKER_VALUE.to_string(),
+            ),
+        ]),
     })
 }
 
@@ -162,6 +226,7 @@ fn to_core_endpoint(
 
 fn to_core_strategy(service: &ServiceEntry) -> Result<LoadBalancingStrategy> {
     match service.routing_strategy.as_str() {
+        "fallback" => Ok(LoadBalancingStrategy::Fallback),
         "round_robin" => Ok(LoadBalancingStrategy::RoundRobin),
         "random" => Ok(LoadBalancingStrategy::Random),
         other => Err(anyhow!(
@@ -217,8 +282,10 @@ fn parse_model_mapping(raw: &str) -> HashMap<String, String> {
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
+    use unigateway_core::LoadBalancingStrategy;
+    use unigateway_core::UniGatewayEngine;
 
-    use super::{build_all_core_pools, build_core_pool_for_service};
+    use super::{build_all_core_pools, build_core_pool_for_service, sync_core_pools};
     use crate::config::GatewayState;
 
     #[tokio::test]
@@ -261,7 +328,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_all_core_pools_rejects_unsupported_strategy() {
+    async fn build_all_core_pools_supports_fallback_strategy() {
         let dir = tempdir().expect("tempdir");
         let config_path = dir.path().join("config.toml");
         let state = GatewayState::load(&config_path).await.expect("load state");
@@ -286,14 +353,52 @@ mod tests {
             .await
             .expect("bind provider");
 
-        let error = build_all_core_pools(&state)
+        let pools = build_all_core_pools(&state)
             .await
-            .expect_err("unsupported strategy should fail");
+            .expect("fallback strategy should sync");
 
-        assert!(
-            error
-                .to_string()
-                .contains("unsupported core routing strategy")
-        );
+        assert_eq!(pools.len(), 1);
+        assert_eq!(pools[0].load_balancing, LoadBalancingStrategy::Fallback);
+    }
+
+    #[tokio::test]
+    async fn sync_core_pools_keeps_fallback_services_synced() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(&config_path).await.expect("load state");
+
+        state.create_service("svc-ok", "Supported").await;
+        state.create_service("svc-legacy", "Legacy").await;
+        state
+            .set_service_routing_strategy("svc-legacy", "fallback")
+            .await
+            .expect("set legacy strategy");
+
+        let provider_id = state
+            .create_provider(
+                "moonshot-main",
+                "openai",
+                "moonshot:global",
+                None,
+                "sk-test",
+                None,
+            )
+            .await;
+        state
+            .bind_provider_to_service("svc-ok", provider_id)
+            .await
+            .expect("bind provider");
+        state
+            .bind_provider_to_service("svc-legacy", provider_id)
+            .await
+            .expect("bind provider to fallback service");
+
+        let engine = UniGatewayEngine::builder().build();
+        sync_core_pools(state.as_ref(), &engine)
+            .await
+            .expect("sync core pools");
+
+        assert!(engine.get_pool("svc-ok").await.is_some());
+        assert!(engine.get_pool("svc-legacy").await.is_some());
     }
 }

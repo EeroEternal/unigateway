@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use tokio::sync::mpsc;
 
 use super::{GatewayConfig, GatewayState, RequestStats};
 use crate::config::GatewayConfigFile;
@@ -32,7 +33,18 @@ impl GatewayState {
             inner: tokio::sync::RwLock::new(config),
             api_key_runtime: tokio::sync::Mutex::new(std::collections::HashMap::new()),
             service_rr: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+            core_sync_notifier: tokio::sync::Mutex::new(None),
         }))
+    }
+
+    pub async fn set_core_sync_notifier(&self, notifier: mpsc::UnboundedSender<()>) {
+        *self.core_sync_notifier.lock().await = Some(notifier);
+    }
+
+    pub async fn request_core_sync(&self) {
+        if let Some(notifier) = self.core_sync_notifier.lock().await.as_ref() {
+            let _ = notifier.send(());
+        }
     }
 
     pub async fn persist(&self) -> Result<()> {

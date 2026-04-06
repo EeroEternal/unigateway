@@ -69,17 +69,20 @@ impl GatewayState {
     }
 
     pub async fn create_service(&self, id: &str, name: &str) {
-        let mut guard = self.inner.write().await;
-        if let Some(s) = guard.file.services.iter_mut().find(|s| s.id == id) {
-            s.name = name.to_string();
-        } else {
-            guard.file.services.push(ServiceEntry {
-                id: id.to_string(),
-                name: name.to_string(),
-                routing_strategy: default_round_robin(),
-            });
+        {
+            let mut guard = self.inner.write().await;
+            if let Some(s) = guard.file.services.iter_mut().find(|s| s.id == id) {
+                s.name = name.to_string();
+            } else {
+                guard.file.services.push(ServiceEntry {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    routing_strategy: default_round_robin(),
+                });
+            }
+            guard.dirty = true;
         }
-        guard.dirty = true;
+        self.request_core_sync().await;
     }
 
     pub async fn set_service_routing_strategy(
@@ -87,17 +90,20 @@ impl GatewayState {
         service_id: &str,
         routing_strategy: &str,
     ) -> Result<()> {
-        let mut guard = self.inner.write().await;
-        let Some(service) = guard
-            .file
-            .services
-            .iter_mut()
-            .find(|service| service.id == service_id)
-        else {
-            anyhow::bail!("service '{}' not found", service_id);
-        };
-        service.routing_strategy = routing_strategy.to_string();
-        guard.dirty = true;
+        {
+            let mut guard = self.inner.write().await;
+            let Some(service) = guard
+                .file
+                .services
+                .iter_mut()
+                .find(|service| service.id == service_id)
+            else {
+                anyhow::bail!("service '{}' not found", service_id);
+            };
+            service.routing_strategy = routing_strategy.to_string();
+            guard.dirty = true;
+        }
+        self.request_core_sync().await;
         Ok(())
     }
 
@@ -162,45 +168,49 @@ impl GatewayState {
         api_key: &str,
         model_options: ProviderModelOptions<'_>,
     ) -> i64 {
-        let mut guard = self.inner.write().await;
+        let idx = {
+            let mut guard = self.inner.write().await;
 
-        // If base_url is provided but matches the default base_url for this endpoint_id,
-        // we store it as empty to keep config.toml clean and rely on single source of truth.
-        let mut final_base_url = base_url.map(normalize_base_url).unwrap_or_default();
-        if !endpoint_id.is_empty()
-            && let Some((_, endpoint)) = llm_providers::get_endpoint(endpoint_id)
-        {
-            let default_url = normalize_base_url(endpoint.base_url);
-            if final_base_url == default_url {
-                final_base_url = String::new();
+            // If base_url is provided but matches the default base_url for this endpoint_id,
+            // we store it as empty to keep config.toml clean and rely on single source of truth.
+            let mut final_base_url = base_url.map(normalize_base_url).unwrap_or_default();
+            if !endpoint_id.is_empty()
+                && let Some((_, endpoint)) = llm_providers::get_endpoint(endpoint_id)
+            {
+                let default_url = normalize_base_url(endpoint.base_url);
+                if final_base_url == default_url {
+                    final_base_url = String::new();
+                }
             }
-        }
 
-        let entry = ProviderEntry {
-            name: name.to_string(),
-            provider_type: provider_type.to_string(),
-            endpoint_id: endpoint_id.to_string(),
-            base_url: final_base_url,
-            api_key: api_key.to_string(),
-            default_model: model_options.default_model.unwrap_or("").to_string(),
-            model_mapping: model_options.model_mapping.unwrap_or("").to_string(),
-            is_enabled: true,
+            let entry = ProviderEntry {
+                name: name.to_string(),
+                provider_type: provider_type.to_string(),
+                endpoint_id: endpoint_id.to_string(),
+                base_url: final_base_url,
+                api_key: api_key.to_string(),
+                default_model: model_options.default_model.unwrap_or("").to_string(),
+                model_mapping: model_options.model_mapping.unwrap_or("").to_string(),
+                is_enabled: true,
+            };
+            let idx = if let Some((i, p)) = guard
+                .file
+                .providers
+                .iter_mut()
+                .enumerate()
+                .find(|(_, p)| p.name == name)
+            {
+                *p = entry;
+                i as i64
+            } else {
+                let i = guard.file.providers.len() as i64;
+                guard.file.providers.push(entry);
+                i
+            };
+            guard.dirty = true;
+            idx
         };
-        let idx = if let Some((i, p)) = guard
-            .file
-            .providers
-            .iter_mut()
-            .enumerate()
-            .find(|(_, p)| p.name == name)
-        {
-            *p = entry;
-            i as i64
-        } else {
-            let i = guard.file.providers.len() as i64;
-            guard.file.providers.push(entry);
-            i
-        };
-        guard.dirty = true;
+        self.request_core_sync().await;
         idx
     }
 
@@ -223,25 +233,28 @@ impl GatewayState {
         let Some(provider_name) = provider_name else {
             anyhow::bail!("provider_id {} not found", provider_id);
         };
-        let mut guard = self.inner.write().await;
-        let exists = guard
-            .file
-            .bindings
-            .iter()
-            .any(|b| b.service_id == service_id && b.provider_name == provider_name);
-        if let Some(binding) = guard.file.bindings.iter_mut().find(|binding| {
-            binding.service_id == service_id && binding.provider_name == provider_name
-        }) {
-            binding.priority = priority;
-            guard.dirty = true;
-        } else if !exists {
-            guard.file.bindings.push(BindingEntry {
-                service_id: service_id.to_string(),
-                provider_name,
-                priority,
-            });
-            guard.dirty = true;
+        {
+            let mut guard = self.inner.write().await;
+            let exists = guard
+                .file
+                .bindings
+                .iter()
+                .any(|b| b.service_id == service_id && b.provider_name == provider_name);
+            if let Some(binding) = guard.file.bindings.iter_mut().find(|binding| {
+                binding.service_id == service_id && binding.provider_name == provider_name
+            }) {
+                binding.priority = priority;
+                guard.dirty = true;
+            } else if !exists {
+                guard.file.bindings.push(BindingEntry {
+                    service_id: service_id.to_string(),
+                    provider_name,
+                    priority,
+                });
+                guard.dirty = true;
+            }
         }
+        self.request_core_sync().await;
         Ok(())
     }
 

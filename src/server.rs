@@ -6,8 +6,9 @@ use axum::{
     routing::{get, post},
 };
 use tokio::net::TcpListener;
+use tokio::sync::mpsc;
 use tower_http::trace::TraceLayer;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::config::GatewayState;
 use crate::types::{AppConfig, AppState};
@@ -17,7 +18,21 @@ pub async fn run(config: AppConfig) -> Result<()> {
     let gateway = GatewayState::load(config_path)
         .await
         .with_context(|| format!("load config: {}", config.config_path))?;
-    let state = AppState::new(config.clone(), gateway.clone());
+    let state = Arc::new(AppState::new(config.clone(), gateway.clone()));
+    let (core_sync_tx, mut core_sync_rx) = mpsc::unbounded_channel();
+    gateway.set_core_sync_notifier(core_sync_tx).await;
+    state.sync_core_pools().await?;
+
+    let sync_state = state.clone();
+    tokio::spawn(async move {
+        while core_sync_rx.recv().await.is_some() {
+            while core_sync_rx.try_recv().is_ok() {}
+
+            if let Err(error) = sync_state.sync_core_pools().await {
+                warn!(error = %error, "failed to sync core pools after config change");
+            }
+        }
+    });
 
     // Periodically persist used_quota and other dirty state to config file
     let gw = gateway.clone();
@@ -61,9 +76,7 @@ pub async fn run(config: AppConfig) -> Result<()> {
         .route("/v1/embeddings", post(crate::gateway::openai_embeddings))
         .route("/v1/messages", post(crate::gateway::anthropic_messages));
 
-    let app = app
-        .with_state(Arc::new(state))
-        .layer(TraceLayer::new_for_http());
+    let app = app.with_state(state).layer(TraceLayer::new_for_http());
 
     let addr: SocketAddr = config.bind.parse().context("invalid UNIGATEWAY_BIND")?;
     let listener = TcpListener::bind(addr).await?;

@@ -1,15 +1,42 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use crate::routing::ResolvedProvider;
 use anyhow::Result;
-use unigateway_core::ProviderPool;
-use unigateway_core::UniGatewayEngine;
+use serde_json::Value;
+use unigateway_core::{ProviderPool, UniGatewayEngine};
 
-pub(crate) type RuntimeFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+pub type RuntimeFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedProvider {
+    pub name: String,
+    pub provider_type: String,
+    pub endpoint_id: Option<String>,
+    pub base_url: String,
+    pub api_key: String,
+    pub family_id: Option<String>,
+    pub default_model: Option<String>,
+    pub model_mapping: Option<String>,
+}
+
+impl ResolvedProvider {
+    pub fn map_model(&self, original_model: &str) -> String {
+        if self.provider_type == "volcengine"
+            && let Some(ref endpoint_id) = self.endpoint_id
+            && !endpoint_id.is_empty()
+            && !endpoint_id.contains(':')
+        {
+            return endpoint_id.clone();
+        }
+
+        map_model_name(self.model_mapping.as_deref(), original_model)
+            .or_else(|| self.default_model.clone())
+            .unwrap_or_else(|| original_model.to_string())
+    }
+}
 
 #[derive(Clone, Copy)]
-pub(crate) struct RuntimeConfig<'a> {
+pub struct RuntimeConfig<'a> {
     pub openai_base_url: &'a str,
     pub openai_api_key: &'a str,
     pub openai_model: &'a str,
@@ -19,29 +46,29 @@ pub(crate) struct RuntimeConfig<'a> {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct RuntimeContext<'a> {
+pub struct RuntimeContext<'a> {
     pub config: RuntimeConfig<'a>,
     engine_host: &'a dyn RuntimeEngineHost,
     pool_host: &'a dyn RuntimePoolHost,
     routing_host: &'a dyn RuntimeRoutingHost,
 }
 
-pub(crate) trait RuntimeConfigHost: Send + Sync {
+pub trait RuntimeConfigHost: Send + Sync {
     fn runtime_config(&self) -> RuntimeConfig<'_>;
 }
 
-pub(crate) trait RuntimeEngineHost: Send + Sync {
+pub trait RuntimeEngineHost: Send + Sync {
     fn core_engine(&self) -> &UniGatewayEngine;
 }
 
-pub(crate) trait RuntimePoolHost: Send + Sync {
-    fn build_pool_for_service<'a>(
+pub trait RuntimePoolHost: Send + Sync {
+    fn pool_for_service<'a>(
         &'a self,
         service_id: &'a str,
-    ) -> RuntimeFuture<'a, Result<ProviderPool>>;
+    ) -> RuntimeFuture<'a, Result<Option<ProviderPool>>>;
 }
 
-pub(crate) trait RuntimeRoutingHost: Send + Sync {
+pub trait RuntimeRoutingHost: Send + Sync {
     fn resolve_providers<'a>(
         &'a self,
         service_id: &'a str,
@@ -50,22 +77,8 @@ pub(crate) trait RuntimeRoutingHost: Send + Sync {
     ) -> RuntimeFuture<'a, Result<Vec<ResolvedProvider>>>;
 }
 
-pub(crate) trait RuntimeHost:
-    RuntimeConfigHost + RuntimeEngineHost + RuntimePoolHost + RuntimeRoutingHost
-{
-}
-
-impl<T> RuntimeHost for T where
-    T: RuntimeConfigHost + RuntimeEngineHost + RuntimePoolHost + RuntimeRoutingHost + ?Sized
-{
-}
-
 impl<'a> RuntimeContext<'a> {
-    pub(crate) fn new(host: &'a dyn RuntimeHost) -> Self {
-        Self::from_parts(host, host, host, host)
-    }
-
-    pub(crate) fn from_parts(
+    pub fn from_parts(
         config_host: &'a dyn RuntimeConfigHost,
         engine_host: &'a dyn RuntimeEngineHost,
         pool_host: &'a dyn RuntimePoolHost,
@@ -79,15 +92,15 @@ impl<'a> RuntimeContext<'a> {
         }
     }
 
-    pub(crate) fn core_engine(&self) -> &UniGatewayEngine {
+    pub fn core_engine(&self) -> &UniGatewayEngine {
         self.engine_host.core_engine()
     }
 
-    pub(crate) async fn build_pool_for_service(&self, service_id: &str) -> Result<ProviderPool> {
-        self.pool_host.build_pool_for_service(service_id).await
+    pub async fn pool_for_service(&self, service_id: &str) -> Result<Option<ProviderPool>> {
+        self.pool_host.pool_for_service(service_id).await
     }
 
-    pub(crate) async fn resolve_providers(
+    pub async fn resolve_providers(
         &self,
         service_id: &str,
         protocol: &str,
@@ -97,6 +110,25 @@ impl<'a> RuntimeContext<'a> {
             .resolve_providers(service_id, protocol, hint)
             .await
     }
+}
+
+fn map_model_name(model_mapping: Option<&str>, requested_model: &str) -> Option<String> {
+    let raw_mapping = model_mapping?;
+
+    if let Ok(value) = serde_json::from_str::<Value>(raw_mapping) {
+        if let Some(mapped) = value.get(requested_model).and_then(Value::as_str) {
+            return Some(mapped.to_string());
+        }
+        if let Some(default) = value.get("default").and_then(Value::as_str) {
+            return Some(default.to_string());
+        }
+    }
+
+    if !raw_mapping.trim().is_empty() && !raw_mapping.trim().starts_with('{') {
+        return Some(raw_mapping.trim().to_string());
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -138,18 +170,18 @@ mod tests {
     struct MockPoolHost;
 
     impl RuntimePoolHost for MockPoolHost {
-        fn build_pool_for_service<'a>(
+        fn pool_for_service<'a>(
             &'a self,
             service_id: &'a str,
-        ) -> RuntimeFuture<'a, anyhow::Result<ProviderPool>> {
+        ) -> RuntimeFuture<'a, anyhow::Result<Option<ProviderPool>>> {
             Box::pin(async move {
-                Ok(ProviderPool {
+                Ok(Some(ProviderPool {
                     pool_id: format!("pool:{service_id}"),
                     endpoints: Vec::new(),
                     load_balancing: LoadBalancingStrategy::RoundRobin,
                     retry_policy: RetryPolicy::default(),
                     metadata: HashMap::new(),
-                })
+                }))
             })
         }
     }
@@ -194,9 +226,10 @@ mod tests {
         assert!(std::ptr::eq(context.core_engine(), &engine_host.engine));
 
         let pool = context
-            .build_pool_for_service("svc-main")
+            .pool_for_service("svc-main")
             .await
-            .expect("pool");
+            .expect("pool")
+            .expect("synced pool");
         assert_eq!(pool.pool_id, "pool:svc-main");
 
         let providers = context
@@ -207,5 +240,22 @@ mod tests {
         assert_eq!(providers[0].name, "deepseek");
         assert_eq!(providers[0].provider_type, "openai");
         assert_eq!(providers[0].endpoint_id.as_deref(), Some("ep:svc-main"));
+    }
+
+    #[test]
+    fn resolved_provider_map_model_prefers_specific_then_default() {
+        let provider = ResolvedProvider {
+            name: "provider".to_string(),
+            provider_type: "openai".to_string(),
+            endpoint_id: None,
+            base_url: "https://provider.test/".to_string(),
+            api_key: "sk-provider".to_string(),
+            family_id: None,
+            default_model: Some("fallback-model".to_string()),
+            model_mapping: Some(r#"{"gpt-4o":"mapped-4o","default":"mapped-default"}"#.to_string()),
+        };
+
+        assert_eq!(provider.map_model("gpt-4o"), "mapped-4o");
+        assert_eq!(provider.map_model("gpt-5"), "mapped-default");
     }
 }

@@ -1,13 +1,11 @@
-use crate::config::core_sync::build_core_pool_for_service;
-use crate::routing::{ResolvedProvider, resolve_providers};
+use crate::routing::resolve_providers;
 use crate::types::AppState;
 use anyhow::Result;
 use unigateway_core::ProviderPool;
 use unigateway_core::UniGatewayEngine;
-
-use super::context::{
-    RuntimeConfig, RuntimeConfigHost, RuntimeEngineHost, RuntimeFuture, RuntimePoolHost,
-    RuntimeRoutingHost,
+use unigateway_runtime::host::{
+    ResolvedProvider, RuntimeConfig, RuntimeConfigHost, RuntimeEngineHost, RuntimeFuture,
+    RuntimePoolHost, RuntimeRoutingHost,
 };
 
 impl RuntimeConfigHost for AppState {
@@ -30,13 +28,11 @@ impl RuntimeEngineHost for AppState {
 }
 
 impl RuntimePoolHost for AppState {
-    fn build_pool_for_service<'a>(
+    fn pool_for_service<'a>(
         &'a self,
         service_id: &'a str,
-    ) -> RuntimeFuture<'a, Result<ProviderPool>> {
-        Box::pin(
-            async move { build_core_pool_for_service(self.gateway.as_ref(), service_id).await },
-        )
+    ) -> RuntimeFuture<'a, Result<Option<ProviderPool>>> {
+        Box::pin(async move { Ok(self.core_engine.get_pool(service_id).await) })
     }
 }
 

@@ -1,24 +1,10 @@
-mod client;
-mod messages;
-
 use anyhow::{Result, anyhow};
-use llm_connector::{
-    ChatResponse,
-    types::{ChatRequest, EmbedRequest, EmbedResponse, Message, ResponsesRequest, Role},
+use llm_connector::types::{ChatRequest, EmbedRequest, Message, ResponsesRequest, Role};
+use serde_json::Value;
+use unigateway_core::{
+    Message as CoreMessage, MessageRole, ProxyChatRequest, ProxyEmbeddingsRequest,
+    ProxyResponsesRequest,
 };
-use serde_json::{Value, json};
-
-pub(crate) use client::{
-    invoke_embeddings, invoke_responses_stream_with_connector, invoke_responses_with_connector,
-    invoke_with_connector, invoke_with_connector_stream,
-};
-use messages::{chat_messages, stream_flag};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UpstreamProtocol {
-    OpenAi,
-    Anthropic,
-}
 
 pub fn openai_payload_to_chat_request(payload: &Value, default_model: &str) -> Result<ChatRequest> {
     let mut req = ChatRequest::new(
@@ -96,64 +82,6 @@ pub fn anthropic_payload_to_chat_request(
     Ok(req)
 }
 
-pub fn chat_response_to_openai_json(resp: &ChatResponse) -> Value {
-    let content = resp
-        .choices
-        .first()
-        .map(|c| c.message.content_as_text())
-        .unwrap_or_default();
-
-    json!({
-        "id": resp.id,
-        "object": if resp.object.is_empty() { "chat.completion" } else { &resp.object },
-        "created": resp.created,
-        "model": resp.model,
-        "choices": [
-            {
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": content
-                },
-                "finish_reason": resp.finish_reason().unwrap_or("stop")
-            }
-        ],
-        "usage": resp.usage.as_ref().map(|u| json!({
-            "prompt_tokens": u.prompt_tokens,
-            "completion_tokens": u.completion_tokens,
-            "total_tokens": u.total_tokens
-        }))
-    })
-}
-
-pub fn chat_response_to_anthropic_json(resp: &ChatResponse) -> Value {
-    let content = resp
-        .choices
-        .first()
-        .map(|c| c.message.content_as_text())
-        .unwrap_or_default();
-
-    json!({
-        "id": resp.id,
-        "type": "message",
-        "role": "assistant",
-        "model": resp.model,
-        "content": [
-            {
-                "type": "text",
-                "text": content
-            }
-        ],
-        "stop_reason": resp.finish_reason().unwrap_or("end_turn"),
-        "usage": {
-            "input_tokens": resp.prompt_tokens(),
-            "output_tokens": resp.completion_tokens()
-        }
-    })
-}
-
-// --- Embeddings ---
-
 pub fn openai_payload_to_embed_request(
     payload: &Value,
     default_model: &str,
@@ -180,34 +108,140 @@ pub fn openai_payload_to_embed_request(
     Ok(req)
 }
 
-pub fn embed_response_to_openai_json(resp: &EmbedResponse) -> Value {
-    let data: Vec<Value> = resp
-        .data
-        .iter()
-        .map(|d| {
-            json!({
-                "object": "embedding",
-                "embedding": d.embedding,
-                "index": d.index,
-            })
-        })
-        .collect();
+pub fn to_core_chat_request(request: &ChatRequest) -> ProxyChatRequest {
+    ProxyChatRequest {
+        model: request.model.clone(),
+        messages: request.messages.iter().map(to_core_message).collect(),
+        temperature: request.temperature,
+        top_p: request.top_p,
+        max_tokens: request.max_tokens,
+        stream: request.stream.unwrap_or(false),
+        metadata: std::collections::HashMap::new(),
+    }
+}
 
-    json!({
-        "object": "list",
-        "data": data,
-        "model": resp.model,
-        "usage": {
-            "prompt_tokens": resp.usage.prompt_tokens,
-            "total_tokens": resp.usage.total_tokens
+pub fn to_core_responses_request(request: &ResponsesRequest) -> ProxyResponsesRequest {
+    ProxyResponsesRequest {
+        model: request.model.clone(),
+        input: request.input.clone(),
+        instructions: request.instructions.clone(),
+        temperature: request.temperature,
+        top_p: request.top_p,
+        max_output_tokens: request.max_output_tokens,
+        stream: request.stream.unwrap_or(false),
+        tools: request.tools.clone(),
+        tool_choice: request.tool_choice.clone(),
+        previous_response_id: request.previous_response_id.clone(),
+        request_metadata: request.metadata.clone(),
+        extra: filtered_response_extra(request),
+        metadata: std::collections::HashMap::new(),
+    }
+}
+
+pub fn to_core_embeddings_request(request: &EmbedRequest) -> ProxyEmbeddingsRequest {
+    ProxyEmbeddingsRequest {
+        model: request.model.clone(),
+        input: request.input.clone(),
+        metadata: std::collections::HashMap::new(),
+    }
+}
+
+fn stream_flag(payload: &Value, default: bool) -> Option<bool> {
+    Some(
+        payload
+            .get("stream")
+            .and_then(Value::as_bool)
+            .unwrap_or(default),
+    )
+}
+
+fn chat_messages(payload: &Value) -> Result<Vec<Message>> {
+    let Some(messages) = payload.get("messages").and_then(Value::as_array) else {
+        return Err(anyhow!("messages must be an array"));
+    };
+
+    messages
+        .iter()
+        .map(|message| {
+            let role = parse_role(
+                message
+                    .get("role")
+                    .and_then(Value::as_str)
+                    .unwrap_or("user"),
+            );
+            let content = extract_text_content(
+                message
+                    .get("content")
+                    .ok_or_else(|| anyhow!("message.content is required"))?,
+            );
+            Ok(Message::text(role, content))
+        })
+        .collect()
+}
+
+fn parse_role(role: &str) -> Role {
+    match role {
+        "system" => Role::System,
+        "assistant" => Role::Assistant,
+        "tool" => Role::Tool,
+        _ => Role::User,
+    }
+}
+
+fn extract_text_content(value: &Value) -> String {
+    if let Some(text) = value.as_str() {
+        return text.to_string();
+    }
+
+    if let Some(blocks) = value.as_array() {
+        let mut parts = Vec::new();
+        for block in blocks {
+            if let Some(text) = block.get("text").and_then(Value::as_str) {
+                parts.push(text.to_string());
+            }
         }
-    })
+        return parts.join("\n");
+    }
+
+    String::new()
+}
+
+fn to_core_message(message: &Message) -> CoreMessage {
+    CoreMessage {
+        role: match message.role {
+            Role::System => MessageRole::System,
+            Role::Assistant => MessageRole::Assistant,
+            Role::Tool => MessageRole::Tool,
+            _ => MessageRole::User,
+        },
+        content: message.content_as_text(),
+    }
+}
+
+fn filtered_response_extra(
+    request: &ResponsesRequest,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    request
+        .extra
+        .iter()
+        .filter(|(key, _)| {
+            !matches!(
+                key.as_str(),
+                "target_vendor" | "target_provider" | "provider"
+            )
+        })
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{anthropic_payload_to_chat_request, openai_payload_to_chat_request};
     use serde_json::json;
+
+    use super::{
+        anthropic_payload_to_chat_request, openai_payload_to_chat_request,
+        to_core_responses_request,
+    };
 
     #[test]
     fn openai_requests_default_to_non_streaming() {
@@ -261,5 +295,25 @@ mod tests {
         .expect("request");
 
         assert_eq!(req.stream, Some(false));
+    }
+
+    #[test]
+    fn responses_extra_filter_strips_gateway_routing_hints_only() {
+        let filtered = to_core_responses_request(&llm_connector::types::ResponsesRequest {
+            model: "gpt-4.1-mini".to_string(),
+            extra: std::collections::HashMap::from([
+                (
+                    "reasoning".to_string(),
+                    serde_json::json!({"effort": "high"}),
+                ),
+                ("target_provider".to_string(), serde_json::json!("deepseek")),
+                ("provider".to_string(), serde_json::json!("moonshot")),
+            ]),
+            ..llm_connector::types::ResponsesRequest::default()
+        });
+
+        assert!(filtered.extra.contains_key("reasoning"));
+        assert!(!filtered.extra.contains_key("target_provider"));
+        assert!(!filtered.extra.contains_key("provider"));
     }
 }
