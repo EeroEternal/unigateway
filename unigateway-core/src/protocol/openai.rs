@@ -531,6 +531,12 @@ pub fn build_responses_request(
     if let Some(max_output_tokens) = request.max_output_tokens {
         payload.insert("max_output_tokens".to_string(), json!(max_output_tokens));
     }
+    if let Some(tools) = request.tools.clone() {
+        payload.insert("tools".to_string(), tools);
+    }
+    if let Some(tool_choice) = request.tool_choice.clone() {
+        payload.insert("tool_choice".to_string(), tool_choice);
+    }
     if let Some(previous_response_id) = request.previous_response_id.clone() {
         payload.insert(
             "previous_response_id".to_string(),
@@ -539,6 +545,9 @@ pub fn build_responses_request(
     }
     if let Some(request_metadata) = request.request_metadata.clone() {
         payload.insert("metadata".to_string(), request_metadata);
+    }
+    for (key, value) in request.extra.clone() {
+        payload.entry(key).or_insert(value);
     }
 
     TransportRequest::post_json(
@@ -833,8 +842,22 @@ mod tests {
                 top_p: Some(0.9),
                 max_output_tokens: Some(128),
                 stream: true,
+                tools: Some(json!([{
+                    "type": "function",
+                    "name": "lookup_weather",
+                    "description": "Look up current weather",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "city": {"type": "string"}
+                        },
+                        "required": ["city"]
+                    }
+                }])),
+                tool_choice: Some(json!("auto")),
                 previous_response_id: Some("resp_prev".to_string()),
                 request_metadata: Some(json!({"trace_id": "abc"})),
+                extra: HashMap::from([("reasoning".to_string(), json!({"effort": "high"}))]),
                 metadata: HashMap::new(),
             },
         )
@@ -858,10 +881,24 @@ mod tests {
             Some("resp_prev")
         );
         assert_eq!(
+            body.get("tool_choice").and_then(Value::as_str),
+            Some("auto")
+        );
+        assert_eq!(
+            body.get("tools").and_then(Value::as_array).map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(
             body.get("metadata")
                 .and_then(|value| value.get("trace_id"))
                 .and_then(Value::as_str),
             Some("abc")
+        );
+        assert_eq!(
+            body.get("reasoning")
+                .and_then(|value| value.get("effort"))
+                .and_then(Value::as_str),
+            Some("high")
         );
     }
 
@@ -1001,8 +1038,11 @@ mod tests {
                     top_p: None,
                     max_output_tokens: None,
                     stream: false,
+                    tools: None,
+                    tool_choice: None,
                     previous_response_id: None,
                     request_metadata: None,
+                    extra: HashMap::new(),
                     metadata: HashMap::new(),
                 },
             )
@@ -1108,8 +1148,11 @@ mod tests {
                     top_p: None,
                     max_output_tokens: None,
                     stream: true,
+                    tools: None,
+                    tool_choice: None,
                     previous_response_id: None,
                     request_metadata: None,
+                    extra: HashMap::new(),
                     metadata: HashMap::new(),
                 },
             )

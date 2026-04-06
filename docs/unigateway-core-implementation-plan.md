@@ -6,6 +6,8 @@ Date: 2026-04-06
 
 Related RFC: [docs/unigateway-core-api-draft.md](docs/unigateway-core-api-draft.md)
 
+Gateway runtime layering: [docs/unigateway-gateway-runtime-design.md](docs/unigateway-gateway-runtime-design.md)
+
 Phase 0 checklist: [docs/unigateway-core-phase0-checklist.md](docs/unigateway-core-phase0-checklist.md)
 
 Phase 1 task sheet: [docs/unigateway-core-phase1-task-sheet.md](docs/unigateway-core-phase1-task-sheet.md)
@@ -183,6 +185,7 @@ Tasks:
 
 - approve the RFC and implementation plan as the working source of truth
 - confirm package naming strategy for `unigateway-core`
+- confirm package naming strategy for `unigateway-runtime`
 - decide whether the new core lives in the same workspace first or in a new sibling crate immediately
 - confirm whether the initial migration keeps the current binary crate name unchanged
 

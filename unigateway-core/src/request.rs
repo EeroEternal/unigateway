@@ -36,8 +36,11 @@ pub struct ProxyResponsesRequest {
     pub top_p: Option<f32>,
     pub max_output_tokens: Option<u32>,
     pub stream: bool,
+    pub tools: Option<serde_json::Value>,
+    pub tool_choice: Option<serde_json::Value>,
     pub previous_response_id: Option<String>,
     pub request_metadata: Option<serde_json::Value>,
+    pub extra: HashMap<String, serde_json::Value>,
     pub metadata: HashMap<String, String>,
 }
 

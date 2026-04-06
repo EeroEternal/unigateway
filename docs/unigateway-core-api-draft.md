@@ -174,9 +174,10 @@ Implementations MAY evolve internal data structures as long as those runtime gua
 The project SHOULD be split into two layers:
 
 - `unigateway-core`: reusable engine crate
-- `unigateway` or `unigateway-http`: product-facing HTTP, CLI, admin, and operational layer
+- `unigateway-runtime`: reusable HTTP and protocol compatibility runtime layer
+- `unigateway`: product-facing CLI, admin, config, and operational layer
 
-The exact package naming MAY be finalized later, but the responsibility boundary described in this RFC SHOULD remain stable.
+The responsibility boundary described in this RFC SHOULD remain stable even if internal module names continue evolving during migration.
 
 ## 12. Built-In Protocol Support
 
@@ -756,6 +757,6 @@ Current recommendation: use the same retry model unless a concrete incompatibili
 
 ### 25.4 HTTP Layer Packaging Name
 
-Should the HTTP-facing layer become a distinct `unigateway-http` crate, or should the current `unigateway` crate remain the primary end-user package and depend on `unigateway-core`?
+Should the HTTP-facing layer become a distinct `unigateway-runtime` crate, or should the current `unigateway` crate continue to own protocol compatibility directly?
 
-Current recommendation: keep the current `unigateway` package as the product-facing package and introduce `unigateway-core` beneath it.
+Current recommendation: introduce `unigateway-runtime` as the reusable gateway layer above `unigateway-core`, and keep `unigateway` as the end-user product package built on top of both.

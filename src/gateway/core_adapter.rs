@@ -1,5 +1,4 @@
 use std::io;
-use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use axum::{
@@ -10,267 +9,15 @@ use axum::{
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
-use llm_connector::types::{
-    ChatRequest, EmbedRequest, Message as ConnectorMessage, ResponsesRequest, Role,
-};
+use llm_connector::types::{ChatRequest, Message as ConnectorMessage, ResponsesRequest, Role};
 use tokio::sync::mpsc;
 use unigateway_core::{
-    ChatResponseChunk, ChatResponseFinal, CompletedResponse, EmbeddingsResponse, Endpoint,
-    EndpointRef, ExecutionPlan, ExecutionTarget, Message, MessageRole, ProviderKind,
-    ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest, ProxySession, ResponsesEvent,
-    ResponsesFinal, StreamingResponse, TokenUsage,
+    ChatResponseChunk, ChatResponseFinal, CompletedResponse, EmbeddingsResponse, Message,
+    MessageRole, ProviderKind, ProxyChatRequest, ProxyResponsesRequest, ProxySession,
+    ResponsesEvent, ResponsesFinal, StreamingResponse, TokenUsage,
 };
 
-use crate::config::core_sync::build_core_pool_for_service;
-use crate::types::AppState;
-
-pub(super) async fn try_anthropic_chat_via_core(
-    state: &Arc<AppState>,
-    service_id: &str,
-    hint: Option<&str>,
-    request: &ChatRequest,
-) -> Result<Option<Response>> {
-    let pool = match prepare_core_pool(state, service_id).await? {
-        Some(pool) => pool,
-        None => return Ok(None),
-    };
-
-    let target = build_execution_target(&pool.endpoints, &pool.pool_id, hint)?;
-    state
-        .core_engine
-        .upsert_pool(pool)
-        .await
-        .map_err(|error| anyhow!(error.to_string()))?;
-
-    let session = state
-        .core_engine
-        .proxy_chat(to_core_chat_request(request), target)
-        .await
-        .map_err(|error| anyhow!(error.to_string()))?;
-
-    Ok(Some(chat_session_to_anthropic_response(
-        session,
-        request.model.clone(),
-    )))
-}
-
-pub(super) async fn try_openai_chat_via_core(
-    state: &Arc<AppState>,
-    service_id: &str,
-    hint: Option<&str>,
-    request: &ChatRequest,
-) -> Result<Option<Response>> {
-    let pool = match build_core_pool_for_service(&state.gateway, service_id).await {
-        Ok(pool) => pool,
-        Err(error)
-            if error
-                .to_string()
-                .contains("unsupported core routing strategy") =>
-        {
-            return Ok(None);
-        }
-        Err(error) => return Err(error),
-    };
-
-    if pool
-        .endpoints
-        .iter()
-        .any(|endpoint| endpoint.provider_kind != ProviderKind::OpenAiCompatible)
-    {
-        return Ok(None);
-    }
-
-    let target = build_execution_target(&pool.endpoints, &pool.pool_id, hint)?;
-    state
-        .core_engine
-        .upsert_pool(pool)
-        .await
-        .map_err(|error| anyhow!(error.to_string()))?;
-
-    let core_request = to_core_chat_request(request);
-    let session = state
-        .core_engine
-        .proxy_chat(core_request, target)
-        .await
-        .map_err(|error| anyhow!(error.to_string()))?;
-
-    Ok(Some(chat_session_to_openai_response(session)))
-}
-
-pub(super) async fn try_openai_responses_via_core(
-    state: &Arc<AppState>,
-    service_id: &str,
-    hint: Option<&str>,
-    request: &ResponsesRequest,
-    payload: &serde_json::Value,
-) -> Result<Option<Response>> {
-    if !responses_payload_is_core_compatible(payload)
-        || request.tools.is_some()
-        || request.tool_choice.is_some()
-    {
-        return Ok(None);
-    }
-
-    let pool = match prepare_openai_compatible_pool(state, service_id).await? {
-        Some(pool) => pool,
-        None => return Ok(None),
-    };
-
-    let target = build_execution_target(&pool.endpoints, &pool.pool_id, hint)?;
-    state
-        .core_engine
-        .upsert_pool(pool)
-        .await
-        .map_err(|error| anyhow!(error.to_string()))?;
-
-    let session = state
-        .core_engine
-        .proxy_responses(
-            ProxyResponsesRequest {
-                model: request.model.clone(),
-                input: request.input.clone(),
-                instructions: request.instructions.clone(),
-                temperature: request.temperature,
-                top_p: request.top_p,
-                max_output_tokens: request.max_output_tokens,
-                stream: request.stream.unwrap_or(false),
-                previous_response_id: request.previous_response_id.clone(),
-                request_metadata: request.metadata.clone(),
-                metadata: std::collections::HashMap::new(),
-            },
-            target,
-        )
-        .await
-        .map_err(|error| anyhow!(error.to_string()))?;
-
-    Ok(Some(responses_session_to_openai_response(session)))
-}
-
-pub(super) async fn try_openai_embeddings_via_core(
-    state: &Arc<AppState>,
-    service_id: &str,
-    hint: Option<&str>,
-    request: &EmbedRequest,
-    payload: &serde_json::Value,
-) -> Result<Option<Response>> {
-    if !embeddings_payload_is_core_compatible(payload) {
-        return Ok(None);
-    }
-
-    let pool = match prepare_openai_compatible_pool(state, service_id).await? {
-        Some(pool) => pool,
-        None => return Ok(None),
-    };
-
-    let target = build_execution_target(&pool.endpoints, &pool.pool_id, hint)?;
-    state
-        .core_engine
-        .upsert_pool(pool)
-        .await
-        .map_err(|error| anyhow!(error.to_string()))?;
-
-    let response = state
-        .core_engine
-        .proxy_embeddings(
-            ProxyEmbeddingsRequest {
-                model: request.model.clone(),
-                input: request.input.clone(),
-                metadata: std::collections::HashMap::new(),
-            },
-            target,
-        )
-        .await
-        .map_err(|error| anyhow!(error.to_string()))?;
-
-    Ok(Some(embeddings_response_to_openai_response(response)))
-}
-
-async fn prepare_openai_compatible_pool(
-    state: &Arc<AppState>,
-    service_id: &str,
-) -> Result<Option<unigateway_core::ProviderPool>> {
-    let pool = match prepare_core_pool(state, service_id).await? {
-        Some(pool) => pool,
-        None => return Ok(None),
-    };
-
-    if pool
-        .endpoints
-        .iter()
-        .any(|endpoint| endpoint.provider_kind != ProviderKind::OpenAiCompatible)
-    {
-        return Ok(None);
-    }
-
-    Ok(Some(pool))
-}
-
-async fn prepare_core_pool(
-    state: &Arc<AppState>,
-    service_id: &str,
-) -> Result<Option<unigateway_core::ProviderPool>> {
-    match build_core_pool_for_service(&state.gateway, service_id).await {
-        Ok(pool) => Ok(Some(pool)),
-        Err(error)
-            if error
-                .to_string()
-                .contains("unsupported core routing strategy") =>
-        {
-            Ok(None)
-        }
-        Err(error) => Err(error),
-    }
-}
-
-fn build_execution_target(
-    endpoints: &[Endpoint],
-    pool_id: &str,
-    hint: Option<&str>,
-) -> Result<ExecutionTarget> {
-    let Some(hint) = hint.map(str::trim).filter(|hint| !hint.is_empty()) else {
-        return Ok(ExecutionTarget::Pool {
-            pool_id: pool_id.to_string(),
-        });
-    };
-
-    let candidates: Vec<EndpointRef> = endpoints
-        .iter()
-        .filter(|endpoint| endpoint_matches_hint(endpoint, hint))
-        .map(|endpoint| EndpointRef {
-            endpoint_id: endpoint.endpoint_id.clone(),
-        })
-        .collect();
-
-    if candidates.is_empty() {
-        return Err(anyhow!("no provider matches target '{hint}'"));
-    }
-
-    Ok(ExecutionTarget::Plan(ExecutionPlan {
-        pool_id: Some(pool_id.to_string()),
-        candidates,
-        load_balancing_override: None,
-        retry_policy_override: None,
-        metadata: std::collections::HashMap::new(),
-    }))
-}
-
-fn endpoint_matches_hint(endpoint: &Endpoint, hint: &str) -> bool {
-    endpoint.endpoint_id.eq_ignore_ascii_case(hint)
-        || endpoint
-            .metadata
-            .get("provider_name")
-            .is_some_and(|value| value.eq_ignore_ascii_case(hint))
-        || endpoint
-            .metadata
-            .get("source_endpoint_id")
-            .is_some_and(|value| value.eq_ignore_ascii_case(hint))
-        || endpoint
-            .metadata
-            .get("provider_family")
-            .is_some_and(|value| value.eq_ignore_ascii_case(hint))
-}
-
-fn to_core_chat_request(request: &ChatRequest) -> ProxyChatRequest {
+pub(super) fn to_core_chat_request(request: &ChatRequest) -> ProxyChatRequest {
     ProxyChatRequest {
         model: request.model.clone(),
         messages: request.messages.iter().map(to_core_message).collect(),
@@ -282,31 +29,38 @@ fn to_core_chat_request(request: &ChatRequest) -> ProxyChatRequest {
     }
 }
 
-fn responses_payload_is_core_compatible(payload: &serde_json::Value) -> bool {
-    payload.as_object().is_some_and(|object| {
-        object.keys().all(|key| {
-            matches!(
-                key.as_str(),
-                "model"
-                    | "input"
-                    | "stream"
-                    | "instructions"
-                    | "temperature"
-                    | "top_p"
-                    | "max_output_tokens"
-                    | "previous_response_id"
-                    | "metadata"
-            )
-        })
-    })
+pub(super) fn to_core_responses_request(request: &ResponsesRequest) -> ProxyResponsesRequest {
+    ProxyResponsesRequest {
+        model: request.model.clone(),
+        input: request.input.clone(),
+        instructions: request.instructions.clone(),
+        temperature: request.temperature,
+        top_p: request.top_p,
+        max_output_tokens: request.max_output_tokens,
+        stream: request.stream.unwrap_or(false),
+        tools: request.tools.clone(),
+        tool_choice: request.tool_choice.clone(),
+        previous_response_id: request.previous_response_id.clone(),
+        request_metadata: request.metadata.clone(),
+        extra: filtered_response_extra(request),
+        metadata: std::collections::HashMap::new(),
+    }
 }
 
-fn embeddings_payload_is_core_compatible(payload: &serde_json::Value) -> bool {
-    payload.as_object().is_some_and(|object| {
-        object
-            .keys()
-            .all(|key| matches!(key.as_str(), "model" | "input"))
-    })
+fn filtered_response_extra(
+    request: &ResponsesRequest,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    request
+        .extra
+        .iter()
+        .filter(|(key, _)| {
+            !matches!(
+                key.as_str(),
+                "target_vendor" | "target_provider" | "provider"
+            )
+        })
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
 }
 
 fn to_core_message(message: &ConnectorMessage) -> Message {
@@ -321,7 +75,7 @@ fn to_core_message(message: &ConnectorMessage) -> Message {
     }
 }
 
-fn chat_session_to_openai_response(
+pub(super) fn chat_session_to_openai_response(
     session: ProxySession<unigateway_core::ChatResponseChunk, unigateway_core::ChatResponseFinal>,
 ) -> Response {
     match session {
@@ -376,7 +130,7 @@ fn chat_session_to_openai_response(
     }
 }
 
-fn chat_session_to_anthropic_response(
+pub(super) fn chat_session_to_anthropic_response(
     session: ProxySession<ChatResponseChunk, ChatResponseFinal>,
     requested_model: String,
 ) -> Response {
@@ -405,7 +159,7 @@ fn chat_session_to_anthropic_response(
     }
 }
 
-fn responses_session_to_openai_response(
+pub(super) fn responses_session_to_openai_response(
     session: ProxySession<ResponsesEvent, ResponsesFinal>,
 ) -> Response {
     match session {
@@ -462,7 +216,7 @@ fn responses_session_to_openai_response(
     }
 }
 
-fn embeddings_response_to_openai_response(
+pub(super) fn embeddings_response_to_openai_response(
     response: CompletedResponse<EmbeddingsResponse>,
 ) -> Response {
     let raw = response.response.raw;
@@ -725,77 +479,29 @@ async fn emit_sse_json(
 mod tests {
     use std::collections::HashMap;
 
-    use unigateway_core::{
-        ChatResponseFinal, CompletedResponse, Endpoint, ModelPolicy, ProviderKind, RequestReport,
-        SecretString,
-    };
+    use llm_connector::types::ResponsesRequest;
+    use unigateway_core::{ChatResponseFinal, CompletedResponse, ProviderKind, RequestReport};
 
-    use super::{
-        anthropic_completed_chat_body, embeddings_payload_is_core_compatible,
-        endpoint_matches_hint, responses_payload_is_core_compatible,
-    };
+    use super::{anthropic_completed_chat_body, filtered_response_extra};
 
-    fn endpoint() -> Endpoint {
-        Endpoint {
-            endpoint_id: "deepseek-main".to_string(),
-            provider_kind: ProviderKind::OpenAiCompatible,
-            driver_id: "openai-compatible".to_string(),
-            base_url: "https://api.example.com".to_string(),
-            api_key: SecretString::new("sk-test"),
-            model_policy: ModelPolicy::default(),
-            enabled: true,
-            metadata: HashMap::from([
-                ("provider_name".to_string(), "DeepSeek-Main".to_string()),
+    #[test]
+    fn responses_extra_filter_strips_gateway_routing_hints_only() {
+        let filtered = filtered_response_extra(&ResponsesRequest {
+            model: "gpt-4.1-mini".to_string(),
+            extra: HashMap::from([
                 (
-                    "source_endpoint_id".to_string(),
-                    "deepseek:global".to_string(),
+                    "reasoning".to_string(),
+                    serde_json::json!({"effort": "high"}),
                 ),
-                ("provider_family".to_string(), "deepseek".to_string()),
+                ("target_provider".to_string(), serde_json::json!("deepseek")),
+                ("provider".to_string(), serde_json::json!("moonshot")),
             ]),
-        }
-    }
+            ..ResponsesRequest::default()
+        });
 
-    #[test]
-    fn endpoint_hint_matching_supports_existing_product_forms() {
-        let endpoint = endpoint();
-        assert!(endpoint_matches_hint(&endpoint, "deepseek-main"));
-        assert!(endpoint_matches_hint(&endpoint, "DeepSeek-Main"));
-        assert!(endpoint_matches_hint(&endpoint, "deepseek:global"));
-        assert!(endpoint_matches_hint(&endpoint, "deepseek"));
-        assert!(!endpoint_matches_hint(&endpoint, "zhipu"));
-    }
-
-    #[test]
-    fn responses_core_adapter_accepts_supported_safe_subset() {
-        assert!(responses_payload_is_core_compatible(&serde_json::json!({
-            "model": "gpt-4.1-mini",
-            "input": "hello",
-            "stream": true,
-            "instructions": "be terse",
-            "temperature": 0.2,
-            "top_p": 0.9,
-            "max_output_tokens": 128,
-            "previous_response_id": "resp_prev",
-            "metadata": {"trace_id": "abc"},
-        })));
-        assert!(!responses_payload_is_core_compatible(&serde_json::json!({
-            "model": "gpt-4.1-mini",
-            "input": "hello",
-            "tools": [],
-        })));
-    }
-
-    #[test]
-    fn embeddings_core_adapter_only_accepts_minimal_subset() {
-        assert!(embeddings_payload_is_core_compatible(&serde_json::json!({
-            "model": "text-embedding-3-small",
-            "input": ["hello"],
-        })));
-        assert!(!embeddings_payload_is_core_compatible(&serde_json::json!({
-            "model": "text-embedding-3-small",
-            "input": ["hello"],
-            "encoding_format": "float",
-        })));
+        assert!(filtered.contains_key("reasoning"));
+        assert!(!filtered.contains_key("target_provider"));
+        assert!(!filtered.contains_key("provider"));
     }
 
     #[test]

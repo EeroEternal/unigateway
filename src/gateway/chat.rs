@@ -12,7 +12,7 @@ use crate::{
 
 use super::streaming::{try_chat_stream, try_chat_stream_raw};
 
-pub(super) async fn invoke_provider_chat(
+pub(crate) async fn invoke_provider_chat(
     protocol: UpstreamProtocol,
     provider: &ResolvedProvider,
     request: &llm_connector::types::ChatRequest,
@@ -47,7 +47,7 @@ pub(super) async fn invoke_provider_chat(
     }
 }
 
-pub(super) async fn invoke_direct_chat(
+pub(crate) async fn invoke_direct_chat(
     protocol: UpstreamProtocol,
     base_url: &str,
     api_key: &str,
