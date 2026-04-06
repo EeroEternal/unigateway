@@ -1,16 +1,19 @@
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use tokio::sync::{Mutex, RwLock};
 
 use crate::drivers::{DriverEndpointContext, DriverRegistry, ProviderDriver};
 use crate::error::GatewayError;
-use crate::hooks::GatewayHooks;
-use crate::pool::{Endpoint, ExecutionTarget, PoolId, PoolSummary, ProviderPool};
+use crate::hooks::{AttemptFinishedEvent, AttemptStartedEvent, GatewayHooks};
+use crate::pool::{
+    Endpoint, ExecutionTarget, PoolId, PoolSummary, ProviderKind, ProviderPool, RequestId,
+};
 use crate::request::{ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest};
 use crate::response::{
     AttemptReport, AttemptStatus, ChatResponseChunk, ChatResponseFinal, CompletedResponse,
-    EmbeddingsResponse, ProxySession, ResponsesEvent, ResponsesFinal, StreamingResponse,
+    EmbeddingsResponse, ProxySession, RequestReport, ResponsesEvent, ResponsesFinal,
+    StreamingResponse,
 };
 use crate::retry::{BackoffPolicy, LoadBalancingStrategy, RetryCondition, RetryPolicy};
 use crate::routing::ExecutionSnapshot;
@@ -18,9 +21,7 @@ use crate::routing::ExecutionSnapshot;
 struct EngineState {
     pools: RwLock<std::collections::HashMap<PoolId, ProviderPool>>,
     rr_counters: Mutex<std::collections::HashMap<String, usize>>,
-    #[allow(dead_code)]
     hooks: Option<Arc<dyn GatewayHooks>>,
-    #[allow(dead_code)]
     driver_registry: Option<Arc<dyn DriverRegistry>>,
     default_retry_policy: RetryPolicy,
     default_timeout: Option<Duration>,
@@ -28,6 +29,15 @@ struct EngineState {
 
 pub struct UniGatewayEngine {
     inner: Arc<EngineState>,
+}
+
+struct FailedRequestContext {
+    request_id: RequestId,
+    pool_id: Option<PoolId>,
+    endpoint_id: String,
+    provider_kind: ProviderKind,
+    started_at: SystemTime,
+    metadata: std::collections::HashMap<String, String>,
 }
 
 #[derive(Default)]
@@ -87,17 +97,56 @@ impl UniGatewayEngine {
         let snapshot = self.execution_snapshot(&target).await?;
         let endpoints = self.attempt_endpoints(&snapshot).await?;
         let total_attempts = endpoints.len();
+        let request_id = crate::protocol::next_request_id();
+        let request_started_at = SystemTime::now();
         let mut attempts = Vec::new();
 
         for (attempt_index, endpoint) in endpoints.into_iter().enumerate() {
-            let driver = self.driver_for_endpoint(&endpoint)?;
             let endpoint_id = endpoint.endpoint_id.clone();
+            let provider_kind = endpoint.provider_kind;
             let context = self.driver_context(
                 snapshot.pool_id.clone(),
-                endpoint,
+                endpoint.clone(),
                 snapshot.metadata.clone(),
             );
+            let attempt_metadata = context.metadata.clone();
+            self.emit_attempt_started(AttemptStartedEvent {
+                request_id: request_id.clone(),
+                pool_id: snapshot.pool_id.clone(),
+                endpoint_id: endpoint_id.clone(),
+                attempt_index,
+                metadata: attempt_metadata.clone(),
+            })
+            .await;
             let started_at = Instant::now();
+            let driver = match self.driver_for_endpoint(&endpoint) {
+                Ok(driver) => driver,
+                Err(error) => {
+                    let latency = started_at.elapsed();
+                    attempts.push(failed_attempt_report(&endpoint_id, latency, &error, false));
+                    self.emit_attempt_finished(failed_attempt_event(
+                        &request_id,
+                        &endpoint_id,
+                        latency,
+                        &error,
+                    ))
+                    .await;
+                    return Err(self
+                        .finalize_request_failure(
+                            FailedRequestContext {
+                                request_id: request_id.clone(),
+                                pool_id: snapshot.pool_id.clone(),
+                                endpoint_id,
+                                provider_kind,
+                                started_at: request_started_at,
+                                metadata: attempt_metadata.clone(),
+                            },
+                            attempts,
+                            error,
+                        )
+                        .await);
+                }
+            };
 
             match execute_chat_attempt(
                 driver,
@@ -107,9 +156,35 @@ impl UniGatewayEngine {
             )
             .await
             {
-                Ok(session) => {
-                    attempts.push(success_attempt_report(&endpoint_id, started_at.elapsed()));
-                    return Ok(with_chat_attempt_reports(session, attempts));
+                Ok(ProxySession::Completed(result)) => {
+                    let latency = Duration::from_millis(result.report.latency_ms);
+                    attempts.push(success_attempt_report(&endpoint_id, latency));
+                    self.emit_attempt_finished(success_attempt_event(
+                        &request_id,
+                        &endpoint_id,
+                        latency,
+                    ))
+                    .await;
+
+                    let result = with_completed_request_report(result, &request_id, attempts);
+                    self.emit_request_finished(result.report.clone()).await;
+                    return Ok(ProxySession::Completed(result));
+                }
+                Ok(ProxySession::Streaming(streaming)) => {
+                    return Ok(ProxySession::Streaming(with_streaming_attempt_reports(
+                        streaming,
+                        StreamingAttemptContext {
+                            request_id,
+                            pool_id: snapshot.pool_id.clone(),
+                            endpoint_id,
+                            provider_kind,
+                            request_started_at,
+                            attempt_started_at: started_at,
+                            metadata: attempt_metadata.clone(),
+                            previous_attempts: attempts,
+                            hooks: self.inner.hooks.clone(),
+                        },
+                    )));
                 }
                 Err(error) => {
                     let should_retry = attempt_index + 1 < total_attempts
@@ -124,11 +199,31 @@ impl UniGatewayEngine {
                         &error,
                         should_retry,
                     ));
+                    self.emit_attempt_finished(failed_attempt_event(
+                        &request_id,
+                        &endpoint_id,
+                        started_at.elapsed(),
+                        &error,
+                    ))
+                    .await;
                     if should_retry {
                         apply_retry_backoff(&snapshot.retry_policy.backoff, attempt_index).await;
                         continue;
                     }
-                    return Err(error);
+                    return Err(self
+                        .finalize_request_failure(
+                            FailedRequestContext {
+                                request_id: request_id.clone(),
+                                pool_id: snapshot.pool_id.clone(),
+                                endpoint_id,
+                                provider_kind,
+                                started_at: request_started_at,
+                                metadata: attempt_metadata.clone(),
+                            },
+                            attempts,
+                            error,
+                        )
+                        .await);
                 }
             }
         }
@@ -144,17 +239,56 @@ impl UniGatewayEngine {
         let snapshot = self.execution_snapshot(&target).await?;
         let endpoints = self.attempt_endpoints(&snapshot).await?;
         let total_attempts = endpoints.len();
+        let request_id = crate::protocol::next_request_id();
+        let request_started_at = SystemTime::now();
         let mut attempts = Vec::new();
 
         for (attempt_index, endpoint) in endpoints.into_iter().enumerate() {
-            let driver = self.driver_for_endpoint(&endpoint)?;
             let endpoint_id = endpoint.endpoint_id.clone();
+            let provider_kind = endpoint.provider_kind;
             let context = self.driver_context(
                 snapshot.pool_id.clone(),
-                endpoint,
+                endpoint.clone(),
                 snapshot.metadata.clone(),
             );
+            let attempt_metadata = context.metadata.clone();
+            self.emit_attempt_started(AttemptStartedEvent {
+                request_id: request_id.clone(),
+                pool_id: snapshot.pool_id.clone(),
+                endpoint_id: endpoint_id.clone(),
+                attempt_index,
+                metadata: attempt_metadata.clone(),
+            })
+            .await;
             let started_at = Instant::now();
+            let driver = match self.driver_for_endpoint(&endpoint) {
+                Ok(driver) => driver,
+                Err(error) => {
+                    let latency = started_at.elapsed();
+                    attempts.push(failed_attempt_report(&endpoint_id, latency, &error, false));
+                    self.emit_attempt_finished(failed_attempt_event(
+                        &request_id,
+                        &endpoint_id,
+                        latency,
+                        &error,
+                    ))
+                    .await;
+                    return Err(self
+                        .finalize_request_failure(
+                            FailedRequestContext {
+                                request_id: request_id.clone(),
+                                pool_id: snapshot.pool_id.clone(),
+                                endpoint_id,
+                                provider_kind,
+                                started_at: request_started_at,
+                                metadata: attempt_metadata.clone(),
+                            },
+                            attempts,
+                            error,
+                        )
+                        .await);
+                }
+            };
 
             match execute_responses_attempt(
                 driver,
@@ -164,9 +298,35 @@ impl UniGatewayEngine {
             )
             .await
             {
-                Ok(session) => {
-                    attempts.push(success_attempt_report(&endpoint_id, started_at.elapsed()));
-                    return Ok(with_responses_attempt_reports(session, attempts));
+                Ok(ProxySession::Completed(result)) => {
+                    let latency = Duration::from_millis(result.report.latency_ms);
+                    attempts.push(success_attempt_report(&endpoint_id, latency));
+                    self.emit_attempt_finished(success_attempt_event(
+                        &request_id,
+                        &endpoint_id,
+                        latency,
+                    ))
+                    .await;
+
+                    let result = with_completed_request_report(result, &request_id, attempts);
+                    self.emit_request_finished(result.report.clone()).await;
+                    return Ok(ProxySession::Completed(result));
+                }
+                Ok(ProxySession::Streaming(streaming)) => {
+                    return Ok(ProxySession::Streaming(with_streaming_attempt_reports(
+                        streaming,
+                        StreamingAttemptContext {
+                            request_id,
+                            pool_id: snapshot.pool_id.clone(),
+                            endpoint_id,
+                            provider_kind,
+                            request_started_at,
+                            attempt_started_at: started_at,
+                            metadata: attempt_metadata.clone(),
+                            previous_attempts: attempts,
+                            hooks: self.inner.hooks.clone(),
+                        },
+                    )));
                 }
                 Err(error) => {
                     let should_retry = attempt_index + 1 < total_attempts
@@ -181,11 +341,31 @@ impl UniGatewayEngine {
                         &error,
                         should_retry,
                     ));
+                    self.emit_attempt_finished(failed_attempt_event(
+                        &request_id,
+                        &endpoint_id,
+                        started_at.elapsed(),
+                        &error,
+                    ))
+                    .await;
                     if should_retry {
                         apply_retry_backoff(&snapshot.retry_policy.backoff, attempt_index).await;
                         continue;
                     }
-                    return Err(error);
+                    return Err(self
+                        .finalize_request_failure(
+                            FailedRequestContext {
+                                request_id: request_id.clone(),
+                                pool_id: snapshot.pool_id.clone(),
+                                endpoint_id,
+                                provider_kind,
+                                started_at: request_started_at,
+                                metadata: attempt_metadata.clone(),
+                            },
+                            attempts,
+                            error,
+                        )
+                        .await);
                 }
             }
         }
@@ -201,17 +381,56 @@ impl UniGatewayEngine {
         let snapshot = self.execution_snapshot(&target).await?;
         let endpoints = self.attempt_endpoints(&snapshot).await?;
         let total_attempts = endpoints.len();
+        let request_id = crate::protocol::next_request_id();
+        let request_started_at = SystemTime::now();
         let mut attempts = Vec::new();
 
         for (attempt_index, endpoint) in endpoints.into_iter().enumerate() {
-            let driver = self.driver_for_endpoint(&endpoint)?;
             let endpoint_id = endpoint.endpoint_id.clone();
+            let provider_kind = endpoint.provider_kind;
             let context = self.driver_context(
                 snapshot.pool_id.clone(),
-                endpoint,
+                endpoint.clone(),
                 snapshot.metadata.clone(),
             );
+            let attempt_metadata = context.metadata.clone();
+            self.emit_attempt_started(AttemptStartedEvent {
+                request_id: request_id.clone(),
+                pool_id: snapshot.pool_id.clone(),
+                endpoint_id: endpoint_id.clone(),
+                attempt_index,
+                metadata: attempt_metadata.clone(),
+            })
+            .await;
             let started_at = Instant::now();
+            let driver = match self.driver_for_endpoint(&endpoint) {
+                Ok(driver) => driver,
+                Err(error) => {
+                    let latency = started_at.elapsed();
+                    attempts.push(failed_attempt_report(&endpoint_id, latency, &error, false));
+                    self.emit_attempt_finished(failed_attempt_event(
+                        &request_id,
+                        &endpoint_id,
+                        latency,
+                        &error,
+                    ))
+                    .await;
+                    return Err(self
+                        .finalize_request_failure(
+                            FailedRequestContext {
+                                request_id: request_id.clone(),
+                                pool_id: snapshot.pool_id.clone(),
+                                endpoint_id,
+                                provider_kind,
+                                started_at: request_started_at,
+                                metadata: attempt_metadata.clone(),
+                            },
+                            attempts,
+                            error,
+                        )
+                        .await);
+                }
+            };
 
             match execute_embeddings_attempt(
                 driver,
@@ -222,8 +441,18 @@ impl UniGatewayEngine {
             .await
             {
                 Ok(response) => {
-                    attempts.push(success_attempt_report(&endpoint_id, started_at.elapsed()));
-                    return Ok(with_completed_attempt_reports(response, attempts));
+                    let latency = Duration::from_millis(response.report.latency_ms);
+                    attempts.push(success_attempt_report(&endpoint_id, latency));
+                    self.emit_attempt_finished(success_attempt_event(
+                        &request_id,
+                        &endpoint_id,
+                        latency,
+                    ))
+                    .await;
+
+                    let response = with_completed_request_report(response, &request_id, attempts);
+                    self.emit_request_finished(response.report.clone()).await;
+                    return Ok(response);
                 }
                 Err(error) => {
                     let should_retry = attempt_index + 1 < total_attempts
@@ -238,11 +467,31 @@ impl UniGatewayEngine {
                         &error,
                         should_retry,
                     ));
+                    self.emit_attempt_finished(failed_attempt_event(
+                        &request_id,
+                        &endpoint_id,
+                        started_at.elapsed(),
+                        &error,
+                    ))
+                    .await;
                     if should_retry {
                         apply_retry_backoff(&snapshot.retry_policy.backoff, attempt_index).await;
                         continue;
                     }
-                    return Err(error);
+                    return Err(self
+                        .finalize_request_failure(
+                            FailedRequestContext {
+                                request_id: request_id.clone(),
+                                pool_id: snapshot.pool_id.clone(),
+                                endpoint_id,
+                                provider_kind,
+                                started_at: request_started_at,
+                                metadata: attempt_metadata.clone(),
+                            },
+                            attempts,
+                            error,
+                        )
+                        .await);
                 }
             }
         }
@@ -280,6 +529,37 @@ impl UniGatewayEngine {
     ) -> Result<Vec<Endpoint>, GatewayError> {
         let mut rr_guard = self.inner.rr_counters.lock().await;
         snapshot.ordered_endpoints(&mut rr_guard, snapshot.retry_policy.max_attempts)
+    }
+
+    async fn emit_attempt_started(&self, event: AttemptStartedEvent) {
+        emit_attempt_started_hook(self.inner.hooks.clone(), event).await;
+    }
+
+    async fn emit_attempt_finished(&self, event: AttemptFinishedEvent) {
+        emit_attempt_finished_hook(self.inner.hooks.clone(), event).await;
+    }
+
+    async fn emit_request_finished(&self, report: RequestReport) {
+        emit_request_finished_hook(self.inner.hooks.clone(), report).await;
+    }
+
+    async fn finalize_request_failure(
+        &self,
+        context: FailedRequestContext,
+        attempts: Vec<AttemptReport>,
+        error: GatewayError,
+    ) -> GatewayError {
+        if attempts.is_empty() {
+            return error;
+        }
+
+        let report = build_failed_request_report(&context, attempts.clone(), SystemTime::now());
+        self.emit_request_finished(report).await;
+
+        GatewayError::AllAttemptsFailed {
+            attempts,
+            last_error: Box::new(error),
+        }
     }
 
     fn driver_for_endpoint(
@@ -404,6 +684,61 @@ fn failed_attempt_report(
     }
 }
 
+fn success_attempt_event(
+    request_id: &str,
+    endpoint_id: &str,
+    latency: Duration,
+) -> AttemptFinishedEvent {
+    AttemptFinishedEvent {
+        request_id: request_id.to_string(),
+        endpoint_id: endpoint_id.to_string(),
+        success: true,
+        status_code: None,
+        latency_ms: latency.as_millis() as u64,
+        error: None,
+    }
+}
+
+fn failed_attempt_event(
+    request_id: &str,
+    endpoint_id: &str,
+    latency: Duration,
+    error: &GatewayError,
+) -> AttemptFinishedEvent {
+    AttemptFinishedEvent {
+        request_id: request_id.to_string(),
+        endpoint_id: endpoint_id.to_string(),
+        success: false,
+        status_code: error.status_code(),
+        latency_ms: latency.as_millis() as u64,
+        error: Some(error.to_string()),
+    }
+}
+
+fn build_failed_request_report(
+    context: &FailedRequestContext,
+    attempts: Vec<AttemptReport>,
+    finished_at: SystemTime,
+) -> RequestReport {
+    let latency_ms = finished_at
+        .duration_since(context.started_at)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    RequestReport {
+        request_id: context.request_id.clone(),
+        pool_id: context.pool_id.clone(),
+        selected_endpoint_id: context.endpoint_id.clone(),
+        selected_provider: context.provider_kind,
+        attempts,
+        usage: None,
+        latency_ms,
+        started_at: context.started_at,
+        finished_at,
+        metadata: context.metadata.clone(),
+    }
+}
+
 fn should_retry_error(
     strategy: &LoadBalancingStrategy,
     retry_policy: &RetryPolicy,
@@ -468,47 +803,66 @@ async fn apply_retry_backoff(policy: &BackoffPolicy, attempt_index: usize) {
     }
 }
 
-fn with_chat_attempt_reports(
-    session: ProxySession<ChatResponseChunk, ChatResponseFinal>,
-    attempts: Vec<AttemptReport>,
-) -> ProxySession<ChatResponseChunk, ChatResponseFinal> {
-    match session {
-        ProxySession::Completed(mut result) => {
-            result.report.attempts = attempts;
-            ProxySession::Completed(result)
-        }
-        ProxySession::Streaming(streaming) => {
-            ProxySession::Streaming(with_streaming_attempt_reports(streaming, attempts))
-        }
+async fn emit_attempt_started_hook(
+    hooks: Option<Arc<dyn GatewayHooks>>,
+    event: AttemptStartedEvent,
+) {
+    if let Some(hooks) = hooks {
+        hooks.on_attempt_started(event).await;
     }
 }
 
-fn with_responses_attempt_reports(
-    session: ProxySession<ResponsesEvent, ResponsesFinal>,
-    attempts: Vec<AttemptReport>,
-) -> ProxySession<ResponsesEvent, ResponsesFinal> {
-    match session {
-        ProxySession::Completed(mut result) => {
-            result.report.attempts = attempts;
-            ProxySession::Completed(result)
-        }
-        ProxySession::Streaming(streaming) => {
-            ProxySession::Streaming(with_streaming_attempt_reports(streaming, attempts))
-        }
+async fn emit_attempt_finished_hook(
+    hooks: Option<Arc<dyn GatewayHooks>>,
+    event: AttemptFinishedEvent,
+) {
+    if let Some(hooks) = hooks {
+        hooks.on_attempt_finished(event).await;
     }
 }
 
-fn with_completed_attempt_reports<T>(
+async fn emit_request_finished_hook(hooks: Option<Arc<dyn GatewayHooks>>, report: RequestReport) {
+    if let Some(hooks) = hooks {
+        hooks.on_request_finished(report).await;
+    }
+}
+
+fn with_completed_request_report<T>(
     mut response: CompletedResponse<T>,
+    request_id: &str,
     attempts: Vec<AttemptReport>,
 ) -> CompletedResponse<T> {
+    response.report.request_id = request_id.to_string();
     response.report.attempts = attempts;
     response
 }
 
+struct StreamingAttemptContext {
+    request_id: RequestId,
+    pool_id: Option<PoolId>,
+    endpoint_id: String,
+    provider_kind: ProviderKind,
+    request_started_at: SystemTime,
+    attempt_started_at: Instant,
+    metadata: std::collections::HashMap<String, String>,
+    previous_attempts: Vec<AttemptReport>,
+    hooks: Option<Arc<dyn GatewayHooks>>,
+}
+
+fn aggregate_attempt_failure(attempts: Vec<AttemptReport>, error: GatewayError) -> GatewayError {
+    if attempts.is_empty() {
+        error
+    } else {
+        GatewayError::AllAttemptsFailed {
+            attempts,
+            last_error: Box::new(error),
+        }
+    }
+}
+
 fn with_streaming_attempt_reports<Chunk, Final>(
     streaming: StreamingResponse<Chunk, Final>,
-    attempts: Vec<AttemptReport>,
+    context: StreamingAttemptContext,
 ) -> StreamingResponse<Chunk, Final>
 where
     Chunk: Send + 'static,
@@ -517,29 +871,86 @@ where
     let StreamingResponse {
         stream,
         completion,
-        request_id,
+        request_id: _,
     } = streaming;
     let (sender, receiver) = tokio::sync::oneshot::channel();
+    let response_request_id = context.request_id.clone();
 
     tokio::spawn(async move {
-        let result = completion.await.map(|outcome| {
-            outcome.map(|mut completed| {
-                completed.report.attempts = attempts;
-                completed
-            })
-        });
-        let _ = sender.send(result.unwrap_or_else(|_| {
+        let StreamingAttemptContext {
+            request_id,
+            pool_id,
+            endpoint_id,
+            provider_kind,
+            request_started_at,
+            attempt_started_at,
+            metadata,
+            previous_attempts,
+            hooks,
+        } = context;
+
+        let completion_result = completion.await.unwrap_or_else(|_| {
             Err(GatewayError::Transport {
                 message: "stream completion channel dropped".to_string(),
                 endpoint_id: None,
             })
-        }));
+        });
+
+        let result = match completion_result {
+            Ok(mut completed) => {
+                let latency = Duration::from_millis(completed.report.latency_ms);
+                let mut attempts = previous_attempts;
+                attempts.push(success_attempt_report(&endpoint_id, latency));
+                completed.report.request_id = request_id.clone();
+                completed.report.attempts = attempts;
+
+                emit_attempt_finished_hook(
+                    hooks.clone(),
+                    success_attempt_event(&request_id, &endpoint_id, latency),
+                )
+                .await;
+                emit_request_finished_hook(hooks, completed.report.clone()).await;
+
+                Ok(completed)
+            }
+            Err(error) => {
+                let latency = attempt_started_at.elapsed();
+                let mut attempts = previous_attempts;
+                attempts.push(failed_attempt_report(&endpoint_id, latency, &error, false));
+
+                emit_attempt_finished_hook(
+                    hooks.clone(),
+                    failed_attempt_event(&request_id, &endpoint_id, latency, &error),
+                )
+                .await;
+                emit_request_finished_hook(
+                    hooks,
+                    build_failed_request_report(
+                        &FailedRequestContext {
+                            request_id: request_id.clone(),
+                            pool_id,
+                            endpoint_id: endpoint_id.clone(),
+                            provider_kind,
+                            started_at: request_started_at,
+                            metadata,
+                        },
+                        attempts.clone(),
+                        SystemTime::now(),
+                    ),
+                )
+                .await;
+
+                Err(aggregate_attempt_failure(attempts, error))
+            }
+        };
+
+        let _ = sender.send(result);
     });
 
     StreamingResponse {
         stream,
         completion: receiver,
-        request_id,
+        request_id: response_request_id,
     }
 }
 
@@ -589,6 +1000,7 @@ mod tests {
 
     use crate::InMemoryDriverRegistry;
     use crate::drivers::{DriverEndpointContext, ProviderDriver};
+    use crate::hooks::{AttemptFinishedEvent, AttemptStartedEvent, GatewayHooks};
     use crate::pool::{
         Endpoint, ExecutionPlan, ExecutionTarget, ProviderKind, ProviderPool, SecretString,
     };
@@ -880,6 +1292,42 @@ mod tests {
 
     struct BehaviorDriver {
         chat: HashMap<String, TestBehavior>,
+        responses: HashMap<String, TestBehavior>,
+    }
+
+    #[derive(Default)]
+    struct HookState {
+        started: std::sync::Mutex<Vec<AttemptStartedEvent>>,
+        finished: std::sync::Mutex<Vec<AttemptFinishedEvent>>,
+        requests: std::sync::Mutex<Vec<RequestReport>>,
+    }
+
+    #[derive(Clone, Default)]
+    struct HookRecorder {
+        state: Arc<HookState>,
+    }
+
+    impl GatewayHooks for HookRecorder {
+        fn on_attempt_started(&self, event: AttemptStartedEvent) -> BoxFuture<'static, ()> {
+            let state = self.state.clone();
+            Box::pin(async move {
+                state.started.lock().expect("started lock").push(event);
+            })
+        }
+
+        fn on_attempt_finished(&self, event: AttemptFinishedEvent) -> BoxFuture<'static, ()> {
+            let state = self.state.clone();
+            Box::pin(async move {
+                state.finished.lock().expect("finished lock").push(event);
+            })
+        }
+
+        fn on_request_finished(&self, report: RequestReport) -> BoxFuture<'static, ()> {
+            let state = self.state.clone();
+            Box::pin(async move {
+                state.requests.lock().expect("requests lock").push(report);
+            })
+        }
     }
 
     impl ProviderDriver for BehaviorDriver {
@@ -947,25 +1395,42 @@ mod tests {
             'static,
             Result<ProxySession<ResponsesEvent, ResponsesFinal>, crate::error::GatewayError>,
         > {
+            let behavior = self
+                .responses
+                .get(&endpoint.endpoint_id)
+                .cloned()
+                .unwrap_or(TestBehavior::Success);
             Box::pin(async move {
-                Ok(ProxySession::Completed(CompletedResponse {
-                    response: ResponsesFinal {
-                        output_text: Some(endpoint.endpoint_id.clone()),
-                        raw: json!({"endpoint_id": endpoint.endpoint_id}),
-                    },
-                    report: RequestReport {
-                        request_id: "req-resp".to_string(),
-                        pool_id: endpoint.metadata.get("pool_id").cloned(),
-                        selected_endpoint_id: endpoint.endpoint_id,
-                        selected_provider: endpoint.provider_kind,
-                        attempts: Vec::new(),
-                        usage: None,
-                        latency_ms: 1,
-                        started_at: SystemTime::UNIX_EPOCH,
-                        finished_at: SystemTime::UNIX_EPOCH,
-                        metadata: endpoint.metadata,
-                    },
-                }))
+                match behavior {
+                    TestBehavior::Success => Ok(ProxySession::Completed(CompletedResponse {
+                        response: ResponsesFinal {
+                            output_text: Some(endpoint.endpoint_id.clone()),
+                            raw: json!({"endpoint_id": endpoint.endpoint_id}),
+                        },
+                        report: RequestReport {
+                            request_id: "req-resp".to_string(),
+                            pool_id: endpoint.metadata.get("pool_id").cloned(),
+                            selected_endpoint_id: endpoint.endpoint_id,
+                            selected_provider: endpoint.provider_kind,
+                            attempts: Vec::new(),
+                            usage: None,
+                            latency_ms: 1,
+                            started_at: SystemTime::UNIX_EPOCH,
+                            finished_at: SystemTime::UNIX_EPOCH,
+                            metadata: endpoint.metadata,
+                        },
+                    })),
+                    TestBehavior::Upstream429 => Err(crate::error::GatewayError::UpstreamHttp {
+                        status: 429,
+                        body: Some("rate limited".to_string()),
+                        endpoint_id: endpoint.endpoint_id,
+                    }),
+                    TestBehavior::Upstream500 => Err(crate::error::GatewayError::UpstreamHttp {
+                        status: 500,
+                        body: Some("boom".to_string()),
+                        endpoint_id: endpoint.endpoint_id,
+                    }),
+                }
             })
         }
 
@@ -1088,6 +1553,7 @@ mod tests {
                 ("a".to_string(), TestBehavior::Upstream500),
                 ("b".to_string(), TestBehavior::Success),
             ]),
+            responses: HashMap::new(),
         }));
 
         let engine = UniGatewayEngine::builder()
@@ -1146,6 +1612,7 @@ mod tests {
                 ("a".to_string(), TestBehavior::Upstream429),
                 ("b".to_string(), TestBehavior::Success),
             ]),
+            responses: HashMap::new(),
         }));
 
         let engine = UniGatewayEngine::builder()
@@ -1193,5 +1660,192 @@ mod tests {
             }
             ProxySession::Streaming(_) => panic!("expected completed response"),
         }
+    }
+
+    #[tokio::test]
+    async fn chat_failure_returns_aggregated_attempt_reports() {
+        let registry = Arc::new(InMemoryDriverRegistry::new());
+        registry.register(Arc::new(BehaviorDriver {
+            chat: HashMap::from([
+                ("a".to_string(), TestBehavior::Upstream429),
+                ("b".to_string(), TestBehavior::Upstream500),
+            ]),
+            responses: HashMap::new(),
+        }));
+
+        let engine = UniGatewayEngine::builder()
+            .with_driver_registry(registry)
+            .build();
+        engine
+            .upsert_pool(pool(
+                "alpha",
+                LoadBalancingStrategy::RoundRobin,
+                vec![endpoint("a"), endpoint("b")],
+            ))
+            .await
+            .expect("upsert pool");
+
+        let error = match engine
+            .proxy_chat(
+                ProxyChatRequest {
+                    model: "gpt-4o-mini".to_string(),
+                    messages: Vec::new(),
+                    temperature: None,
+                    top_p: None,
+                    max_tokens: None,
+                    stream: false,
+                    metadata: HashMap::new(),
+                },
+                ExecutionTarget::Pool {
+                    pool_id: "alpha".to_string(),
+                },
+            )
+            .await
+        {
+            Ok(_) => panic!("chat should fail after retries"),
+            Err(error) => error,
+        };
+
+        match error {
+            crate::error::GatewayError::AllAttemptsFailed {
+                attempts,
+                last_error,
+            } => {
+                assert_eq!(attempts.len(), 2);
+                assert_eq!(attempts[0].status, crate::response::AttemptStatus::Retried);
+                assert_eq!(attempts[1].status, crate::response::AttemptStatus::Failed);
+                assert!(matches!(
+                    *last_error,
+                    crate::error::GatewayError::UpstreamHttp { status: 500, .. }
+                ));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn responses_failure_returns_aggregated_attempt_reports() {
+        let registry = Arc::new(InMemoryDriverRegistry::new());
+        registry.register(Arc::new(BehaviorDriver {
+            chat: HashMap::new(),
+            responses: HashMap::from([
+                ("a".to_string(), TestBehavior::Upstream429),
+                ("b".to_string(), TestBehavior::Upstream500),
+            ]),
+        }));
+
+        let engine = UniGatewayEngine::builder()
+            .with_driver_registry(registry)
+            .build();
+        engine
+            .upsert_pool(pool(
+                "alpha",
+                LoadBalancingStrategy::RoundRobin,
+                vec![endpoint("a"), endpoint("b")],
+            ))
+            .await
+            .expect("upsert pool");
+
+        let error = match engine
+            .proxy_responses(
+                ProxyResponsesRequest {
+                    model: "gpt-4.1-mini".to_string(),
+                    input: Some(json!([{"role": "user", "content": "hello"}])),
+                    instructions: None,
+                    temperature: None,
+                    top_p: None,
+                    max_output_tokens: None,
+                    stream: false,
+                    tools: None,
+                    tool_choice: None,
+                    previous_response_id: None,
+                    request_metadata: None,
+                    extra: HashMap::new(),
+                    metadata: HashMap::new(),
+                },
+                ExecutionTarget::Pool {
+                    pool_id: "alpha".to_string(),
+                },
+            )
+            .await
+        {
+            Ok(_) => panic!("responses should fail after retries"),
+            Err(error) => error,
+        };
+
+        match error {
+            crate::error::GatewayError::AllAttemptsFailed {
+                attempts,
+                last_error,
+            } => {
+                assert_eq!(attempts.len(), 2);
+                assert_eq!(attempts[0].status, crate::response::AttemptStatus::Retried);
+                assert_eq!(attempts[1].status, crate::response::AttemptStatus::Failed);
+                assert!(matches!(
+                    *last_error,
+                    crate::error::GatewayError::UpstreamHttp { status: 500, .. }
+                ));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn hooks_receive_failed_attempts_and_failed_request_report() {
+        let registry = Arc::new(InMemoryDriverRegistry::new());
+        registry.register(Arc::new(BehaviorDriver {
+            chat: HashMap::from([
+                ("a".to_string(), TestBehavior::Upstream429),
+                ("b".to_string(), TestBehavior::Upstream500),
+            ]),
+            responses: HashMap::new(),
+        }));
+        let hooks = HookRecorder::default();
+
+        let engine = UniGatewayEngine::builder()
+            .with_driver_registry(registry)
+            .with_hooks(Arc::new(hooks.clone()))
+            .build();
+        engine
+            .upsert_pool(pool(
+                "alpha",
+                LoadBalancingStrategy::RoundRobin,
+                vec![endpoint("a"), endpoint("b")],
+            ))
+            .await
+            .expect("upsert pool");
+
+        if engine
+            .proxy_chat(
+                ProxyChatRequest {
+                    model: "gpt-4o-mini".to_string(),
+                    messages: Vec::new(),
+                    temperature: None,
+                    top_p: None,
+                    max_tokens: None,
+                    stream: false,
+                    metadata: HashMap::new(),
+                },
+                ExecutionTarget::Pool {
+                    pool_id: "alpha".to_string(),
+                },
+            )
+            .await
+            .is_ok()
+        {
+            panic!("chat should fail after retries");
+        }
+
+        let started = hooks.state.started.lock().expect("started lock");
+        let finished = hooks.state.finished.lock().expect("finished lock");
+        let requests = hooks.state.requests.lock().expect("requests lock");
+
+        assert_eq!(started.len(), 2);
+        assert_eq!(finished.len(), 2);
+        assert_eq!(requests.len(), 1);
+        assert_eq!(finished[0].status_code, Some(429));
+        assert_eq!(finished[1].status_code, Some(500));
+        assert_eq!(requests[0].attempts.len(), 2);
+        assert_eq!(requests[0].selected_endpoint_id, "b");
     }
 }

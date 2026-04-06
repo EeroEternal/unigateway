@@ -48,5 +48,6 @@ pub struct ProxyResponsesRequest {
 pub struct ProxyEmbeddingsRequest {
     pub model: String,
     pub input: Vec<String>,
+    pub encoding_format: Option<String>,
     pub metadata: HashMap<String, String>,
 }
