@@ -1,6 +1,7 @@
 //! Config file + in-memory state: load from TOML, mutate in memory, persist back to file.
 
 mod admin;
+pub(crate) mod core_sync;
 mod schema;
 mod select;
 mod store;

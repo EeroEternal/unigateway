@@ -1,6 +1,6 @@
 [package]
 name = "unigateway"
-version = "0.9.18"
+version = "0.10.1"
 edition = "2024"
 rust-version = "1.92"
 description = "Lightweight, local-first LLM gateway for developers. A stable, single-binary unified entry point for all your AI tools and models."
@@ -10,6 +10,9 @@ readme = "README.md"
 keywords = ["llm", "gateway", "openai", "anthropic", "proxy"]
 categories = ["web-programming::http-server", "api-bindings", "command-line-utilities"]
 authors = ["EeroEternal <songmqq@proton.me>"]
+
+[workspace]
+members = ["unigateway-core"]
 
 [[bin]]
 name = "ug"
@@ -44,3 +47,4 @@ schemars = "1"
 clap_complete = "4.6.0"
 console = "0.16.3"
 indicatif = "0.18.4"
+unigateway-core = { path = "unigateway-core" }
