@@ -932,6 +932,12 @@ async fn execute_openai_responses_with_compat(
         .map(responses_session_to_openai_response)
 }
 
+/// Fetches the pool for `service_id` from the runtime host.
+///
+/// This is a thin delegation to [`RuntimePoolHost::pool_for_service`].  The returned pool
+/// **must** already be present inside the engine's pool table (i.e. previously registered
+/// via [`UniGatewayEngine::upsert_pool`]).  The caller is responsible for upsert on
+/// startup and on every subsequent pool change.
 async fn prepare_core_pool(
     runtime: &RuntimeContext<'_>,
     service_id: &str,

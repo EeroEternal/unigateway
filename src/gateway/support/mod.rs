@@ -24,7 +24,7 @@ pub(super) async fn handle_openai_chat_request(
         state,
         headers,
         payload,
-        crate::protocol::openai_payload_to_chat_request,
+        unigateway_runtime::protocol::openai_payload_to_chat_request,
     )
     .await
     {
@@ -44,7 +44,7 @@ pub(super) async fn handle_openai_responses_request(
         state,
         headers,
         payload,
-        crate::protocol::openai_payload_to_responses_request,
+        unigateway_runtime::protocol::openai_payload_to_responses_request,
     )
     .await
     {
@@ -64,7 +64,7 @@ pub(super) async fn handle_anthropic_messages_request(
         state,
         headers,
         payload,
-        crate::protocol::anthropic_payload_to_chat_request,
+        unigateway_runtime::protocol::anthropic_payload_to_chat_request,
     )
     .await
     {
@@ -84,7 +84,7 @@ pub(super) async fn handle_openai_embeddings_request(
         state,
         headers,
         payload,
-        crate::protocol::openai_payload_to_embed_request,
+        unigateway_runtime::protocol::openai_payload_to_embed_request,
     )
     .await
     {

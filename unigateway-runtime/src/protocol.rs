@@ -8,6 +8,7 @@ use unigateway_core::{
     ProxyResponsesRequest,
 };
 
+/// Translates an OpenAI-compatible JSON payload into a core `ProxyChatRequest`.
 pub fn openai_payload_to_chat_request(
     payload: &Value,
     default_model: &str,
@@ -36,6 +37,7 @@ pub fn openai_payload_to_chat_request(
     })
 }
 
+/// Translates an OpenAI-compatible JSON payload into a core `ProxyResponsesRequest` (OpenAI Beta format).
 pub fn openai_payload_to_responses_request(
     payload: &Value,
     default_model: &str,
@@ -60,6 +62,7 @@ pub fn openai_payload_to_responses_request(
     })
 }
 
+/// Translates an Anthropic-compatible JSON payload into a core `ProxyChatRequest`.
 pub fn anthropic_payload_to_chat_request(
     payload: &Value,
     default_model: &str,
@@ -97,6 +100,7 @@ pub fn anthropic_payload_to_chat_request(
     })
 }
 
+/// Translates an OpenAI-compatible JSON payload into a core `ProxyEmbeddingsRequest`.
 pub fn openai_payload_to_embed_request(
     payload: &Value,
     default_model: &str,

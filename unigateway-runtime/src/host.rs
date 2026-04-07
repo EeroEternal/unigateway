@@ -61,6 +61,26 @@ pub trait RuntimeEngineHost: Send + Sync {
     fn core_engine(&self) -> &UniGatewayEngine;
 }
 
+/// Provides per-request access to the pool that should serve a given service.
+///
+/// # Contract for implementors
+///
+/// The pool returned here **must already be registered** in the engine via
+/// [`UniGatewayEngine::upsert_pool`] before this method is called.  The runtime
+/// core functions (`try_openai_chat_via_core`, etc.) build an
+/// [`ExecutionTarget::Pool`][unigateway_core::ExecutionTarget] from the returned pool id and
+/// then ask the engine to resolve it — if the pool has not been upserted the engine
+/// will return [`GatewayError::PoolNotFound`][unigateway_core::GatewayError::PoolNotFound].
+///
+/// The recommended lifecycle for embedders is:
+///
+/// 1. **Startup sync** — call `engine.upsert_pool(pool)` for every pool fetched from
+///    your datastore.
+/// 2. **Hot updates** — whenever a pool changes, call `engine.upsert_pool(pool)` or
+///    `engine.remove_pool(pool_id)`.
+/// 3. **Per-request** — implement this method as a fast in-memory look-up that returns
+///    `engine.get_pool(service_id)` (or equivalent).  Do **not** query an external
+///    datastore on every request.
 pub trait RuntimePoolHost: Send + Sync {
     fn pool_for_service<'a>(
         &'a self,

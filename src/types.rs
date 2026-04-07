@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use serde::Serialize;
-use unigateway_core::InMemoryDriverRegistry;
 use unigateway_core::UniGatewayEngine;
-use unigateway_core::protocol::builtin_drivers;
-use unigateway_core::transport::ReqwestHttpTransport;
 
 use crate::config::GatewayState;
 use crate::config::core_sync::sync_core_pools;
@@ -65,13 +62,9 @@ pub(crate) struct AppState {
 
 impl AppState {
     pub fn new(config: AppConfig, gateway: Arc<GatewayState>) -> Self {
-        let core_driver_registry = Arc::new(InMemoryDriverRegistry::new());
-        for driver in builtin_drivers(Arc::new(ReqwestHttpTransport::default())) {
-            core_driver_registry.register(driver);
-        }
         let core_engine = Arc::new(
             UniGatewayEngine::builder()
-                .with_driver_registry(core_driver_registry.clone())
+                .with_builtin_http_drivers()
                 .build(),
         );
 

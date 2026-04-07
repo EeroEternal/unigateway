@@ -6,7 +6,6 @@ mod dto;
 mod gateway;
 mod mcp;
 mod middleware;
-mod protocol;
 mod provider;
 mod routing;
 mod runtime_host_adapter;

@@ -108,6 +108,7 @@ impl UniGatewayEngine {
                 snapshot.pool_id.clone(),
                 endpoint.clone(),
                 snapshot.metadata.clone(),
+                request.metadata.clone(),
             );
             let attempt_metadata = context.metadata.clone();
             self.emit_attempt_started(AttemptStartedEvent {
@@ -250,6 +251,7 @@ impl UniGatewayEngine {
                 snapshot.pool_id.clone(),
                 endpoint.clone(),
                 snapshot.metadata.clone(),
+                request.metadata.clone(),
             );
             let attempt_metadata = context.metadata.clone();
             self.emit_attempt_started(AttemptStartedEvent {
@@ -392,6 +394,7 @@ impl UniGatewayEngine {
                 snapshot.pool_id.clone(),
                 endpoint.clone(),
                 snapshot.metadata.clone(),
+                request.metadata.clone(),
             );
             let attempt_metadata = context.metadata.clone();
             self.emit_attempt_started(AttemptStartedEvent {
@@ -582,12 +585,16 @@ impl UniGatewayEngine {
         pool_id: Option<PoolId>,
         endpoint: Endpoint,
         snapshot_metadata: std::collections::HashMap<String, String>,
+        request_metadata: std::collections::HashMap<String, String>,
     ) -> DriverEndpointContext {
         let mut metadata = snapshot_metadata;
         metadata.extend(endpoint.metadata.clone());
         if let Some(pool_id) = pool_id {
             metadata.entry("pool_id".to_string()).or_insert(pool_id);
         }
+        // Request-level metadata has highest priority so callers can attach
+        // trace/tenant/user tags that propagate into RequestReport.metadata.
+        metadata.extend(request_metadata);
 
         DriverEndpointContext {
             endpoint_id: endpoint.endpoint_id,
@@ -963,6 +970,29 @@ impl UniGatewayEngineBuilder {
     pub fn with_driver_registry(mut self, registry: Arc<dyn DriverRegistry>) -> Self {
         self.driver_registry = Some(registry);
         self
+    }
+
+    /// Registers the built-in OpenAI-compatible and Anthropic drivers backed by the default
+    /// `reqwest` HTTP transport. This is the zero-boilerplate starting point for most callers.
+    ///
+    /// Equivalent to manually creating an [`InMemoryDriverRegistry`], instantiating
+    /// [`ReqwestHttpTransport`], calling [`builtin_drivers`], and passing the registry via
+    /// [`with_driver_registry`].
+    ///
+    /// [`InMemoryDriverRegistry`]: crate::registry::InMemoryDriverRegistry
+    /// [`ReqwestHttpTransport`]: crate::transport::ReqwestHttpTransport
+    /// [`builtin_drivers`]: crate::protocol::builtin_drivers
+    /// [`with_driver_registry`]: Self::with_driver_registry
+    pub fn with_builtin_http_drivers(self) -> Self {
+        use crate::registry::InMemoryDriverRegistry;
+        use crate::transport::ReqwestHttpTransport;
+
+        let transport = Arc::new(ReqwestHttpTransport::default());
+        let registry = Arc::new(InMemoryDriverRegistry::new());
+        for driver in crate::protocol::builtin_drivers(transport) {
+            registry.register(driver);
+        }
+        self.with_driver_registry(registry)
     }
 
     pub fn with_default_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
