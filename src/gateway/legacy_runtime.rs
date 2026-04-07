@@ -10,11 +10,16 @@ use futures_util::StreamExt;
 use llm_connector::{
     ChatResponse, LlmClient,
     types::{
-        ChatRequest, ChatStream, EmbedRequest, EmbedResponse, ResponsesRequest, ResponsesResponse,
-        ResponsesStream, StreamChunk, StreamFormat, streaming::AnthropicSseAdapter,
+        ChatRequest, ChatStream, EmbedRequest, EmbedResponse, Message as LegacyMessage,
+        ResponsesRequest, ResponsesResponse, ResponsesStream, Role, StreamChunk, StreamFormat,
+        streaming::AnthropicSseAdapter,
     },
 };
 use serde_json::{Value, json};
+use unigateway_core::{
+    Message as CoreMessage, MessageRole, ProxyChatRequest, ProxyEmbeddingsRequest,
+    ProxyResponsesRequest,
+};
 use unigateway_runtime::host::{ResolvedProvider, RuntimeContext};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,7 +38,7 @@ pub(crate) async fn invoke_openai_chat_via_legacy(
     runtime: &RuntimeContext<'_>,
     service_id: &str,
     hint: Option<&str>,
-    request: &ChatRequest,
+    request: &ProxyChatRequest,
 ) -> Result<Response> {
     invoke_chat_via_legacy(
         runtime,
@@ -49,13 +54,15 @@ pub(crate) async fn invoke_openai_chat_via_legacy(
 pub(crate) async fn invoke_openai_chat_via_env_legacy(
     base_url: &str,
     api_key: &str,
-    request: &ChatRequest,
+    request: &ProxyChatRequest,
 ) -> Result<Response> {
+    let legacy_request = to_legacy_chat_request(request);
+
     invoke_direct_chat(
         UpstreamProtocol::OpenAi,
         base_url,
         api_key,
-        request,
+        &legacy_request,
         None,
         DownstreamChatFormat::OpenAi,
     )
@@ -66,14 +73,15 @@ pub(crate) async fn invoke_openai_responses_via_legacy(
     runtime: &RuntimeContext<'_>,
     service_id: &str,
     hint: Option<&str>,
-    request: &ResponsesRequest,
+    request: &ProxyResponsesRequest,
 ) -> Result<Response> {
+    let legacy_request = to_legacy_responses_request(request)?;
     let providers = resolve_legacy_providers(runtime, service_id, "openai", hint).await?;
-    let original_model = request.model.clone();
+    let original_model = legacy_request.model.clone();
     let mut last_err = String::from("unknown");
 
     for provider in &providers {
-        let mut mapped = request.clone();
+        let mut mapped = legacy_request.clone();
         mapped.model = provider.map_model(&original_model);
 
         match invoke_legacy_responses_for_provider(provider, &mapped).await {
@@ -91,16 +99,17 @@ pub(crate) async fn invoke_openai_responses_via_legacy(
 pub(crate) async fn invoke_openai_responses_via_env_legacy(
     base_url: &str,
     api_key: &str,
-    request: &ResponsesRequest,
+    request: &ProxyResponsesRequest,
 ) -> Result<Response> {
-    invoke_legacy_responses_for_env(base_url, api_key, request).await
+    let legacy_request = to_legacy_responses_request(request)?;
+    invoke_legacy_responses_for_env(base_url, api_key, &legacy_request).await
 }
 
 pub(crate) async fn invoke_anthropic_chat_via_legacy(
     runtime: &RuntimeContext<'_>,
     service_id: &str,
     hint: Option<&str>,
-    request: &ChatRequest,
+    request: &ProxyChatRequest,
 ) -> Result<Response> {
     invoke_chat_via_legacy(
         runtime,
@@ -116,13 +125,15 @@ pub(crate) async fn invoke_anthropic_chat_via_legacy(
 pub(crate) async fn invoke_anthropic_chat_via_env_legacy(
     base_url: &str,
     api_key: &str,
-    request: &ChatRequest,
+    request: &ProxyChatRequest,
 ) -> Result<Response> {
+    let legacy_request = to_legacy_chat_request(request);
+
     invoke_direct_chat(
         UpstreamProtocol::Anthropic,
         base_url,
         api_key,
-        request,
+        &legacy_request,
         None,
         DownstreamChatFormat::Anthropic,
     )
@@ -133,14 +144,15 @@ pub(crate) async fn invoke_openai_embeddings_via_legacy(
     runtime: &RuntimeContext<'_>,
     service_id: &str,
     hint: Option<&str>,
-    request: &EmbedRequest,
+    request: &ProxyEmbeddingsRequest,
 ) -> Result<Response> {
+    let legacy_request = to_legacy_embeddings_request(request);
     let providers = resolve_legacy_providers(runtime, service_id, "openai", hint).await?;
-    let original_model = request.model.clone();
+    let original_model = legacy_request.model.clone();
     let mut last_err = String::from("unknown");
 
     for provider in &providers {
-        let mut mapped = request.clone();
+        let mut mapped = legacy_request.clone();
         mapped.model = provider.map_model(&original_model);
 
         tracing::debug!(
@@ -168,9 +180,11 @@ pub(crate) async fn invoke_openai_embeddings_via_legacy(
 pub(crate) async fn invoke_openai_embeddings_via_env_legacy(
     base_url: &str,
     api_key: &str,
-    request: &EmbedRequest,
+    request: &ProxyEmbeddingsRequest,
 ) -> Result<Response> {
-    invoke_embeddings(base_url, api_key, request)
+    let legacy_request = to_legacy_embeddings_request(request);
+
+    invoke_embeddings(base_url, api_key, &legacy_request)
         .await
         .map(|resp| (StatusCode::OK, Json(embed_response_to_openai_json(&resp))).into_response())
 }
@@ -180,15 +194,16 @@ async fn invoke_chat_via_legacy(
     service_id: &str,
     protocol_id: &str,
     hint: Option<&str>,
-    request: &ChatRequest,
+    request: &ProxyChatRequest,
     downstream: DownstreamChatFormat,
 ) -> Result<Response> {
+    let legacy_request = to_legacy_chat_request(request);
     let providers = resolve_legacy_providers(runtime, service_id, protocol_id, hint).await?;
-    let original_model = request.model.clone();
+    let original_model = legacy_request.model.clone();
     let mut last_err = String::from("unknown");
 
     for provider in &providers {
-        let mut mapped = request.clone();
+        let mut mapped = legacy_request.clone();
         mapped.model = provider.map_model(&original_model);
 
         let upstream_protocol = match provider.provider_type.as_str() {
@@ -604,6 +619,80 @@ async fn invoke_legacy_responses_stream_with_fallback(
             build_responses_stream_response_from_full(full_resp)
         }
     }
+}
+
+fn to_legacy_chat_request(request: &ProxyChatRequest) -> ChatRequest {
+    let mut legacy_request = ChatRequest::new(request.model.clone());
+    legacy_request.messages = request.messages.iter().map(to_legacy_message).collect();
+    legacy_request.temperature = request.temperature;
+    legacy_request.top_p = request.top_p;
+    legacy_request.max_tokens = request.max_tokens;
+    legacy_request.stream = Some(request.stream);
+    legacy_request
+}
+
+fn to_legacy_responses_request(request: &ProxyResponsesRequest) -> Result<ResponsesRequest> {
+    let mut payload = serde_json::Map::new();
+    payload.insert("model".to_string(), Value::String(request.model.clone()));
+
+    if let Some(input) = request.input.clone() {
+        payload.insert("input".to_string(), input);
+    }
+    if let Some(instructions) = request.instructions.clone() {
+        payload.insert("instructions".to_string(), Value::String(instructions));
+    }
+    if let Some(temperature) = request.temperature {
+        payload.insert("temperature".to_string(), json!(temperature));
+    }
+    if let Some(top_p) = request.top_p {
+        payload.insert("top_p".to_string(), json!(top_p));
+    }
+    if let Some(max_output_tokens) = request.max_output_tokens {
+        payload.insert("max_output_tokens".to_string(), json!(max_output_tokens));
+    }
+
+    payload.insert("stream".to_string(), Value::Bool(request.stream));
+
+    if let Some(tools) = request.tools.clone() {
+        payload.insert("tools".to_string(), tools);
+    }
+    if let Some(tool_choice) = request.tool_choice.clone() {
+        payload.insert("tool_choice".to_string(), tool_choice);
+    }
+    if let Some(previous_response_id) = request.previous_response_id.clone() {
+        payload.insert(
+            "previous_response_id".to_string(),
+            Value::String(previous_response_id),
+        );
+    }
+    if let Some(metadata) = request.request_metadata.clone() {
+        payload.insert("metadata".to_string(), metadata);
+    }
+
+    payload.extend(request.extra.clone());
+
+    serde_json::from_value(Value::Object(payload))
+        .map_err(|error| anyhow!("failed to build legacy responses request: {error}"))
+}
+
+fn to_legacy_embeddings_request(request: &ProxyEmbeddingsRequest) -> EmbedRequest {
+    let mut legacy_request = EmbedRequest::new_batch(request.model.clone(), request.input.clone());
+    if let Some(encoding_format) = request.encoding_format.as_deref() {
+        legacy_request = legacy_request.with_encoding_format(encoding_format);
+    }
+    legacy_request
+}
+
+fn to_legacy_message(message: &CoreMessage) -> LegacyMessage {
+    LegacyMessage::text(
+        match message.role {
+            MessageRole::System => Role::System,
+            MessageRole::Assistant => Role::Assistant,
+            MessageRole::Tool => Role::Tool,
+            MessageRole::User => Role::User,
+        },
+        message.content.clone(),
+    )
 }
 
 fn build_openai_client(

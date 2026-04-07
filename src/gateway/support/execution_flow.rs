@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use axum::response::Response;
-use llm_connector::types::{ChatRequest, EmbedRequest, ResponsesRequest};
 use serde_json::Value;
 use tracing::info;
+use unigateway_core::{ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest};
 use unigateway_runtime::{
     core::{
         embeddings_payload_is_core_compatible, responses_payload_is_core_compatible,
@@ -18,8 +18,8 @@ use unigateway_runtime::{
     },
 };
 
+use crate::gateway::legacy_runtime;
 use crate::types::AppState;
-use crate::{gateway::legacy_runtime, protocol};
 
 use super::request_flow::PreparedGatewayRequest;
 use super::response_flow::respond_prepared_runtime_result;
@@ -27,10 +27,9 @@ use super::response_flow::respond_prepared_runtime_result;
 pub(super) async fn execute_prepared_openai_chat(
     state: &Arc<AppState>,
     prepared: &PreparedGatewayRequest<'_>,
-    request: &ChatRequest,
+    request: &ProxyChatRequest,
 ) -> Response {
     let endpoint = "/v1/chat/completions";
-    let core_request = protocol::to_core_chat_request(request);
 
     let result = if let Some(auth) = prepared.auth.as_ref() {
         resolve_authenticated_runtime_flow(
@@ -38,7 +37,7 @@ pub(super) async fn execute_prepared_openai_chat(
                 &prepared.runtime,
                 &auth.key.service_id,
                 prepared.hint.as_deref(),
-                core_request,
+                request.clone(),
             ),
             legacy_runtime::invoke_openai_chat_via_legacy(
                 &prepared.runtime,
@@ -49,7 +48,7 @@ pub(super) async fn execute_prepared_openai_chat(
         )
         .await
     } else {
-        execute_openai_chat_env(prepared, request, core_request).await
+        execute_openai_chat_env(prepared, request).await
     };
 
     respond_prepared_runtime_result(state, prepared, endpoint, result).await
@@ -58,11 +57,10 @@ pub(super) async fn execute_prepared_openai_chat(
 pub(super) async fn execute_prepared_openai_responses(
     state: &Arc<AppState>,
     prepared: &PreparedGatewayRequest<'_>,
-    request: ResponsesRequest,
+    request: ProxyResponsesRequest,
     payload: &Value,
 ) -> Response {
     let endpoint = "/v1/responses";
-    let core_request = protocol::to_core_responses_request(&request);
 
     let result = if let Some(auth) = prepared.auth.as_ref() {
         if responses_payload_is_core_compatible(payload) {
@@ -71,7 +69,7 @@ pub(super) async fn execute_prepared_openai_responses(
                     &prepared.runtime,
                     &auth.key.service_id,
                     prepared.hint.as_deref(),
-                    core_request.clone(),
+                    request.clone(),
                 ),
                 legacy_runtime::invoke_openai_responses_via_legacy(
                     &prepared.runtime,
@@ -94,7 +92,7 @@ pub(super) async fn execute_prepared_openai_responses(
             .await
         }
     } else {
-        execute_openai_responses_env(prepared, &request, payload, core_request).await
+        execute_openai_responses_env(prepared, &request, payload).await
     };
 
     respond_prepared_runtime_result(state, prepared, endpoint, result).await
@@ -103,7 +101,7 @@ pub(super) async fn execute_prepared_openai_responses(
 pub(super) async fn execute_prepared_anthropic_chat(
     state: &Arc<AppState>,
     prepared: &PreparedGatewayRequest<'_>,
-    request: &ChatRequest,
+    request: &ProxyChatRequest,
 ) -> Response {
     let endpoint = "/v1/messages";
 
@@ -125,14 +123,13 @@ pub(super) async fn execute_prepared_anthropic_chat(
         );
     }
 
-    let core_request = protocol::to_core_chat_request(request);
     let result = if let Some(auth) = prepared.auth.as_ref() {
         resolve_authenticated_runtime_flow(
             try_anthropic_chat_via_core(
                 &prepared.runtime,
                 &auth.key.service_id,
                 prepared.hint.as_deref(),
-                core_request,
+                request.clone(),
                 &request.model,
             ),
             legacy_runtime::invoke_anthropic_chat_via_legacy(
@@ -144,7 +141,7 @@ pub(super) async fn execute_prepared_anthropic_chat(
         )
         .await
     } else {
-        execute_anthropic_chat_env(prepared, request, core_request).await
+        execute_anthropic_chat_env(prepared, request).await
     };
 
     respond_prepared_runtime_result(state, prepared, endpoint, result).await
@@ -153,11 +150,10 @@ pub(super) async fn execute_prepared_anthropic_chat(
 pub(super) async fn execute_prepared_openai_embeddings(
     state: &Arc<AppState>,
     prepared: &PreparedGatewayRequest<'_>,
-    request: &EmbedRequest,
+    request: &ProxyEmbeddingsRequest,
     payload: &Value,
 ) -> Response {
     let endpoint = "/v1/embeddings";
-    let core_request = protocol::to_core_embeddings_request(request);
 
     let result = if let Some(auth) = prepared.auth.as_ref() {
         if embeddings_payload_is_core_compatible(payload) {
@@ -166,7 +162,7 @@ pub(super) async fn execute_prepared_openai_embeddings(
                     &prepared.runtime,
                     &auth.key.service_id,
                     prepared.hint.as_deref(),
-                    core_request,
+                    request.clone(),
                 ),
                 legacy_runtime::invoke_openai_embeddings_via_legacy(
                     &prepared.runtime,
@@ -189,7 +185,7 @@ pub(super) async fn execute_prepared_openai_embeddings(
             .await
         }
     } else {
-        execute_openai_embeddings_env(prepared, request, core_request).await
+        execute_openai_embeddings_env(prepared, request).await
     };
 
     respond_prepared_runtime_result(state, prepared, endpoint, result).await
@@ -197,8 +193,7 @@ pub(super) async fn execute_prepared_openai_embeddings(
 
 async fn execute_openai_chat_env(
     prepared: &PreparedGatewayRequest<'_>,
-    request: &ChatRequest,
-    core_request: unigateway_core::ProxyChatRequest,
+    request: &ProxyChatRequest,
 ) -> RuntimeResponseResult {
     let env = match prepare_openai_env_config(&prepared.token, prepared.runtime.config) {
         Some(env) => env,
@@ -209,7 +204,7 @@ async fn execute_openai_chat_env(
         try_openai_chat_via_env_core(
             &prepared.runtime,
             prepared.hint.as_deref(),
-            core_request,
+            request.clone(),
             env.base_url,
             &env.api_key,
         ),
@@ -220,9 +215,8 @@ async fn execute_openai_chat_env(
 
 async fn execute_openai_responses_env(
     prepared: &PreparedGatewayRequest<'_>,
-    request: &ResponsesRequest,
+    request: &ProxyResponsesRequest,
     payload: &Value,
-    core_request: unigateway_core::ProxyResponsesRequest,
 ) -> RuntimeResponseResult {
     let env = match prepare_openai_env_config(&prepared.token, prepared.runtime.config) {
         Some(env) => env,
@@ -234,7 +228,7 @@ async fn execute_openai_responses_env(
             try_openai_responses_via_env_core(
                 &prepared.runtime,
                 prepared.hint.as_deref(),
-                core_request,
+                request.clone(),
                 env.base_url,
                 &env.api_key,
             ),
@@ -260,8 +254,7 @@ async fn execute_openai_responses_env(
 
 async fn execute_anthropic_chat_env(
     prepared: &PreparedGatewayRequest<'_>,
-    request: &ChatRequest,
-    core_request: unigateway_core::ProxyChatRequest,
+    request: &ProxyChatRequest,
 ) -> RuntimeResponseResult {
     let env = match prepare_anthropic_env_config(&prepared.token, prepared.runtime.config) {
         Some(env) => env,
@@ -272,7 +265,7 @@ async fn execute_anthropic_chat_env(
         try_anthropic_chat_via_env_core(
             &prepared.runtime,
             prepared.hint.as_deref(),
-            core_request,
+            request.clone(),
             &request.model,
             env.base_url,
             &env.api_key,
@@ -284,8 +277,7 @@ async fn execute_anthropic_chat_env(
 
 async fn execute_openai_embeddings_env(
     prepared: &PreparedGatewayRequest<'_>,
-    request: &EmbedRequest,
-    core_request: unigateway_core::ProxyEmbeddingsRequest,
+    request: &ProxyEmbeddingsRequest,
 ) -> RuntimeResponseResult {
     let env = match prepare_openai_env_config(&prepared.token, prepared.runtime.config) {
         Some(env) => env,
@@ -296,7 +288,7 @@ async fn execute_openai_embeddings_env(
         try_openai_embeddings_via_env_core(
             &prepared.runtime,
             prepared.hint.as_deref(),
-            core_request,
+            request.clone(),
             env.base_url,
             &env.api_key,
         ),
