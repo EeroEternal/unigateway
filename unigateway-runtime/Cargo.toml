@@ -17,4 +17,4 @@ serde_json.workspace = true
 serde.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 tracing.workspace = true
-unigateway-core.workspace = true
+unigateway-core = { version = "1.0.0", path = "../unigateway-core" }
