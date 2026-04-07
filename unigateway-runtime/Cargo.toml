@@ -8,13 +8,13 @@ license = "MIT"
 repository = "https://github.com/EeroEternal/unigateway"
 
 [dependencies]
-anyhow = "1"
-axum = "0.7"
-bytes = "1"
-futures-util = "0.3"
+anyhow.workspace = true
+axum.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
 http = "1"
-serde_json = "1"
-serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
-tracing = "0.1"
-unigateway-core = { path = "../unigateway-core" }
+serde_json.workspace = true
+serde.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+tracing.workspace = true
+unigateway-core.workspace = true
