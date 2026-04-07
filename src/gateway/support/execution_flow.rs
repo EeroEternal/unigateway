@@ -1,12 +1,10 @@
 use std::sync::Arc;
 
 use axum::response::Response;
-use serde_json::Value;
 use tracing::info;
 use unigateway_core::{ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest};
 use unigateway_runtime::{
     core::{
-        embeddings_payload_is_core_compatible, responses_payload_is_core_compatible,
         try_anthropic_chat_via_core, try_anthropic_chat_via_env_core, try_openai_chat_via_core,
         try_openai_chat_via_env_core, try_openai_embeddings_via_core,
         try_openai_embeddings_via_env_core, try_openai_responses_via_core,
@@ -14,11 +12,10 @@ use unigateway_runtime::{
     },
     flow::{
         RuntimeResponseResult, missing_upstream_api_key_response, prepare_anthropic_env_config,
-        prepare_openai_env_config, resolve_authenticated_runtime_flow, resolve_env_runtime_flow,
+        prepare_openai_env_config, resolve_core_only_runtime_flow,
     },
 };
 
-use crate::gateway::legacy_runtime;
 use crate::types::AppState;
 
 use super::request_flow::PreparedGatewayRequest;
@@ -32,19 +29,14 @@ pub(super) async fn execute_prepared_openai_chat(
     let endpoint = "/v1/chat/completions";
 
     let result = if let Some(auth) = prepared.auth.as_ref() {
-        resolve_authenticated_runtime_flow(
+        resolve_core_only_runtime_flow(
             try_openai_chat_via_core(
                 &prepared.runtime,
                 &auth.key.service_id,
                 prepared.hint.as_deref(),
                 request.clone(),
             ),
-            legacy_runtime::invoke_openai_chat_via_legacy(
-                &prepared.runtime,
-                &auth.key.service_id,
-                prepared.hint.as_deref(),
-                request,
-            ),
+            "no provider pool available for chat",
         )
         .await
     } else {
@@ -58,41 +50,22 @@ pub(super) async fn execute_prepared_openai_responses(
     state: &Arc<AppState>,
     prepared: &PreparedGatewayRequest<'_>,
     request: ProxyResponsesRequest,
-    payload: &Value,
 ) -> Response {
     let endpoint = "/v1/responses";
 
     let result = if let Some(auth) = prepared.auth.as_ref() {
-        if responses_payload_is_core_compatible(payload) {
-            resolve_authenticated_runtime_flow(
-                try_openai_responses_via_core(
-                    &prepared.runtime,
-                    &auth.key.service_id,
-                    prepared.hint.as_deref(),
-                    request.clone(),
-                ),
-                legacy_runtime::invoke_openai_responses_via_legacy(
-                    &prepared.runtime,
-                    &auth.key.service_id,
-                    prepared.hint.as_deref(),
-                    &request,
-                ),
-            )
-            .await
-        } else {
-            resolve_authenticated_runtime_flow(
-                std::future::ready(Ok(None::<Response>)),
-                legacy_runtime::invoke_openai_responses_via_legacy(
-                    &prepared.runtime,
-                    &auth.key.service_id,
-                    prepared.hint.as_deref(),
-                    &request,
-                ),
-            )
-            .await
-        }
+        resolve_core_only_runtime_flow(
+            try_openai_responses_via_core(
+                &prepared.runtime,
+                &auth.key.service_id,
+                prepared.hint.as_deref(),
+                request.clone(),
+            ),
+            "no openai-compatible provider available for responses",
+        )
+        .await
     } else {
-        execute_openai_responses_env(prepared, &request, payload).await
+        execute_openai_responses_env(prepared, &request).await
     };
 
     respond_prepared_runtime_result(state, prepared, endpoint, result).await
@@ -124,7 +97,7 @@ pub(super) async fn execute_prepared_anthropic_chat(
     }
 
     let result = if let Some(auth) = prepared.auth.as_ref() {
-        resolve_authenticated_runtime_flow(
+        resolve_core_only_runtime_flow(
             try_anthropic_chat_via_core(
                 &prepared.runtime,
                 &auth.key.service_id,
@@ -132,12 +105,7 @@ pub(super) async fn execute_prepared_anthropic_chat(
                 request.clone(),
                 &request.model,
             ),
-            legacy_runtime::invoke_anthropic_chat_via_legacy(
-                &prepared.runtime,
-                &auth.key.service_id,
-                prepared.hint.as_deref(),
-                request,
-            ),
+            "no provider pool available for messages",
         )
         .await
     } else {
@@ -151,39 +119,20 @@ pub(super) async fn execute_prepared_openai_embeddings(
     state: &Arc<AppState>,
     prepared: &PreparedGatewayRequest<'_>,
     request: &ProxyEmbeddingsRequest,
-    payload: &Value,
 ) -> Response {
     let endpoint = "/v1/embeddings";
 
     let result = if let Some(auth) = prepared.auth.as_ref() {
-        if embeddings_payload_is_core_compatible(payload) {
-            resolve_authenticated_runtime_flow(
-                try_openai_embeddings_via_core(
-                    &prepared.runtime,
-                    &auth.key.service_id,
-                    prepared.hint.as_deref(),
-                    request.clone(),
-                ),
-                legacy_runtime::invoke_openai_embeddings_via_legacy(
-                    &prepared.runtime,
-                    &auth.key.service_id,
-                    prepared.hint.as_deref(),
-                    request,
-                ),
-            )
-            .await
-        } else {
-            resolve_authenticated_runtime_flow(
-                std::future::ready(Ok(None::<Response>)),
-                legacy_runtime::invoke_openai_embeddings_via_legacy(
-                    &prepared.runtime,
-                    &auth.key.service_id,
-                    prepared.hint.as_deref(),
-                    request,
-                ),
-            )
-            .await
-        }
+        resolve_core_only_runtime_flow(
+            try_openai_embeddings_via_core(
+                &prepared.runtime,
+                &auth.key.service_id,
+                prepared.hint.as_deref(),
+                request.clone(),
+            ),
+            "no openai-compatible provider available for embeddings",
+        )
+        .await
     } else {
         execute_openai_embeddings_env(prepared, request).await
     };
@@ -200,7 +149,7 @@ async fn execute_openai_chat_env(
         None => return Err(missing_upstream_api_key_response()),
     };
 
-    resolve_env_runtime_flow(
+    resolve_core_only_runtime_flow(
         try_openai_chat_via_env_core(
             &prepared.runtime,
             prepared.hint.as_deref(),
@@ -208,7 +157,7 @@ async fn execute_openai_chat_env(
             env.base_url,
             &env.api_key,
         ),
-        legacy_runtime::invoke_openai_chat_via_env_legacy(env.base_url, &env.api_key, request),
+        "no provider pool available for chat",
     )
     .await
 }
@@ -216,40 +165,23 @@ async fn execute_openai_chat_env(
 async fn execute_openai_responses_env(
     prepared: &PreparedGatewayRequest<'_>,
     request: &ProxyResponsesRequest,
-    payload: &Value,
 ) -> RuntimeResponseResult {
     let env = match prepare_openai_env_config(&prepared.token, prepared.runtime.config) {
         Some(env) => env,
         None => return Err(missing_upstream_api_key_response()),
     };
 
-    if responses_payload_is_core_compatible(payload) {
-        resolve_env_runtime_flow(
-            try_openai_responses_via_env_core(
-                &prepared.runtime,
-                prepared.hint.as_deref(),
-                request.clone(),
-                env.base_url,
-                &env.api_key,
-            ),
-            legacy_runtime::invoke_openai_responses_via_env_legacy(
-                env.base_url,
-                &env.api_key,
-                request,
-            ),
-        )
-        .await
-    } else {
-        resolve_env_runtime_flow(
-            std::future::ready(Ok(None::<Response>)),
-            legacy_runtime::invoke_openai_responses_via_env_legacy(
-                env.base_url,
-                &env.api_key,
-                request,
-            ),
-        )
-        .await
-    }
+    resolve_core_only_runtime_flow(
+        try_openai_responses_via_env_core(
+            &prepared.runtime,
+            prepared.hint.as_deref(),
+            request.clone(),
+            env.base_url,
+            &env.api_key,
+        ),
+        "no openai-compatible provider available for responses",
+    )
+    .await
 }
 
 async fn execute_anthropic_chat_env(
@@ -261,7 +193,7 @@ async fn execute_anthropic_chat_env(
         None => return Err(missing_upstream_api_key_response()),
     };
 
-    resolve_env_runtime_flow(
+    resolve_core_only_runtime_flow(
         try_anthropic_chat_via_env_core(
             &prepared.runtime,
             prepared.hint.as_deref(),
@@ -270,7 +202,7 @@ async fn execute_anthropic_chat_env(
             env.base_url,
             &env.api_key,
         ),
-        legacy_runtime::invoke_anthropic_chat_via_env_legacy(env.base_url, &env.api_key, request),
+        "no provider pool available for messages",
     )
     .await
 }
@@ -284,7 +216,7 @@ async fn execute_openai_embeddings_env(
         None => return Err(missing_upstream_api_key_response()),
     };
 
-    resolve_env_runtime_flow(
+    resolve_core_only_runtime_flow(
         try_openai_embeddings_via_env_core(
             &prepared.runtime,
             prepared.hint.as_deref(),
@@ -292,11 +224,7 @@ async fn execute_openai_embeddings_env(
             env.base_url,
             &env.api_key,
         ),
-        legacy_runtime::invoke_openai_embeddings_via_env_legacy(
-            env.base_url,
-            &env.api_key,
-            request,
-        ),
+        "no openai-compatible provider available for embeddings",
     )
     .await
 }

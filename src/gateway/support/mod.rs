@@ -52,7 +52,7 @@ pub(super) async fn handle_openai_responses_request(
         Err(resp) => return resp,
     };
 
-    execute_prepared_openai_responses(state, &prepared, request, payload).await
+    execute_prepared_openai_responses(state, &prepared, request).await
 }
 
 pub(super) async fn handle_anthropic_messages_request(
@@ -92,5 +92,5 @@ pub(super) async fn handle_openai_embeddings_request(
         Err(resp) => return resp,
     };
 
-    execute_prepared_openai_embeddings(state, &prepared, &request, payload).await
+    execute_prepared_openai_embeddings(state, &prepared, &request).await
 }

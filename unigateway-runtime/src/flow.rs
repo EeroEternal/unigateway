@@ -58,6 +58,23 @@ where
     }
 }
 
+pub async fn resolve_core_only_runtime_flow<CoreFuture>(
+    core_attempt: CoreFuture,
+    unavailable_message: &str,
+) -> RuntimeResponseResult
+where
+    CoreFuture: Future<Output = anyhow::Result<Option<Response>>>,
+{
+    match core_attempt.await {
+        Ok(Some(response)) => Ok(response),
+        Ok(None) => Err(error_json(
+            StatusCode::SERVICE_UNAVAILABLE,
+            unavailable_message,
+        )),
+        Err(error) => Err(core_error_response(&error)),
+    }
+}
+
 pub fn fallback_api_key(token: &str, env_key: &str) -> String {
     if !token.is_empty() {
         token.to_string()

@@ -56,14 +56,6 @@ pub async fn try_openai_chat_via_core(
         None => return Ok(None),
     };
 
-    if pool
-        .endpoints
-        .iter()
-        .any(|endpoint| endpoint.provider_kind != ProviderKind::OpenAiCompatible)
-    {
-        return Ok(None);
-    }
-
     execute_openai_chat_via_core(runtime, pool, hint, request).await
 }
 
@@ -95,7 +87,7 @@ pub async fn try_openai_responses_via_core(
     hint: Option<&str>,
     request: ProxyResponsesRequest,
 ) -> Result<Option<Response>> {
-    let pool = match prepare_openai_compatible_pool(runtime, service_id).await? {
+    let pool = match prepare_core_pool(runtime, service_id).await? {
         Some(pool) => pool,
         None => return Ok(None),
     };
@@ -154,12 +146,16 @@ pub async fn try_openai_embeddings_via_core(
     hint: Option<&str>,
     request: ProxyEmbeddingsRequest,
 ) -> Result<Option<Response>> {
-    let pool = match prepare_openai_compatible_pool(runtime, service_id).await? {
+    let pool = match prepare_core_pool(runtime, service_id).await? {
         Some(pool) => pool,
-        None => return Ok(None),
+        None => {
+            return Err(anyhow!(
+                "no provider pool available for service '{service_id}'"
+            ));
+        }
     };
 
-    let target = build_execution_target(&pool.endpoints, &pool.pool_id, hint)?;
+    let target = build_openai_compatible_target(&pool.endpoints, &pool.pool_id, hint)?;
     let response = runtime
         .core_engine()
         .proxy_embeddings(request, target)
@@ -188,7 +184,7 @@ pub async fn try_openai_embeddings_via_env_core(
         .await
         .map_err(|error| anyhow!(error.to_string()))?;
 
-    let target = build_execution_target(&pool.endpoints, &pool.pool_id, hint)?;
+    let target = build_openai_compatible_target(&pool.endpoints, &pool.pool_id, hint)?;
     let response = runtime
         .core_engine()
         .proxy_embeddings(request, target)
@@ -203,37 +199,30 @@ fn chat_session_to_openai_response(
 ) -> Response {
     match session {
         ProxySession::Completed(result) => {
-            let raw = result.response.raw;
-            let body = if raw.is_object() {
-                raw
-            } else {
-                serde_json::json!({
-                    "id": result.report.request_id,
-                    "object": "chat.completion",
-                    "model": result.response.model,
-                    "choices": [{
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": result.response.output_text,
-                        },
-                        "finish_reason": "stop",
-                    }],
-                    "usage": result.report.usage.as_ref().map(|usage| serde_json::json!({
-                        "prompt_tokens": usage.input_tokens,
-                        "completion_tokens": usage.output_tokens,
-                        "total_tokens": usage.total_tokens,
-                    })),
-                })
-            };
+            let body = openai_completed_chat_body(result);
             (StatusCode::OK, Json(body)).into_response()
         }
         ProxySession::Streaming(streaming) => {
-            let stream = streaming.stream.map(|item| match item {
-                Ok(chunk) => serde_json::to_string(&chunk.raw)
-                    .map(|json| Bytes::from(format!("data: {json}\n\n")))
-                    .map_err(io::Error::other),
-                Err(error) => Err(io::Error::other(error.to_string())),
+            let request_id = streaming.request_id.clone();
+            let adapter_state =
+                std::sync::Arc::new(std::sync::Mutex::new(OpenAiChatStreamAdapter::default()));
+
+            let stream = streaming.stream.flat_map(move |item| {
+                let request_id = request_id.clone();
+                let adapter_state = adapter_state.clone();
+
+                let chunks: Vec<Result<Bytes, io::Error>> = match item {
+                    Ok(chunk) => {
+                        let mut adapter = adapter_state.lock().expect("adapter lock");
+                        openai_sse_chunks_from_chat_chunk(&request_id, &mut adapter, chunk)
+                            .into_iter()
+                            .map(Ok)
+                            .collect()
+                    }
+                    Err(error) => vec![Err(io::Error::other(error.to_string()))],
+                };
+
+                futures_util::stream::iter(chunks)
             });
             let done = futures_util::stream::once(async {
                 Ok::<Bytes, io::Error>(Bytes::from("data: [DONE]\n\n"))
@@ -339,6 +328,94 @@ fn responses_session_to_openai_response(
     }
 }
 
+fn build_responses_stream_response_from_completed(
+    session: ProxySession<ResponsesEvent, ResponsesFinal>,
+) -> Response {
+    match session {
+        ProxySession::Completed(result) => {
+            let raw = &result.response.raw;
+            let response_id = raw
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(result.report.request_id.as_str())
+                .to_string();
+            let model = raw
+                .get("model")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let text = result.response.output_text.unwrap_or_default();
+            let usage = raw
+                .get("usage")
+                .cloned()
+                .unwrap_or_else(|| responses_usage_payload(result.report.usage.as_ref()));
+
+            let mut chunks: Vec<Result<Bytes, io::Error>> = Vec::new();
+
+            let created = serde_json::json!({
+                "type": "response.created",
+                "response": {
+                    "id": response_id,
+                    "object": "response",
+                    "model": model,
+                    "status": "in_progress"
+                }
+            });
+            chunks.push(Ok(Bytes::from(format!(
+                "event: response.created\ndata: {}\n\n",
+                created
+            ))));
+
+            if !text.is_empty() {
+                let delta = serde_json::json!({
+                    "type": "response.output_text.delta",
+                    "response_id": raw
+                        .get("id")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or(result.report.request_id.as_str()),
+                    "delta": text,
+                });
+                chunks.push(Ok(Bytes::from(format!(
+                    "event: response.output_text.delta\ndata: {}\n\n",
+                    delta
+                ))));
+            }
+
+            let completed = serde_json::json!({
+                "type": "response.completed",
+                "response": {
+                    "id": raw
+                        .get("id")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or(result.report.request_id.as_str()),
+                    "object": "response",
+                    "model": raw
+                        .get("model")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default(),
+                    "status": "completed",
+                    "usage": usage,
+                }
+            });
+            chunks.push(Ok(Bytes::from(format!(
+                "event: response.completed\ndata: {}\n\n",
+                completed
+            ))));
+            chunks.push(Ok(Bytes::from("data: [DONE]\n\n")));
+
+            (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "text/event-stream")],
+                Body::from_stream(futures_util::stream::iter(chunks)),
+            )
+                .into_response()
+        }
+        ProxySession::Streaming(streaming) => {
+            responses_session_to_openai_response(ProxySession::Streaming(streaming))
+        }
+    }
+}
+
 fn embeddings_response_to_openai_response(
     response: CompletedResponse<EmbeddingsResponse>,
 ) -> Response {
@@ -388,6 +465,161 @@ fn anthropic_completed_chat_body(
         "stop_sequence": null,
         "usage": anthropic_usage_payload(result.report.usage.as_ref()),
     })
+}
+
+fn openai_completed_chat_body(result: CompletedResponse<ChatResponseFinal>) -> serde_json::Value {
+    if result.report.selected_provider == ProviderKind::OpenAiCompatible
+        && result.response.raw.is_object()
+        && result
+            .response
+            .raw
+            .get("choices")
+            .and_then(serde_json::Value::as_array)
+            .is_some()
+    {
+        return result.response.raw;
+    }
+
+    serde_json::json!({
+        "id": result.report.request_id,
+        "object": "chat.completion",
+        "model": result.response.model.unwrap_or_default(),
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": result.response.output_text.unwrap_or_default(),
+            },
+            "finish_reason": "stop",
+        }],
+        "usage": result.report.usage.as_ref().map(|usage| serde_json::json!({
+            "prompt_tokens": usage.input_tokens,
+            "completion_tokens": usage.output_tokens,
+            "total_tokens": usage.total_tokens,
+        })),
+    })
+}
+
+#[derive(Default)]
+struct OpenAiChatStreamAdapter {
+    model: Option<String>,
+    sent_role_chunk: bool,
+}
+
+fn openai_sse_chunks_from_chat_chunk(
+    request_id: &str,
+    adapter: &mut OpenAiChatStreamAdapter,
+    chunk: ChatResponseChunk,
+) -> Vec<Bytes> {
+    if chunk
+        .raw
+        .get("choices")
+        .and_then(serde_json::Value::as_array)
+        .is_some()
+    {
+        return serde_json::to_string(&chunk.raw)
+            .map(|json| vec![Bytes::from(format!("data: {json}\n\n"))])
+            .unwrap_or_default();
+    }
+
+    let event_type = chunk
+        .raw
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+
+    match event_type {
+        "message_start" => {
+            adapter.model = chunk
+                .raw
+                .get("model")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+                .or_else(|| {
+                    chunk
+                        .raw
+                        .get("message")
+                        .and_then(|message| message.get("model"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string)
+                });
+
+            if adapter.sent_role_chunk {
+                return Vec::new();
+            }
+
+            adapter.sent_role_chunk = true;
+            vec![openai_chat_sse_bytes(
+                request_id,
+                adapter.model.as_deref().unwrap_or_default(),
+                serde_json::json!({"role": "assistant"}),
+                None,
+            )]
+        }
+        "content_block_delta" => {
+            let Some(delta) = chunk
+                .raw
+                .get("delta")
+                .and_then(|delta| delta.get("text"))
+                .and_then(serde_json::Value::as_str)
+            else {
+                return Vec::new();
+            };
+
+            if !adapter.sent_role_chunk {
+                adapter.sent_role_chunk = true;
+                return vec![
+                    openai_chat_sse_bytes(
+                        request_id,
+                        adapter.model.as_deref().unwrap_or_default(),
+                        serde_json::json!({"role": "assistant"}),
+                        None,
+                    ),
+                    openai_chat_sse_bytes(
+                        request_id,
+                        adapter.model.as_deref().unwrap_or_default(),
+                        serde_json::json!({"content": delta}),
+                        None,
+                    ),
+                ];
+            }
+
+            vec![openai_chat_sse_bytes(
+                request_id,
+                adapter.model.as_deref().unwrap_or_default(),
+                serde_json::json!({"content": delta}),
+                None,
+            )]
+        }
+        "message_stop" => vec![openai_chat_sse_bytes(
+            request_id,
+            adapter.model.as_deref().unwrap_or_default(),
+            serde_json::json!({}),
+            Some("stop"),
+        )],
+        _ => Vec::new(),
+    }
+}
+
+fn openai_chat_sse_bytes(
+    request_id: &str,
+    model: &str,
+    delta: serde_json::Value,
+    finish_reason: Option<&str>,
+) -> Bytes {
+    let payload = serde_json::json!({
+        "id": request_id,
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "delta": delta,
+            "finish_reason": finish_reason,
+        }],
+    });
+
+    Bytes::from(format!("data: {}\n\n", payload))
 }
 
 async fn drive_anthropic_chat_stream(
@@ -640,50 +872,64 @@ async fn execute_openai_responses_via_core(
     hint: Option<&str>,
     request: ProxyResponsesRequest,
 ) -> Result<Option<Response>> {
-    let target = build_execution_target(&pool.endpoints, &pool.pool_id, hint)?;
-    let session = match runtime
-        .core_engine()
-        .proxy_responses(request.clone(), target.clone())
-        .await
+    let target = build_openai_compatible_target(&pool.endpoints, &pool.pool_id, hint)?;
+
+    let response = match execute_openai_responses_with_compat(
+        runtime,
+        target.clone(),
+        request.clone(),
+    )
+    .await
     {
-        Ok(session) => session,
-        Err(error) if should_fallback_to_legacy_responses(&error) => return Ok(None),
+        Ok(response) => response,
         Err(error) if should_retry_responses_without_tools(&request) => {
-            let retry_request = without_response_tools(request);
-            match runtime
-                .core_engine()
-                .proxy_responses(retry_request, target)
+            execute_openai_responses_with_compat(runtime, target, without_response_tools(request))
                 .await
-            {
-                Ok(session) => session,
-                Err(error) if should_fallback_to_legacy_responses(&error) => return Ok(None),
-                Err(error) => return Err(anyhow!(error.to_string())),
-            }
+                .map_err(|retry_error| anyhow!(retry_error.to_string()))?
         }
         Err(error) => return Err(anyhow!(error.to_string())),
     };
 
-    Ok(Some(responses_session_to_openai_response(session)))
+    Ok(Some(response))
 }
 
-async fn prepare_openai_compatible_pool(
+async fn execute_openai_responses_with_compat(
     runtime: &RuntimeContext<'_>,
-    service_id: &str,
-) -> Result<Option<ProviderPool>> {
-    let pool = match prepare_core_pool(runtime, service_id).await? {
-        Some(pool) => pool,
-        None => return Ok(None),
-    };
+    target: ExecutionTarget,
+    request: ProxyResponsesRequest,
+) -> Result<Response, GatewayError> {
+    if request.stream {
+        match runtime
+            .core_engine()
+            .proxy_responses(request.clone(), target.clone())
+            .await
+        {
+            Ok(session) => return Ok(responses_session_to_openai_response(session)),
+            Err(stream_error) => {
+                let mut fallback_request = request;
+                fallback_request.stream = false;
 
-    if pool
-        .endpoints
-        .iter()
-        .any(|endpoint| endpoint.provider_kind != ProviderKind::OpenAiCompatible)
-    {
-        return Ok(None);
+                return runtime
+                    .core_engine()
+                    .proxy_responses(fallback_request, target)
+                    .await
+                    .map(build_responses_stream_response_from_completed)
+                    .map_err(|fallback_error| {
+                        if should_preserve_stream_error(&stream_error, &fallback_error) {
+                            stream_error
+                        } else {
+                            fallback_error
+                        }
+                    });
+            }
+        }
     }
 
-    Ok(Some(pool))
+    runtime
+        .core_engine()
+        .proxy_responses(request, target)
+        .await
+        .map(responses_session_to_openai_response)
 }
 
 async fn prepare_core_pool(
@@ -706,6 +952,64 @@ fn build_execution_target(
 
     let candidates: Vec<EndpointRef> = endpoints
         .iter()
+        .filter(|endpoint| endpoint_matches_hint(endpoint, hint))
+        .map(|endpoint| EndpointRef {
+            endpoint_id: endpoint.endpoint_id.clone(),
+        })
+        .collect();
+
+    if candidates.is_empty() {
+        return Err(anyhow!("no provider matches target '{hint}'"));
+    }
+
+    Ok(ExecutionTarget::Plan(ExecutionPlan {
+        pool_id: Some(pool_id.to_string()),
+        candidates,
+        load_balancing_override: None,
+        retry_policy_override: None,
+        metadata: std::collections::HashMap::new(),
+    }))
+}
+
+fn build_openai_compatible_target(
+    endpoints: &[Endpoint],
+    pool_id: &str,
+    hint: Option<&str>,
+) -> Result<ExecutionTarget> {
+    let compatible_endpoints: Vec<&Endpoint> = endpoints
+        .iter()
+        .filter(|endpoint| endpoint.enabled)
+        .filter(|endpoint| endpoint.provider_kind == ProviderKind::OpenAiCompatible)
+        .collect();
+
+    if compatible_endpoints.is_empty() {
+        return Err(anyhow!("no openai-compatible provider available"));
+    }
+
+    let Some(hint) = hint.map(str::trim).filter(|hint| !hint.is_empty()) else {
+        let enabled_count = endpoints.iter().filter(|endpoint| endpoint.enabled).count();
+        if compatible_endpoints.len() == enabled_count {
+            return Ok(ExecutionTarget::Pool {
+                pool_id: pool_id.to_string(),
+            });
+        }
+
+        return Ok(ExecutionTarget::Plan(ExecutionPlan {
+            pool_id: Some(pool_id.to_string()),
+            candidates: compatible_endpoints
+                .into_iter()
+                .map(|endpoint| EndpointRef {
+                    endpoint_id: endpoint.endpoint_id.clone(),
+                })
+                .collect(),
+            load_balancing_override: None,
+            retry_policy_override: None,
+            metadata: std::collections::HashMap::new(),
+        }));
+    };
+
+    let candidates: Vec<EndpointRef> = compatible_endpoints
+        .into_iter()
         .filter(|endpoint| endpoint_matches_hint(endpoint, hint))
         .map(|endpoint| EndpointRef {
             endpoint_id: endpoint.endpoint_id.clone(),
@@ -813,6 +1117,14 @@ fn normalize_base_url(url: &str) -> String {
     normalized
 }
 
+fn responses_usage_payload(usage: Option<&TokenUsage>) -> serde_json::Value {
+    serde_json::json!({
+        "input_tokens": usage.and_then(|usage| usage.input_tokens).unwrap_or(0),
+        "output_tokens": usage.and_then(|usage| usage.output_tokens).unwrap_or(0),
+        "total_tokens": usage.and_then(|usage| usage.total_tokens).unwrap_or(0),
+    })
+}
+
 fn without_response_tools(request: ProxyResponsesRequest) -> ProxyResponsesRequest {
     ProxyResponsesRequest {
         tools: None,
@@ -825,25 +1137,21 @@ fn should_retry_responses_without_tools(request: &ProxyResponsesRequest) -> bool
     request.tools.is_some() || request.tool_choice.is_some()
 }
 
-fn should_fallback_to_legacy_responses(error: &GatewayError) -> bool {
+fn should_preserve_stream_error(
+    stream_error: &GatewayError,
+    fallback_error: &GatewayError,
+) -> bool {
     matches!(
-        error.terminal_error(),
-        GatewayError::NotImplemented(_)
-            | GatewayError::UpstreamHttp { status: 404, .. }
-            | GatewayError::UpstreamHttp { status: 405, .. }
+        stream_error.terminal_error(),
+        GatewayError::InvalidRequest(_)
+            | GatewayError::PoolNotFound(_)
+            | GatewayError::EndpointNotFound(_)
+    ) || matches!(
+        fallback_error.terminal_error(),
+        GatewayError::InvalidRequest(_)
+            | GatewayError::PoolNotFound(_)
+            | GatewayError::EndpointNotFound(_)
     )
-}
-
-pub fn responses_payload_is_core_compatible(payload: &serde_json::Value) -> bool {
-    payload.is_object()
-}
-
-pub fn embeddings_payload_is_core_compatible(payload: &serde_json::Value) -> bool {
-    payload.as_object().is_some_and(|object| {
-        object
-            .keys()
-            .all(|key| matches!(key.as_str(), "model" | "input" | "encoding_format"))
-    })
 }
 
 #[cfg(test)]
@@ -851,15 +1159,16 @@ mod tests {
     use std::collections::HashMap;
 
     use unigateway_core::{
-        ChatResponseFinal, CompletedResponse, Endpoint, GatewayError, ModelPolicy, ProviderKind,
+        ChatResponseChunk, ChatResponseFinal, CompletedResponse, Endpoint, EndpointRef,
+        ExecutionPlan, ExecutionTarget, GatewayError, ModelPolicy, ProviderKind,
         ProxyResponsesRequest, RequestReport, SecretString,
     };
 
     use super::{
-        anthropic_completed_chat_body, build_env_anthropic_pool, build_env_openai_pool,
-        embeddings_payload_is_core_compatible, endpoint_matches_hint,
-        responses_payload_is_core_compatible, should_fallback_to_legacy_responses,
-        without_response_tools,
+        OpenAiChatStreamAdapter, anthropic_completed_chat_body, build_env_anthropic_pool,
+        build_env_openai_pool, build_openai_compatible_target, endpoint_matches_hint,
+        openai_completed_chat_body, openai_sse_chunks_from_chat_chunk,
+        should_preserve_stream_error, without_response_tools,
     };
 
     fn endpoint() -> Endpoint {
@@ -914,28 +1223,6 @@ mod tests {
     }
 
     #[test]
-    fn responses_core_bridge_accepts_supported_safe_subset() {
-        assert!(responses_payload_is_core_compatible(&serde_json::json!({
-            "model": "gpt-4.1-mini",
-            "input": "hello",
-            "stream": true,
-            "instructions": "be terse",
-            "temperature": 0.2,
-            "top_p": 0.9,
-            "max_output_tokens": 128,
-            "tools": [],
-            "tool_choice": "auto",
-            "previous_response_id": "resp_prev",
-            "metadata": {"trace_id": "abc"},
-            "reasoning": {"effort": "high"},
-            "target_provider": "deepseek",
-        })));
-        assert!(!responses_payload_is_core_compatible(&serde_json::json!(
-            "hello"
-        )));
-    }
-
-    #[test]
     fn responses_tool_stripping_clears_tool_fields_only() {
         let request = without_response_tools(ProxyResponsesRequest {
             model: "gpt-4.1-mini".to_string(),
@@ -960,25 +1247,27 @@ mod tests {
     }
 
     #[test]
-    fn responses_legacy_fallback_detects_missing_endpoint() {
-        assert!(should_fallback_to_legacy_responses(
+    fn stream_error_preservation_prefers_routing_failures() {
+        assert!(should_preserve_stream_error(
+            &GatewayError::InvalidRequest("bad target".to_string()),
             &GatewayError::UpstreamHttp {
-                status: 404,
-                body: Some("not found".to_string()),
+                status: 500,
+                body: Some("boom".to_string()),
                 endpoint_id: "ep-1".to_string(),
             }
         ));
-        assert!(should_fallback_to_legacy_responses(
-            &GatewayError::AllAttemptsFailed {
-                attempts: Vec::new(),
-                last_error: Box::new(GatewayError::UpstreamHttp {
-                    status: 405,
-                    body: Some("method not allowed".to_string()),
-                    endpoint_id: "ep-2".to_string(),
-                }),
-            }
+        assert!(should_preserve_stream_error(
+            &GatewayError::Transport {
+                message: "stream failed".to_string(),
+                endpoint_id: Some("ep-1".to_string()),
+            },
+            &GatewayError::PoolNotFound("svc".to_string()),
         ));
-        assert!(!should_fallback_to_legacy_responses(
+        assert!(!should_preserve_stream_error(
+            &GatewayError::Transport {
+                message: "stream failed".to_string(),
+                endpoint_id: Some("ep-1".to_string()),
+            },
             &GatewayError::UpstreamHttp {
                 status: 500,
                 body: Some("boom".to_string()),
@@ -988,21 +1277,54 @@ mod tests {
     }
 
     #[test]
-    fn embeddings_core_bridge_accepts_encoding_format() {
-        assert!(embeddings_payload_is_core_compatible(&serde_json::json!({
-            "model": "text-embedding-3-small",
-            "input": ["hello"],
-        })));
-        assert!(embeddings_payload_is_core_compatible(&serde_json::json!({
-            "model": "text-embedding-3-small",
-            "input": ["hello"],
-            "encoding_format": "float",
-        })));
-        assert!(!embeddings_payload_is_core_compatible(&serde_json::json!({
-            "model": "text-embedding-3-small",
-            "input": ["hello"],
-            "dimensions": 256,
-        })));
+    fn openai_compatible_target_filters_mixed_pool() {
+        let anthropic_endpoint = Endpoint {
+            endpoint_id: "anthropic-main".to_string(),
+            provider_kind: ProviderKind::Anthropic,
+            driver_id: "anthropic".to_string(),
+            base_url: "https://api.anthropic.com".to_string(),
+            api_key: SecretString::new("sk-ant"),
+            model_policy: ModelPolicy::default(),
+            enabled: true,
+            metadata: HashMap::new(),
+        };
+
+        let target =
+            build_openai_compatible_target(&[endpoint(), anthropic_endpoint], "pool-1", None)
+                .expect("target");
+
+        assert_eq!(
+            target,
+            ExecutionTarget::Plan(ExecutionPlan {
+                pool_id: Some("pool-1".to_string()),
+                candidates: vec![EndpointRef {
+                    endpoint_id: "deepseek-main".to_string(),
+                }],
+                load_balancing_override: None,
+                retry_policy_override: None,
+                metadata: HashMap::new(),
+            })
+        );
+    }
+
+    #[test]
+    fn openai_compatible_target_keeps_pool_when_all_endpoints_match() {
+        let target = build_openai_compatible_target(&[endpoint()], "pool-1", None).expect("target");
+
+        assert_eq!(
+            target,
+            ExecutionTarget::Pool {
+                pool_id: "pool-1".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn openai_compatible_target_rejects_target_without_match() {
+        let error = build_openai_compatible_target(&[endpoint()], "pool-1", Some("anthropic"))
+            .expect_err("target mismatch");
+
+        assert_eq!(error.to_string(), "no provider matches target 'anthropic'");
     }
 
     #[test]
@@ -1054,6 +1376,142 @@ mod tests {
                 .and_then(|usage| usage.get("input_tokens"))
                 .and_then(serde_json::Value::as_u64),
             Some(10)
+        );
+    }
+
+    #[test]
+    fn openai_completed_body_normalizes_anthropic_provider_output() {
+        let body = openai_completed_chat_body(CompletedResponse {
+            response: ChatResponseFinal {
+                model: Some("claude-3-5-sonnet".to_string()),
+                output_text: Some("pong".to_string()),
+                raw: serde_json::json!({
+                    "id": "msg_123",
+                    "type": "message",
+                }),
+            },
+            report: RequestReport {
+                request_id: "req_456".to_string(),
+                pool_id: Some("svc".to_string()),
+                selected_endpoint_id: "anthropic-main".to_string(),
+                selected_provider: ProviderKind::Anthropic,
+                attempts: Vec::new(),
+                usage: Some(unigateway_core::TokenUsage {
+                    input_tokens: Some(10),
+                    output_tokens: Some(4),
+                    total_tokens: Some(14),
+                }),
+                latency_ms: 10,
+                started_at: std::time::SystemTime::UNIX_EPOCH,
+                finished_at: std::time::SystemTime::UNIX_EPOCH,
+                metadata: HashMap::new(),
+            },
+        });
+
+        assert_eq!(
+            body.get("object").and_then(serde_json::Value::as_str),
+            Some("chat.completion")
+        );
+        assert_eq!(
+            body.get("choices")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|choices| choices.first())
+                .and_then(|choice| choice.get("message"))
+                .and_then(|message| message.get("content"))
+                .and_then(serde_json::Value::as_str),
+            Some("pong")
+        );
+        assert_eq!(
+            body.get("usage")
+                .and_then(|usage| usage.get("completion_tokens"))
+                .and_then(serde_json::Value::as_u64),
+            Some(4)
+        );
+    }
+
+    #[test]
+    fn openai_stream_adapter_translates_anthropic_events() {
+        let mut adapter = OpenAiChatStreamAdapter::default();
+
+        let role_chunk = openai_sse_chunks_from_chat_chunk(
+            "req_1",
+            &mut adapter,
+            ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "type": "message_start",
+                    "model": "claude-3-5-sonnet",
+                }),
+            },
+        );
+        let content_chunk = openai_sse_chunks_from_chat_chunk(
+            "req_1",
+            &mut adapter,
+            ChatResponseChunk {
+                delta: Some("hello".to_string()),
+                raw: serde_json::json!({
+                    "type": "content_block_delta",
+                    "delta": { "text": "hello" },
+                }),
+            },
+        );
+        let stop_chunk = openai_sse_chunks_from_chat_chunk(
+            "req_1",
+            &mut adapter,
+            ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "type": "message_stop",
+                }),
+            },
+        );
+
+        let role_payload = role_chunk[0]
+            .strip_prefix(b"data: ")
+            .and_then(|bytes| bytes.strip_suffix(b"\n\n"))
+            .expect("role payload");
+        let content_payload = content_chunk[0]
+            .strip_prefix(b"data: ")
+            .and_then(|bytes| bytes.strip_suffix(b"\n\n"))
+            .expect("content payload");
+        let stop_payload = stop_chunk[0]
+            .strip_prefix(b"data: ")
+            .and_then(|bytes| bytes.strip_suffix(b"\n\n"))
+            .expect("stop payload");
+
+        let role_json: serde_json::Value = serde_json::from_slice(role_payload).expect("role json");
+        let content_json: serde_json::Value =
+            serde_json::from_slice(content_payload).expect("content json");
+        let stop_json: serde_json::Value = serde_json::from_slice(stop_payload).expect("stop json");
+
+        assert_eq!(
+            role_json
+                .get("choices")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|choices| choices.first())
+                .and_then(|choice| choice.get("delta"))
+                .and_then(|delta| delta.get("role"))
+                .and_then(serde_json::Value::as_str),
+            Some("assistant")
+        );
+        assert_eq!(
+            content_json
+                .get("choices")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|choices| choices.first())
+                .and_then(|choice| choice.get("delta"))
+                .and_then(|delta| delta.get("content"))
+                .and_then(serde_json::Value::as_str),
+            Some("hello")
+        );
+        assert_eq!(
+            stop_json
+                .get("choices")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|choices| choices.first())
+                .and_then(|choice| choice.get("finish_reason"))
+                .and_then(serde_json::Value::as_str),
+            Some("stop")
         );
     }
 }

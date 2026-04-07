@@ -34,7 +34,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 hex = "0.4"
 rand = "0.8"
 url = "2"
-llm-connector = { version = "1.1.9", features = ["streaming"] }
 llm_providers = "0.8.1"
 futures-util = "0.3"
 bytes = "1"
