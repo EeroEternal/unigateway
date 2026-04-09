@@ -81,6 +81,38 @@ pub async fn run(config: AppConfig) -> Result<()> {
     let addr: SocketAddr = config.bind.parse().context("invalid UNIGATEWAY_BIND")?;
     let listener = TcpListener::bind(addr).await?;
     info!("UniGateway listening on http://{}", addr);
-    axum::serve(listener, app).await?;
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal(gateway))
+        .await?;
+
     Ok(())
+}
+
+async fn shutdown_signal(gateway: Arc<GatewayState>) {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    tracing::info!("Shutdown signal received, starting graceful shutdown...");
+    // Ensure any unflushed quotas/metadata are written before exit
+    let _ = gateway.persist_if_dirty().await;
 }

@@ -65,7 +65,9 @@ impl AppState {
         let core_engine = Arc::new(
             UniGatewayEngine::builder()
                 .with_builtin_http_drivers()
-                .build(),
+                .with_hooks(Arc::new(crate::telemetry::GatewayTelemetryHooks))
+                .build()
+                .expect("Failed to initialize core engine"),
         );
 
         Self {
