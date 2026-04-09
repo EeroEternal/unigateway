@@ -14,6 +14,7 @@ mod server;
 mod service;
 mod setup;
 mod system;
+mod telemetry;
 mod types;
 mod upgrade;
 

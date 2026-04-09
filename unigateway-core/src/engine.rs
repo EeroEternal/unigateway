@@ -27,6 +27,9 @@ struct EngineState {
     default_timeout: Option<Duration>,
 }
 
+/// The core asynchronous AI gateway engine.
+/// Provides abstractions to mount `ProviderPool` objects and seamlessly multiplex
+/// user inference request via failover limits, driver integrations, and retry policies.
 pub struct UniGatewayEngine {
     inner: Arc<EngineState>,
 }
@@ -40,25 +43,33 @@ struct FailedRequestContext {
     metadata: std::collections::HashMap<String, String>,
 }
 
+/// Builder class to construct and configure a `UniGatewayEngine` cleanly.
 #[derive(Default)]
 pub struct UniGatewayEngineBuilder {
+    /// Registered global hooks for the builder
     pub hooks: Option<Arc<dyn GatewayHooks>>,
+    /// Pluggable driver registry defining supported transports and providers
     pub driver_registry: Option<Arc<dyn DriverRegistry>>,
+    /// Global backoff/retry algorithm for any stateless execution
     pub default_retry_policy: RetryPolicy,
+    /// Absolute cutoff duration per upstream request attempt
     pub default_timeout: Option<Duration>,
 }
 
 impl UniGatewayEngine {
+    /// Creates a builder to customize the internals before startup.
     pub fn builder() -> UniGatewayEngineBuilder {
         UniGatewayEngineBuilder::default()
     }
 
+    /// Adds or updates a provider pool dynamically in the active routing registry.
     pub async fn upsert_pool(&self, pool: ProviderPool) -> Result<(), GatewayError> {
         let mut guard = self.inner.pools.write().await;
         guard.insert(pool.pool_id.clone(), pool);
         Ok(())
     }
 
+    /// Drops a pool and its related counters from routing. Next requests to this pool will yield `GatewayError::PoolNotFound`.
     pub async fn remove_pool(&self, pool_id: &str) -> Result<(), GatewayError> {
         let mut guard = self.inner.pools.write().await;
         guard.remove(pool_id);
@@ -69,11 +80,13 @@ impl UniGatewayEngine {
         Ok(())
     }
 
+    /// Reads a copy of the pool definition by ID. 
     pub async fn get_pool(&self, pool_id: &str) -> Option<ProviderPool> {
         let guard = self.inner.pools.read().await;
         guard.get(pool_id).cloned()
     }
 
+    /// Returns an overview list of all registered provider pools.
     pub async fn list_pools(&self) -> Vec<PoolSummary> {
         let guard = self.inner.pools.read().await;
         let mut pools: Vec<PoolSummary> = guard
@@ -89,6 +102,8 @@ impl UniGatewayEngine {
         pools
     }
 
+    /// Dispatches a chat completion request to a specific endpoint or pool with fallbacks.
+    /// Returns a session representing the lifecycle of the response stream or monolithic text.
     pub async fn proxy_chat(
         &self,
         request: ProxyChatRequest,
@@ -229,9 +244,10 @@ impl UniGatewayEngine {
             }
         }
 
-        Err(GatewayError::NoAvailableEndpoint)
+        Err(GatewayError::NoAvailableEndpoint { pool_id: snapshot.pool_id.clone() })
     }
 
+    /// Dispatches a raw streaming responses request handling non-conversation data structures natively.
     pub async fn proxy_responses(
         &self,
         request: ProxyResponsesRequest,
@@ -372,9 +388,10 @@ impl UniGatewayEngine {
             }
         }
 
-        Err(GatewayError::NoAvailableEndpoint)
+        Err(GatewayError::NoAvailableEndpoint { pool_id: snapshot.pool_id.clone() })
     }
 
+    /// Executes a stateless vector embeddings extraction.
     pub async fn proxy_embeddings(
         &self,
         request: ProxyEmbeddingsRequest,
@@ -499,7 +516,7 @@ impl UniGatewayEngine {
             }
         }
 
-        Err(GatewayError::NoAvailableEndpoint)
+        Err(GatewayError::NoAvailableEndpoint { pool_id: snapshot.pool_id.clone() })
     }
 
     pub(crate) async fn execution_snapshot(
@@ -754,7 +771,7 @@ fn should_retry_error(
     if matches!(strategy, LoadBalancingStrategy::Fallback) {
         return !matches!(
             error,
-            GatewayError::PoolNotFound(_) | GatewayError::NoAvailableEndpoint
+            GatewayError::PoolNotFound(_) | GatewayError::NoAvailableEndpoint { .. }
         );
     }
 
@@ -962,11 +979,13 @@ where
 }
 
 impl UniGatewayEngineBuilder {
+    /// Attaches telemetry and lifecycle logging hooks to the pipeline constraint.
     pub fn with_hooks(mut self, hooks: Arc<dyn GatewayHooks>) -> Self {
         self.hooks = Some(hooks);
         self
     }
 
+    /// Installs a specific driver repository for locating the concrete driver logic at runtime.
     pub fn with_driver_registry(mut self, registry: Arc<dyn DriverRegistry>) -> Self {
         self.driver_registry = Some(registry);
         self
@@ -995,18 +1014,29 @@ impl UniGatewayEngineBuilder {
         self.with_driver_registry(registry)
     }
 
+    /// Configures the default exponential or static retry behavior if a provider pool does not define its own.
     pub fn with_default_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
         self.default_retry_policy = retry_policy;
         self
     }
 
+    /// Sets a hard global TCP connection and transfer timeout across all remote provider HTTP attempts.
     pub fn with_default_timeout(mut self, timeout: Duration) -> Self {
         self.default_timeout = Some(timeout);
         self
     }
 
-    pub fn build(self) -> UniGatewayEngine {
-        UniGatewayEngine {
+    /// Finalizes the configuration and spins up the fully operational gateway engine.
+    /// 
+    /// Can yield a `GatewayError::BuildError` if the configuration is semantically illegal.
+    pub fn build(self) -> Result<UniGatewayEngine, crate::error::GatewayError> {
+        if self.driver_registry.is_none() {
+            return Err(crate::error::GatewayError::BuildError(
+                "driver registry must be configured, consider calling .with_builtin_http_drivers()".to_string(),
+            ));
+        }
+
+        Ok(UniGatewayEngine {
             inner: Arc::new(EngineState {
                 pools: RwLock::new(std::collections::HashMap::new()),
                 rr_counters: Mutex::new(std::collections::HashMap::new()),
@@ -1015,7 +1045,7 @@ impl UniGatewayEngineBuilder {
                 default_retry_policy: self.default_retry_policy,
                 default_timeout: self.default_timeout,
             }),
-        }
+        })
     }
 }
 
@@ -1085,7 +1115,7 @@ mod tests {
 
     #[tokio::test]
     async fn upsert_get_list_and_remove_pool() {
-        let engine = UniGatewayEngine::builder().build();
+        let engine = UniGatewayEngine::builder().build().unwrap();
         engine
             .upsert_pool(pool(
                 "alpha",
@@ -1108,7 +1138,7 @@ mod tests {
 
     #[tokio::test]
     async fn snapshot_is_stable_after_pool_update() {
-        let engine = UniGatewayEngine::builder().build();
+        let engine = UniGatewayEngine::builder().build().unwrap();
         engine
             .upsert_pool(pool(
                 "alpha",
@@ -1149,7 +1179,7 @@ mod tests {
 
     #[tokio::test]
     async fn round_robin_rotates_across_enabled_endpoints() {
-        let engine = UniGatewayEngine::builder().build();
+        let engine = UniGatewayEngine::builder().build().unwrap();
         engine
             .upsert_pool(pool(
                 "alpha",
@@ -1178,7 +1208,7 @@ mod tests {
 
     #[tokio::test]
     async fn execution_plan_uses_candidate_subset() {
-        let engine = UniGatewayEngine::builder().build();
+        let engine = UniGatewayEngine::builder().build().unwrap();
         engine
             .upsert_pool(pool(
                 "alpha",
@@ -1501,7 +1531,7 @@ mod tests {
 
         let engine = UniGatewayEngine::builder()
             .with_driver_registry(registry)
-            .build();
+            .build().unwrap();
         engine
             .upsert_pool(pool(
                 "alpha",
@@ -1541,7 +1571,7 @@ mod tests {
 
     #[tokio::test]
     async fn proxy_chat_fails_when_driver_missing() {
-        let engine = UniGatewayEngine::builder().build();
+        let engine = UniGatewayEngine::builder().build().unwrap();
         engine
             .upsert_pool(pool(
                 "alpha",
@@ -1588,7 +1618,7 @@ mod tests {
 
         let engine = UniGatewayEngine::builder()
             .with_driver_registry(registry)
-            .build();
+            .build().unwrap();
         engine
             .upsert_pool(pool(
                 "alpha",
@@ -1647,7 +1677,7 @@ mod tests {
 
         let engine = UniGatewayEngine::builder()
             .with_driver_registry(registry)
-            .build();
+            .build().unwrap();
         engine
             .upsert_pool(pool(
                 "alpha",
@@ -1705,7 +1735,7 @@ mod tests {
 
         let engine = UniGatewayEngine::builder()
             .with_driver_registry(registry)
-            .build();
+            .build().unwrap();
         engine
             .upsert_pool(pool(
                 "alpha",
@@ -1766,7 +1796,7 @@ mod tests {
 
         let engine = UniGatewayEngine::builder()
             .with_driver_registry(registry)
-            .build();
+            .build().unwrap();
         engine
             .upsert_pool(pool(
                 "alpha",
@@ -1835,7 +1865,7 @@ mod tests {
         let engine = UniGatewayEngine::builder()
             .with_driver_registry(registry)
             .with_hooks(Arc::new(hooks.clone()))
-            .build();
+            .build().unwrap();
         engine
             .upsert_pool(pool(
                 "alpha",
