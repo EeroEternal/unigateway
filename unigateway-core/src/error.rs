@@ -22,11 +22,20 @@ pub enum GatewayError {
     #[error("engine build failed: {0}")]
     BuildError(String),
 
+    /// A specific endpoint was skipped due to adaptive concurrency saturation.
+
+    /// All available endpoints for a pool were saturated due to adaptive concurrency.
+    #[error("all endpoints saturated for pool: {pool_id:?}")]
+    AllEndpointsSaturated {
+        /// Optional pool ID that was exhausted.
+        pool_id: Option<crate::pool::PoolId>,
+    },
+
     /// A pool was targeted, but no healthy or enabled endpoints exist to service it.
     #[error("no available endpoint for pool: {pool_id:?}")]
-    NoAvailableEndpoint { 
+    NoAvailableEndpoint {
         /// Optional pool ID that was exhausted.
-        pool_id: Option<crate::pool::PoolId> 
+        pool_id: Option<crate::pool::PoolId>,
     },
 
     /// The engine exhausted all permitted retries across all allowed endpoints.

@@ -6,15 +6,15 @@ use crate::pool::{EndpointId, PoolId, RequestId};
 use crate::response::RequestReport;
 
 /// Telemetry and lifecycle hooks for the gateway engine.
-/// 
-/// Implement this trait to intercept and log individual upstream attempts and 
+///
+/// Implement this trait to intercept and log individual upstream attempts and
 /// overall proxied request results.
-/// 
+///
 /// # Example
 /// ```rust
 /// use futures_util::future::BoxFuture;
 /// use unigateway_core::{GatewayHooks, AttemptStartedEvent, AttemptFinishedEvent, RequestReport};
-/// 
+///
 /// pub struct MyHooks;
 /// impl GatewayHooks for MyHooks {
 ///     fn on_attempt_started(&self, _event: AttemptStartedEvent) -> BoxFuture<'static, ()> {

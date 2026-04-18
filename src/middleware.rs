@@ -171,10 +171,13 @@ pub async fn record_stat(state: &Arc<AppState>, endpoint: &str, status_code: u16
 
 async fn release_inflight(state: &Arc<AppState>, key: &str) {
     let mut runtime = state.gateway.api_key_runtime.lock().await;
-    if let Some(entry) = runtime.get_mut(key)
-        && entry.in_flight > 0
-    {
-        entry.in_flight -= 1;
+    if let Some(entry) = runtime.get_mut(key) {
+        if entry.in_flight > 0 {
+            entry.in_flight -= 1;
+        }
+        if entry.in_queue > 0 {
+            entry.notify.notify_one();
+        }
     }
 }
 
@@ -185,41 +188,144 @@ async fn acquire_runtime_limit(
     let key = gateway_key.key.clone();
     let qps_limit = gateway_key.qps_limit;
     let concurrency_limit = gateway_key.concurrency_limit;
-    {
+    
+    let qps_wait = {
         let mut runtime = state.gateway.api_key_runtime.lock().await;
-        let entry = runtime.entry(key).or_insert_with(|| RuntimeRateState {
-            window_started_at: Instant::now(),
-            request_count: 0,
+        let qps = qps_limit.unwrap_or(0.0);
+        let entry = runtime.entry(key.clone()).or_insert_with(|| RuntimeRateState {
+            last_update: Instant::now(),
+            tokens: if qps > 0.0 { (qps * 2.0).max(1.0) } else { 0.0 },
             in_flight: 0,
+            in_queue: 0,
+            notify: std::sync::Arc::new(tokio::sync::Notify::new()),
         });
 
-        if entry.window_started_at.elapsed() >= Duration::from_secs(1) {
-            entry.window_started_at = Instant::now();
-            entry.request_count = 0;
-        }
-
+        let mut wait = Duration::ZERO;
         if let Some(qps) = qps_limit
             && qps > 0.0
-            && (entry.request_count as f64) >= qps
         {
+                let now = Instant::now();
+                let elapsed = now.duration_since(entry.last_update).as_secs_f64();
+                let burst = (qps * 2.0).max(1.0);
+                entry.tokens = (entry.tokens + elapsed * qps).min(burst);
+                entry.last_update = now;
+
+                if entry.tokens >= 1.0 {
+                    entry.tokens -= 1.0;
+                } else {
+                    let needed = 1.0 - entry.tokens;
+                    let wait_secs = needed / qps;
+                    wait = Duration::from_secs_f64(wait_secs);
+                    if wait <= crate::config::QPS_SHAPING_TIMEOUT {
+                        entry.tokens -= 1.0;
+                    } else {
+                        return Err(error_json(
+                            StatusCode::TOO_MANY_REQUESTS,
+                            "api key qps wait time too long",
+                        ));
+                    }
+                }
+            }
+        wait
+    };
+
+    if qps_wait > Duration::ZERO {
+        let sleepers = crate::config::QPS_SLEEPERS_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if sleepers > crate::config::MAX_QPS_SLEEPERS {
+            crate::config::QPS_SLEEPERS_COUNT.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
             return Err(error_json(
                 StatusCode::TOO_MANY_REQUESTS,
-                "api key qps limit exceeded",
+                "api key qps limit exceeded (too many active requests)",
+            ));
+        }
+        tokio::time::sleep(qps_wait).await;
+        crate::config::QPS_SLEEPERS_COUNT.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    let notify = {
+        let mut runtime = state.gateway.api_key_runtime.lock().await;
+        let Some(entry) = runtime.get_mut(&key) else {
+            return Err(error_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "api key state evicted unexpectedly",
+            ));
+        };
+        
+        if let Some(cl) = concurrency_limit {
+            if cl > 0 && (entry.in_flight as i64) >= cl {
+                if entry.in_queue >= crate::config::MAX_QUEUE_PER_KEY {
+                    return Err(error_json(
+                        StatusCode::TOO_MANY_REQUESTS,
+                        "api key concurrency queue depth exceeded",
+                    ));
+                }
+                entry.in_queue += 1;
+                entry.notify.clone()
+            } else {
+                entry.in_flight += 1;
+                return Ok(());
+            }
+        } else {
+            entry.in_flight += 1;
+            return Ok(());
+        }
+    };
+
+    // We reached here, meaning we are queued
+    let start = Instant::now();
+    let timeout_dur = crate::config::CONCURRENCY_QUEUE_TIMEOUT;
+
+    loop {
+        let elapsed = start.elapsed();
+        if elapsed >= timeout_dur {
+            let mut runtime = state.gateway.api_key_runtime.lock().await;
+            if let Some(entry) = runtime.get_mut(&key)
+                && entry.in_queue > 0
+            {
+                entry.in_queue -= 1;
+            }
+            return Err(error_json(
+                StatusCode::TOO_MANY_REQUESTS,
+                "api key request timeout in queue",
             ));
         }
 
-        if let Some(cl) = concurrency_limit
-            && cl > 0
-            && (entry.in_flight as i64) >= cl
-        {
+        let wait_fut = tokio::time::timeout(timeout_dur - elapsed, notify.notified());
+        if wait_fut.await.is_err() {
+            let mut runtime = state.gateway.api_key_runtime.lock().await;
+            if let Some(entry) = runtime.get_mut(&key)
+                && entry.in_queue > 0
+            {
+                entry.in_queue -= 1;
+            }
             return Err(error_json(
                 StatusCode::TOO_MANY_REQUESTS,
-                "api key concurrency limit exceeded",
+                "api key request timeout in queue",
             ));
         }
 
-        entry.request_count += 1;
-        entry.in_flight += 1;
-        Ok(())
+        let mut runtime = state.gateway.api_key_runtime.lock().await;
+        if let Some(entry) = runtime.get_mut(&key) {
+            if let Some(cl) = concurrency_limit {
+                if (entry.in_flight as i64) < cl {
+                    if entry.in_queue > 0 {
+                        entry.in_queue -= 1;
+                    }
+                    entry.in_flight += 1;
+                    return Ok(());
+                }
+            } else {
+                if entry.in_queue > 0 {
+                    entry.in_queue -= 1;
+                }
+                entry.in_flight += 1;
+                return Ok(());
+            }
+        } else {
+            return Err(error_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "api key state lost",
+            ));
+        }
     }
 }

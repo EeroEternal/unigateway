@@ -163,7 +163,7 @@ One-click switch pattern for admin clients:
 2. `PATCH /api/admin/api-keys` to update runtime routing for the selected key
 
 Detailed integration guide:
-- See [docs/admin-ui-support.md](docs/admin-ui-support.md) for endpoint contracts, suggested frontend workflow, and error handling recommendations.
+- See [docs/design/admin.md](docs/design/admin.md) for endpoint contracts, suggested frontend workflow, and error handling recommendations.
 
 ### 3. Tool Integrations
 Get ready-to-use configuration snippets or interactively set up your favorite AI tools:
@@ -236,6 +236,10 @@ Ships with a [Skill file](skills/SKILL.md) and [OpenAPI spec](skills/openapi.yam
 - **Failover & Stability**: Built-in fallback strategies to ensure your AI tools keep working even if a provider goes down.
 - **Deep Visibility**: Use `ug route explain` and `ug doctor` to understand exactly how requests are routed and debug connection issues.
 - **MCP Server**: Built-in Model Context Protocol server for AI assistants to manage the gateway.
+
+## 🤖 Agent / contributor notes
+
+See [`AGENTS.md`](AGENTS.md) for AI-agent and contributor conventions (build, docs layout, safety).
 
 ## 📄 License
 

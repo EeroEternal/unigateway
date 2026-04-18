@@ -1,6 +1,6 @@
 #![warn(missing_docs)]
 //! Core library for UniGateway.
-//! 
+//!
 //! Provides the core abstraction for routing, retries, and provider execution.
 
 /// Traits and types defining integration with external API providers.

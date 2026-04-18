@@ -9,13 +9,18 @@ mod store;
 use std::collections::HashMap;
 use std::time::Instant;
 
-use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::sync::{Mutex, RwLock, mpsc, Notify};
+use std::sync::Arc;
 
 use self::schema::default_round_robin;
 pub use self::schema::{
     ApiKeyEntry, BindingEntry, GatewayApiKey, GatewayConfigFile, ModeKey, ModeProvider, ModeView,
     ProviderEntry, ProviderModelOptions, ServiceEntry, ServiceProvider, build_mode_views,
 };
+
+pub const MAX_QUEUE_PER_KEY: u64 = 100;
+pub const QPS_SHAPING_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(500); // 500ms max for QPS bursting sleep
+pub const CONCURRENCY_QUEUE_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(30); // 30s max for waiting on concurrency capacity
 
 #[derive(Debug, Clone)]
 pub struct RequestStats {
@@ -55,9 +60,14 @@ pub struct GatewayState {
     pub core_sync_notifier: Mutex<Option<mpsc::UnboundedSender<()>>>,
 }
 
+pub static QPS_SLEEPERS_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub const MAX_QPS_SLEEPERS: usize = 2000;
+
 #[derive(Debug, Clone)]
 pub struct RuntimeRateState {
-    pub window_started_at: Instant,
-    pub request_count: u64,
+    pub last_update: Instant,
+    pub tokens: f64,
     pub in_flight: u64,
+    pub in_queue: u64,
+    pub notify: Arc<Notify>,
 }

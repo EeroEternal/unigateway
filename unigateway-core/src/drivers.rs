@@ -18,9 +18,9 @@ pub trait DriverRegistry: Send + Sync + 'static {
 }
 
 /// High-level trait representing a backend integration logic (e.g., standard OpenAI protocol, Anthropic protocol).
-/// 
-/// Implementations of this trait translate normalized core requests (like [`ProxyChatRequest`]) into 
-/// native bytes, send them via HTTP, and then adapt the response chunk streams back into a 
+///
+/// Implementations of this trait translate normalized core requests (like [`ProxyChatRequest`]) into
+/// native bytes, send them via HTTP, and then adapt the response chunk streams back into a
 /// generalized format.
 pub trait ProviderDriver: Send + Sync + 'static {
     /// Unique identifier for this driver type (e.g., "openai-compatible").

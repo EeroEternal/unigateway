@@ -393,7 +393,10 @@ mod tests {
             .await
             .expect("bind provider to fallback service");
 
-        let engine = UniGatewayEngine::builder().with_builtin_http_drivers().build().unwrap();
+        let engine = UniGatewayEngine::builder()
+            .with_builtin_http_drivers()
+            .build()
+            .unwrap();
         sync_core_pools(state.as_ref(), &engine)
             .await
             .expect("sync core pools");

@@ -234,7 +234,10 @@ mod tests {
     async fn runtime_context_can_compose_split_host_capabilities() {
         let config_host = MockConfigHost;
         let engine_host = MockEngineHost {
-            engine: UniGatewayEngine::builder().with_builtin_http_drivers().build().unwrap(),
+            engine: UniGatewayEngine::builder()
+                .with_builtin_http_drivers()
+                .build()
+                .unwrap(),
         };
         let pool_host = MockPoolHost;
         let routing_host = MockRoutingHost;

@@ -25,7 +25,9 @@ impl ExecutionSnapshot {
         max_attempts: usize,
     ) -> Result<Vec<Endpoint>, GatewayError> {
         if self.endpoints.is_empty() {
-            return Err(GatewayError::NoAvailableEndpoint { pool_id: self.pool_id.clone() });
+            return Err(GatewayError::NoAvailableEndpoint {
+                pool_id: self.pool_id.clone(),
+            });
         }
 
         let mut endpoints = self.endpoints.clone();
@@ -70,7 +72,9 @@ pub(crate) fn build_execution_snapshot(
                 .ok_or_else(|| GatewayError::PoolNotFound(pool_id.clone()))?;
             let endpoints = enabled_endpoints(&pool.endpoints);
             if endpoints.is_empty() {
-                return Err(GatewayError::NoAvailableEndpoint { pool_id: Some(pool.pool_id.clone()) });
+                return Err(GatewayError::NoAvailableEndpoint {
+                    pool_id: Some(pool.pool_id.clone()),
+                });
             }
 
             Ok(ExecutionSnapshot {
@@ -138,7 +142,9 @@ fn build_plan_snapshot(
     };
 
     if endpoints.is_empty() {
-        return Err(GatewayError::NoAvailableEndpoint { pool_id: pool_id.clone() });
+        return Err(GatewayError::NoAvailableEndpoint {
+            pool_id: pool_id.clone(),
+        });
     }
 
     let load_balancing = plan

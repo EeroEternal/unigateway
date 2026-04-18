@@ -411,7 +411,7 @@ fn render_aider_skill_block(out: &mut String, base_url: &str, key: Option<&str>,
     let _ = writeln!(out, "Current Model ID: {}", model);
     let _ = writeln!(
         out,
-        "Documentation: [CLI Design](docs/cli-design.md), [Architecture](docs/architecture.md)"
+        "Documentation: [CLI Design](docs/design/cli.md), [Architecture](docs/design/arch.md)"
     );
     let _ = writeln!(out);
     let _ = writeln!(out, "## Operational Rules:");

@@ -61,6 +61,7 @@ pub async fn run(config: AppConfig) -> Result<()> {
             "/api/admin/providers",
             get(crate::provider::api_list_providers).post(crate::provider::api_create_provider),
         )
+        .route("/v1/admin/queue_metrics", get(crate::system::queue_metrics))
         .route(
             "/api/admin/bindings",
             post(crate::provider::api_bind_provider),
