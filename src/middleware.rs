@@ -1,13 +1,13 @@
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use axum::extract::Json;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
-use crate::config::{GatewayApiKey, RuntimeRateState};
-use crate::types::AppState;
+use crate::config::{GatewayApiKey, RuntimeLimitError};
+use crate::types::GatewayRequestState;
 
 /// Authenticated gateway key with lifecycle helpers.
 pub struct GatewayAuth {
@@ -19,7 +19,7 @@ impl GatewayAuth {
     /// Returns `Ok(None)` if token doesn't match any key (caller should fall through to env config).
     /// Returns `Err(Response)` on auth failure.
     pub async fn try_authenticate(
-        state: &Arc<AppState>,
+        state: &Arc<GatewayRequestState>,
         token: &str,
     ) -> Result<Option<Self>, Response> {
         if token.is_empty() {
@@ -29,12 +29,11 @@ impl GatewayAuth {
             // To keep this safe, only apply implicit auth when:
             // 1) gateway bind address is localhost, and
             // 2) there is exactly one active gateway API key.
-            let is_local_bind = state.config.bind.starts_with("127.0.0.1")
-                || state.config.bind.starts_with("localhost");
+            let is_local_bind = state.is_local_bind();
 
             if is_local_bind {
                 let active_keys: Vec<_> = state
-                    .gateway
+                    .gateway()
                     .list_api_keys()
                     .await
                     .into_iter()
@@ -71,7 +70,7 @@ impl GatewayAuth {
 
             return Ok(None);
         }
-        let Some(gk) = state.gateway.find_gateway_api_key(token).await else {
+        let Some(gk) = state.gateway().find_gateway_api_key(token).await else {
             return Ok(None);
         };
         if gk.is_active == 0 {
@@ -90,13 +89,13 @@ impl GatewayAuth {
     }
 
     /// Success path: increment quota + release inflight.
-    pub async fn finalize(&self, state: &Arc<AppState>) {
-        state.gateway.increment_used_quota(&self.key.key).await;
+    pub async fn finalize(&self, state: &Arc<GatewayRequestState>) {
+        state.gateway().increment_used_quota(&self.key.key).await;
         release_inflight(state, &self.key.key).await;
     }
 
     /// Error/cleanup path: release inflight only.
-    pub async fn release(&self, state: &Arc<AppState>) {
+    pub async fn release(&self, state: &Arc<GatewayRequestState>) {
         release_inflight(state, &self.key.key).await;
     }
 }
@@ -162,170 +161,53 @@ pub fn error_json(status: StatusCode, message: &str) -> Response {
 }
 
 /// Record a stat and return the latency.
-pub async fn record_stat(state: &Arc<AppState>, endpoint: &str, status_code: u16, start: &Instant) {
+pub async fn record_stat(
+    state: &Arc<GatewayRequestState>,
+    endpoint: &str,
+    status_code: u16,
+    start: &Instant,
+) {
     state
-        .gateway
+        .gateway()
         .record_stat(endpoint, status_code, start.elapsed().as_millis() as i64)
         .await;
 }
 
-async fn release_inflight(state: &Arc<AppState>, key: &str) {
-    let mut runtime = state.gateway.api_key_runtime.lock().await;
-    if let Some(entry) = runtime.get_mut(key) {
-        if entry.in_flight > 0 {
-            entry.in_flight -= 1;
-        }
-        if entry.in_queue > 0 {
-            entry.notify.notify_one();
-        }
-    }
+async fn release_inflight(state: &Arc<GatewayRequestState>, key: &str) {
+    state.gateway().release_api_key_inflight(key).await;
 }
 
 async fn acquire_runtime_limit(
-    state: &Arc<AppState>,
+    state: &Arc<GatewayRequestState>,
     gateway_key: &GatewayApiKey,
 ) -> Result<(), Response> {
-    let key = gateway_key.key.clone();
-    let qps_limit = gateway_key.qps_limit;
-    let concurrency_limit = gateway_key.concurrency_limit;
-    
-    let qps_wait = {
-        let mut runtime = state.gateway.api_key_runtime.lock().await;
-        let qps = qps_limit.unwrap_or(0.0);
-        let entry = runtime.entry(key.clone()).or_insert_with(|| RuntimeRateState {
-            last_update: Instant::now(),
-            tokens: if qps > 0.0 { (qps * 2.0).max(1.0) } else { 0.0 },
-            in_flight: 0,
-            in_queue: 0,
-            notify: std::sync::Arc::new(tokio::sync::Notify::new()),
-        });
+    state
+        .gateway()
+        .acquire_runtime_limit(gateway_key)
+        .await
+        .map_err(runtime_limit_error_response)
+}
 
-        let mut wait = Duration::ZERO;
-        if let Some(qps) = qps_limit
-            && qps > 0.0
-        {
-                let now = Instant::now();
-                let elapsed = now.duration_since(entry.last_update).as_secs_f64();
-                let burst = (qps * 2.0).max(1.0);
-                entry.tokens = (entry.tokens + elapsed * qps).min(burst);
-                entry.last_update = now;
-
-                if entry.tokens >= 1.0 {
-                    entry.tokens -= 1.0;
-                } else {
-                    let needed = 1.0 - entry.tokens;
-                    let wait_secs = needed / qps;
-                    wait = Duration::from_secs_f64(wait_secs);
-                    if wait <= crate::config::QPS_SHAPING_TIMEOUT {
-                        entry.tokens -= 1.0;
-                    } else {
-                        return Err(error_json(
-                            StatusCode::TOO_MANY_REQUESTS,
-                            "api key qps wait time too long",
-                        ));
-                    }
-                }
-            }
-        wait
-    };
-
-    if qps_wait > Duration::ZERO {
-        let sleepers = crate::config::QPS_SLEEPERS_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        if sleepers > crate::config::MAX_QPS_SLEEPERS {
-            crate::config::QPS_SLEEPERS_COUNT.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-            return Err(error_json(
-                StatusCode::TOO_MANY_REQUESTS,
-                "api key qps limit exceeded (too many active requests)",
-            ));
-        }
-        tokio::time::sleep(qps_wait).await;
-        crate::config::QPS_SLEEPERS_COUNT.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-    }
-
-    let notify = {
-        let mut runtime = state.gateway.api_key_runtime.lock().await;
-        let Some(entry) = runtime.get_mut(&key) else {
-            return Err(error_json(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "api key state evicted unexpectedly",
-            ));
-        };
-        
-        if let Some(cl) = concurrency_limit {
-            if cl > 0 && (entry.in_flight as i64) >= cl {
-                if entry.in_queue >= crate::config::MAX_QUEUE_PER_KEY {
-                    return Err(error_json(
-                        StatusCode::TOO_MANY_REQUESTS,
-                        "api key concurrency queue depth exceeded",
-                    ));
-                }
-                entry.in_queue += 1;
-                entry.notify.clone()
-            } else {
-                entry.in_flight += 1;
-                return Ok(());
-            }
-        } else {
-            entry.in_flight += 1;
-            return Ok(());
-        }
-    };
-
-    // We reached here, meaning we are queued
-    let start = Instant::now();
-    let timeout_dur = crate::config::CONCURRENCY_QUEUE_TIMEOUT;
-
-    loop {
-        let elapsed = start.elapsed();
-        if elapsed >= timeout_dur {
-            let mut runtime = state.gateway.api_key_runtime.lock().await;
-            if let Some(entry) = runtime.get_mut(&key)
-                && entry.in_queue > 0
-            {
-                entry.in_queue -= 1;
-            }
-            return Err(error_json(
-                StatusCode::TOO_MANY_REQUESTS,
-                "api key request timeout in queue",
-            ));
-        }
-
-        let wait_fut = tokio::time::timeout(timeout_dur - elapsed, notify.notified());
-        if wait_fut.await.is_err() {
-            let mut runtime = state.gateway.api_key_runtime.lock().await;
-            if let Some(entry) = runtime.get_mut(&key)
-                && entry.in_queue > 0
-            {
-                entry.in_queue -= 1;
-            }
-            return Err(error_json(
-                StatusCode::TOO_MANY_REQUESTS,
-                "api key request timeout in queue",
-            ));
-        }
-
-        let mut runtime = state.gateway.api_key_runtime.lock().await;
-        if let Some(entry) = runtime.get_mut(&key) {
-            if let Some(cl) = concurrency_limit {
-                if (entry.in_flight as i64) < cl {
-                    if entry.in_queue > 0 {
-                        entry.in_queue -= 1;
-                    }
-                    entry.in_flight += 1;
-                    return Ok(());
-                }
-            } else {
-                if entry.in_queue > 0 {
-                    entry.in_queue -= 1;
-                }
-                entry.in_flight += 1;
-                return Ok(());
-            }
-        } else {
-            return Err(error_json(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "api key state lost",
-            ));
+fn runtime_limit_error_response(error: RuntimeLimitError) -> Response {
+    match error {
+        RuntimeLimitError::QpsWaitTooLong => error_json(
+            StatusCode::TOO_MANY_REQUESTS,
+            "api key qps wait time too long",
+        ),
+        RuntimeLimitError::TooManyQpsSleepers => error_json(
+            StatusCode::TOO_MANY_REQUESTS,
+            "api key qps limit exceeded (too many active requests)",
+        ),
+        RuntimeLimitError::QueueDepthExceeded => error_json(
+            StatusCode::TOO_MANY_REQUESTS,
+            "api key concurrency queue depth exceeded",
+        ),
+        RuntimeLimitError::QueueTimeout => error_json(
+            StatusCode::TOO_MANY_REQUESTS,
+            "api key request timeout in queue",
+        ),
+        RuntimeLimitError::StateLost => {
+            error_json(StatusCode::INTERNAL_SERVER_ERROR, "api key state lost")
         }
     }
 }

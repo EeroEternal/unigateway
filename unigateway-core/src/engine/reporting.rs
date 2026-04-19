@@ -101,8 +101,8 @@ pub(super) fn should_retry_error(
     if matches!(strategy, LoadBalancingStrategy::Fallback) {
         return !matches!(
             error,
-            GatewayError::PoolNotFound(_) 
-                | GatewayError::NoAvailableEndpoint { .. } 
+            GatewayError::PoolNotFound(_)
+                | GatewayError::NoAvailableEndpoint { .. }
                 | GatewayError::AllEndpointsSaturated { .. }
         );
     }
@@ -213,7 +213,11 @@ pub(super) struct StreamingAttemptContext {
 pub(super) fn is_saturation_error(error: &GatewayError) -> bool {
     let terminal = error.terminal_error();
     match terminal {
-        GatewayError::UpstreamHttp { status, .. } if *status == 429 || *status >= 502 && *status <= 504 => true,
+        GatewayError::UpstreamHttp { status, .. }
+            if *status == 429 || *status >= 502 && *status <= 504 =>
+        {
+            true
+        }
         GatewayError::Transport { .. } | GatewayError::StreamAborted { .. } => true,
         _ => false,
     }

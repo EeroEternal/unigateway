@@ -4,21 +4,24 @@ This document is optimized for contributors and AI agents that need a fast but a
 
 ## One-Screen Summary
 
-UniGateway is a local-first LLM gateway with a CLI-first product shell, a reusable runtime bridge, and a reusable core execution engine.
+UniGateway is a local-first LLM gateway with a CLI-first product shell, a reusable config state crate, a reusable host bridge, and a reusable core execution engine.
 
-The repository currently has three main layers:
+The repository currently has four main layers:
 
 1. Product shell in `src/`
-   - HTTP server, CLI, config persistence, admin API, gateway authentication, telemetry, and user-facing workflows.
-2. Runtime bridge in `unigateway-runtime/`
-   - Converts product-level state into a stable host contract and translates core results into OpenAI / Anthropic-compatible HTTP responses.
-3. Core execution engine in `unigateway-core/`
-   - Manages provider pools, endpoint selection, retry / fallback policy, driver execution, streaming completion, and request reports.
+  - HTTP server, admin API surface, gateway authentication, telemetry, and product-shell workflows.
+  - Root `src/main.rs` and `src/admin/mcp.rs` call `unigateway-cli` directly for CLI process-management concerns.
+2. Config state in `unigateway-config/`
+  - TOML-backed `GatewayState`, admin / CLI mutations, routing helpers, and config → core pool projection.
+3. Host bridge in `unigateway-host/`
+  - Converts product-level state into a stable host contract and translates core results into OpenAI / Anthropic-compatible neutral HTTP response payloads.
+4. Core execution engine in `unigateway-core/`
+  - Manages provider pools, endpoint selection, retry / fallback policy, driver execution, streaming completion, and request reports.
 
 The most important architectural shift is this:
 
 - Old mental model: gateway handlers directly parse payloads, route to providers, and call upstreams.
-- Current mental model: product shell prepares requests, runtime resolves execution targets, and `unigateway-core` performs the actual provider execution.
+- Current mental model: product shell prepares requests, host-layer code resolves execution targets, and `unigateway-core` performs the actual provider execution.
 
 ## Product Identity
 
@@ -76,64 +79,93 @@ Main responsibilities:
 
 - CLI entry and command dispatch
 - HTTP route registration
-- config file loading / mutation / persistence
 - admin API
 - gateway authentication and request limits
 - state assembly and core engine lifecycle
 
 Key files:
 
+- `unigateway-cli/src/lib.rs`
+  - `Cli`, `Commands`, subcommand action enums, shared `GuideCommand`, plus the public CLI execution surface re-exported from `diagnostics`, `guide`, `modes`, `process`, `render/*`, and `setup`.
+- `unigateway-cli/src/setup.rs`
+  - Interactive setup / quickstart flow and provider prompt orchestration.
+- `unigateway-cli/src/tests.rs`
+  - CLI regression tests for guide flow, route explanations, integration rendering, and parsing helpers.
 - `src/main.rs`
-  - CLI entry point and top-level command tree.
+  - CLI entry point and top-level dispatch.
 - `src/server.rs`
   - HTTP server startup, route registration, app state wiring, and background config-to-core sync trigger.
 - `src/types.rs`
   - `AppConfig` and `AppState`.
-- `src/config.rs`
-  - In-memory gateway config state and runtime bookkeeping.
-- `src/config/store.rs`
-  - Load and persist TOML-backed config state.
-- `src/config/core_sync.rs`
-  - Projects config services/providers/bindings into `unigateway-core::ProviderPool` values.
 - `src/middleware.rs`
   - Gateway key auth, quota, QPS, concurrency limits.
 - `src/gateway.rs`
   - Thin HTTP handlers only.
 - `src/gateway/support/request_flow.rs`
-  - Build `RuntimeContext`, extract token / provider hint, authenticate, and parse typed request.
+  - Build `HostContext`, extract token / provider hint, authenticate, and parse typed request.
 - `src/gateway/support/execution_flow.rs`
   - Main bridge from prepared request into runtime/core execution.
 
-### `unigateway-runtime/`: runtime bridge
+### `unigateway-config/`: config state crate
 
 Main responsibilities:
 
-- Define a stable host contract between product shell and reusable runtime logic.
-- Turn pool-based execution into OpenAI / Anthropic-compatible HTTP responses.
-- Provide env-fallback flow helpers and status mapping.
+- Own TOML-backed gateway config state and persistence.
+- Provide admin / CLI read-write helpers over `GatewayState`.
+- Project config services/providers/bindings into `ProviderPool` values.
+- Own config-scoped upstream resolution helpers.
 
 Key files:
 
-- `unigateway-runtime/src/host.rs`
-  - Defines `RuntimeContext` and the host traits:
-    - `RuntimeConfigHost`
-    - `RuntimeEngineHost`
-    - `RuntimePoolHost`
-    - `RuntimeRoutingHost`
-- `unigateway-runtime/src/core/mod.rs`
-  - Re-exports runtime execution entry points.
-- `unigateway-runtime/src/core/chat/mod.rs`
-  - OpenAI / Anthropic chat response translation and chat execution wrappers.
-- `unigateway-runtime/src/core/chat/streaming.rs`
-  - Streaming adapters, especially Anthropic-to-OpenAI SSE conversion logic.
-- `unigateway-runtime/src/core/responses.rs`
-  - OpenAI Responses API runtime handling and stream compatibility fallback.
-- `unigateway-runtime/src/core/embeddings.rs`
+- `unigateway-config/src/lib.rs`
+  - Crate root, exported types, constants, and `GatewayState`.
+- `unigateway-config/src/runtime.rs`
+  - Runtime-only API-key qps/concurrency limiter and queue metrics helpers.
+- `unigateway-config/src/store.rs`
+  - Load and persist config state.
+- `unigateway-config/src/admin.rs`
+  - Config mutation and admin-facing helpers.
+- `unigateway-config/src/select.rs`
+  - API-key lookup, stats, and read-only selection helpers.
+- `unigateway-config/src/core_sync.rs`
+  - Projection from config file model into core pools.
+- `unigateway-config/src/routing.rs`
+  - Upstream resolution and base URL normalization.
+
+### `unigateway-host/`: host bridge
+
+Main responsibilities:
+
+- Define a stable host contract between product shell and reusable host logic.
+- Delegate protocol parsing and neutral HTTP response shaping to `unigateway-protocol`.
+- Materialize env-backed fallback pools through the host boundary and map core errors into neutral HTTP error payloads.
+
+Key files:
+
+- `unigateway-host/src/host.rs`
+  - Defines `HostContext`, `HostPoolSource`, `HostEnvProvider`, and the host traits:
+    - `EngineHost`
+    - `PoolHost`
+- `unigateway-protocol/src/lib.rs`
+  - Re-exports protocol request parsers, response renderers, and neutral response types.
+- `unigateway-protocol/src/requests.rs`
+  - JSON payload to `Proxy*Request` translation.
+- `unigateway-protocol/src/responses.rs`
+  - `ProxySession` and completed response to the neutral protocol response type `RuntimeHttpResponse`, including SSE shaping.
+- `unigateway-protocol/src/http_response.rs`
+  - Neutral HTTP response body and streaming types shared by protocol rendering and the product shell.
+- `unigateway-host/src/core/mod.rs`
+  - Re-exports host execution entry points.
+- `unigateway-host/src/core/chat/mod.rs`
+  - Pool resolution, target building, and chat execution wrappers.
+- `unigateway-host/src/core/responses.rs`
+  - OpenAI Responses API execution and stream compatibility fallback.
+- `unigateway-host/src/core/embeddings.rs`
   - Embeddings execution wrapper.
-- `unigateway-runtime/src/core/targeting.rs`
-  - Build `ExecutionTarget`, env pools, and provider-hint matching.
-- `unigateway-runtime/src/flow.rs`
-  - Common runtime flow combinators and environment credential fallback helpers.
+- `unigateway-host/src/core/targeting.rs`
+  - Build `ExecutionTarget`, resolve host pools, and apply provider-hint matching.
+- `unigateway-host/src/flow.rs`
+  - Common host flow combinators and core error response mapping.
 
 ### `unigateway-core/`: reusable execution engine
 
@@ -168,15 +200,21 @@ Key files:
 
 ### `GatewayState`
 
-Defined in `src/config.rs`.
+Defined in `unigateway-config/src/lib.rs` and re-exported through `src/config.rs`.
 
 Responsibilities:
 
+- Compose config-facing and runtime-facing sub-state for the gateway.
 - Own the parsed TOML config file.
 - Track runtime quota / rate state.
-- Track round-robin service counters for legacy shell logic.
 - Mark dirty state and persist changes.
 - Trigger background sync into the core engine.
+- Expose focused read/write helpers so product-shell code does not lock `inner` / `api_key_runtime` directly.
+
+Current shape:
+
+- `ConfigStore` owns the TOML-backed file state, dirty bit, and core-sync notifier.
+- `RuntimeRateLimiter` owns per-key qps/concurrency tokens and queue bookkeeping.
 
 Persistence model:
 
@@ -194,34 +232,63 @@ Responsibilities:
 - Hold the singleton `UniGatewayEngine`.
 - Offer `sync_core_pools()` to refresh core execution state from config.
 
-### `RuntimeContext`
+### `GatewayRequestState`
 
-Defined in `unigateway-runtime/src/host.rs`.
+Defined in `src/types.rs`.
 
 Responsibilities:
 
-- Present a stable interface to runtime logic.
-- Decouple runtime crate logic from the product shell's concrete `AppState` type.
+- Hold only the request-path dependencies needed by `/v1/*` gateway handlers.
+- Back gateway auth/rate limiting, env-fallback provider config, and `HostContext` composition.
+- Implement the host traits used by `src/gateway/support/*` without exposing the full `AppState` surface.
 
-This is a major architectural boundary. Runtime code should rely on traits and host capabilities rather than directly reaching into product-specific state.
+### `SystemState`
+
+Defined in `src/types.rs`.
+
+Responsibilities:
+
+- Hold only the system-surface dependencies needed by `/health`, `/metrics`, and `/v1/models`.
+- Expose request counters and default env-backed model names without carrying the full startup assembly state.
+
+### `AdminState`
+
+Defined in `src/admin/mod.rs`.
+
+Responsibilities:
+
+- Hold only the admin-facing dependencies: admin token, `GatewayState`, and core engine metrics access.
+- Back `/api/admin/*` and `/v1/admin/queue_metrics` without exposing the full `AppState` surface.
+
+### `HostContext`
+
+Defined in `unigateway-host/src/host.rs`.
+
+Responsibilities:
+
+- Present a stable interface to host-layer logic.
+- Decouple host crate logic from the product shell's concrete `AppState` type.
+
+This is a major architectural boundary. Host-layer code should rely on traits and host capabilities rather than directly reaching into product-specific state.
 
 ## Startup Lifecycle
 
 Current startup path:
 
 1. `src/main.rs`
-   - Parse CLI flags.
-   - Build `AppConfig`.
+  - Parse CLI flags.
+  - Build `AppConfig`.
 2. `src/server.rs`
-   - Load `GatewayState` from config file.
-   - Construct `AppState`, which also constructs `UniGatewayEngine` with built-in HTTP drivers and telemetry hooks.
-   - Register a core-sync notifier.
-   - Run `state.sync_core_pools()` once at startup.
+  - Load `GatewayState` from config file.
+  - Construct `AppState`, which also constructs `UniGatewayEngine` with built-in HTTP drivers and telemetry hooks.
+  - Derive `SystemState`, `GatewayRequestState`, and `AdminState` from `AppState` for narrower route surfaces.
+  - Register a core-sync notifier.
+  - Run `state.sync_core_pools()` once at startup.
 3. Background sync loop in `src/server.rs`
-   - Listens for config-change notifications.
-   - Rebuilds and upserts config-managed pools.
+  - Listens for config-change notifications.
+  - Rebuilds and upserts config-managed pools.
 4. Background persistence loop in `src/server.rs`
-   - Periodically persists dirty config state.
+  - Periodically persists dirty config state.
 
 Important consequence:
 
@@ -237,15 +304,15 @@ Projection rules:
 1. Every service becomes one `ProviderPool`.
 2. Every binding contributes one candidate provider endpoint.
 3. Each provider becomes one `Endpoint` with:
-   - `provider_kind`
-   - `driver_id`
-   - resolved `base_url`
-   - provider API key
-   - parsed `ModelPolicy`
-   - metadata such as provider name, source endpoint id, provider family, and binding priority.
+  - `provider_kind`
+  - `driver_id`
+  - resolved `base_url`
+  - provider API key
+  - parsed `ModelPolicy`
+  - structured routing fields such as provider name, source endpoint id, and provider family, plus binding priority metadata.
 4. Unsupported or invalid services are skipped or removed from core sync.
 5. Config-managed pools are marked with metadata:
-   - `managed_by = gateway-config`
+  - `managed_by = gateway-config`
 
 Important implications:
 
@@ -255,32 +322,42 @@ Important implications:
 
 ## Request Lifecycle
 
+### System route path
+
+1. Route entry in `src/server.rs`
+  - `GET /health`
+  - `GET /metrics`
+  - `GET /v1/models`
+2. Thin handler in `src/system.rs`
+  - Runs with `SystemState`, not full `AppState`.
+
 ### OpenAI / Anthropic request path
 
 1. Route entry in `src/server.rs`
-   - `POST /v1/chat/completions`
-   - `POST /v1/responses`
-   - `POST /v1/embeddings`
-   - `POST /v1/messages`
+  - `POST /v1/chat/completions`
+  - `POST /v1/responses`
+  - `POST /v1/embeddings`
+  - `POST /v1/messages`
 2. Thin handler in `src/gateway.rs`
+  - Runs with `GatewayRequestState`, not full `AppState`.
 3. Request preparation in `src/gateway/support/request_flow.rs`
-   - Build `RuntimeContext`
-   - Extract token
-   - Extract provider hint from headers / payload
-   - Authenticate gateway key if present
-   - Parse payload into typed request
+  - Build `HostContext`
+  - Extract token
+  - Extract provider hint from headers / payload
+  - Authenticate gateway key if present
+  - Parse payload into typed request
 4. Execution dispatch in `src/gateway/support/execution_flow.rs`
-   - If gateway key matched: route by `service_id`
-   - Otherwise: use environment fallback credentials
-5. Runtime wrapper in `unigateway-runtime/src/core/*`
-   - Build `ExecutionTarget`
-   - Call `UniGatewayEngine`
-   - Translate result into protocol response
+  - If gateway key matched: route by `service_id`
+  - Otherwise: use environment fallback credentials
+5. Host wrapper in `unigateway-host/src/core/*`
+  - Build `ExecutionTarget`
+  - Call `UniGatewayEngine`
+  - Translate result into protocol response
 6. Core engine in `unigateway-core`
-   - Resolve pool / plan into ordered endpoints
-   - Execute attempts via provider drivers
-   - Apply retry / fallback rules
-   - Build request report and streaming completion
+  - Resolve pool / plan into ordered endpoints
+  - Execute attempts via provider drivers
+  - Apply retry / fallback rules
+  - Build request report and streaming completion
 
 ### Authentication behavior
 
@@ -384,21 +461,30 @@ Hooks can be attached to `UniGatewayEngine` via `GatewayHooks`. In the product s
 ### Auth and limits
 
 - `src/middleware.rs`
-- `src/api_key.rs`
+
+### Admin API
+
+- `src/admin/mod.rs`
+- `src/admin/mcp.rs`
+- `src/admin/metrics.rs`
+- `src/admin/service.rs`
+- `src/admin/provider.rs`
+- `src/admin/api_key.rs`
 
 ### Config and persistence
 
 - `src/config.rs`
-- `src/config/store.rs`
-- `src/config/core_sync.rs`
-- `src/config/schema.rs`
+- `unigateway-config/src/store.rs`
+- `unigateway-config/src/core_sync.rs`
+- `unigateway-config/src/schema.rs`
+- `unigateway-config/src/runtime.rs`
 
-### Runtime bridge
+### Host bridge
 
-- `src/runtime_host_adapter.rs`
-- `unigateway-runtime/src/host.rs`
-- `unigateway-runtime/src/core/*`
-- `unigateway-runtime/src/flow.rs`
+- `src/host_adapter.rs`
+- `unigateway-host/src/host.rs`
+- `unigateway-host/src/core/*`
+- `unigateway-host/src/flow.rs`
 
 ### Core execution
 
@@ -410,8 +496,8 @@ Hooks can be attached to `UniGatewayEngine` via `GatewayHooks`. In the product s
 ### Product CLI / UX
 
 - `src/main.rs`
-- `src/cli.rs`
-- `src/cli/`
+- `unigateway-cli/src/lib.rs`
+- `unigateway-cli/src/render/`
 
 ## Common Extension Tasks
 
@@ -422,7 +508,7 @@ Likely touch:
 1. `src/server.rs`
 2. `src/gateway.rs`
 3. `src/gateway/support/*`
-4. `unigateway-runtime/src/core/*` if it needs a new runtime translation path
+4. `unigateway-host/src/core/*` if it needs a new host translation path
 5. `unigateway-core/src/protocol/*` if it requires a new provider-level protocol call
 
 ### Add a new provider family
@@ -439,14 +525,14 @@ Likely touch:
 Likely touch:
 
 1. `src/config/core_sync.rs`
-2. `unigateway-runtime/src/core/targeting.rs`
+2. `unigateway-host/src/core/targeting.rs`
 3. `unigateway-core/src/routing.rs`
 4. `unigateway-core/src/engine/reporting.rs` if retry semantics change
 
 ## Known Non-Obvious Details
 
-- The current [`docs/design/arch.md`](../design/arch.md) should describe the three-layer model, not the older direct gateway-to-upstream mental model.
-- `AppState` implements the runtime host traits through the runtime host adapter path, even though runtime code only sees `RuntimeContext`.
+- The current `[docs/design/arch.md](../design/arch.md)` should describe the three-layer model, not the older direct gateway-to-upstream mental model.
+- `GatewayRequestState` implements the host traits through the host adapter path, even though host-layer code only sees `HostContext`.
 - Env fallback is still a first-class path for requests without gateway auth.
 - Runtime and core crates are designed for reuse outside the product shell.
 - `service` and `mode` are often equivalent in UX, but the config object is named `service` in code and storage.
@@ -458,7 +544,7 @@ If you need answers quickly, search in this order:
 
 1. `project memory`
 2. `sync_core_pools`
-3. `RuntimeContext`
+3. `HostContext`
 4. `UniGatewayEngine`
 5. `ExecutionTarget`
 6. `gateway/support/execution_flow`
@@ -474,7 +560,7 @@ If you are about to modify behavior, start here:
 3. `src/gateway/support/request_flow.rs`
 4. `src/gateway/support/execution_flow.rs`
 5. `src/config/core_sync.rs`
-6. `unigateway-runtime/src/host.rs`
-7. `unigateway-runtime/src/core/mod.rs`
+6. `unigateway-host/src/host.rs`
+7. `unigateway-host/src/core/mod.rs`
 8. `unigateway-core/src/engine/mod.rs`
 9. `unigateway-core/src/protocol/mod.rs`

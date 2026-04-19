@@ -38,7 +38,7 @@ impl UniGatewayEngine {
 
         for (attempt_index, endpoint) in endpoints.into_iter().enumerate() {
             let endpoint_id = endpoint.endpoint_id.clone();
-            
+
             let aimd = self.aimd_for_endpoint(&endpoint_id).await;
             let aimd_guard = match aimd.acquire() {
                 Some(guard) => guard,
@@ -47,7 +47,7 @@ impl UniGatewayEngine {
                     continue;
                 }
             };
-            
+
             let provider_kind = endpoint.provider_kind;
             last_context = Some((endpoint_id.clone(), provider_kind));
             let context = self.driver_context(
@@ -57,7 +57,7 @@ impl UniGatewayEngine {
                 request.metadata.clone(),
             );
             let attempt_metadata = context.metadata.clone();
-            
+
             let attempt_record_index = attempts.len();
             self.emit_attempt_started(AttemptStartedEvent {
                 request_id: request_id.clone(),
@@ -214,8 +214,8 @@ impl UniGatewayEngine {
         }
     }
 
-/// Dispatches a proxy responses stream request.
-pub async fn proxy_responses(
+    /// Dispatches a proxy responses stream request.
+    pub async fn proxy_responses(
         &self,
         request: ProxyResponsesRequest,
         target: crate::pool::ExecutionTarget,
@@ -233,7 +233,7 @@ pub async fn proxy_responses(
 
         for (attempt_index, endpoint) in endpoints.into_iter().enumerate() {
             let endpoint_id = endpoint.endpoint_id.clone();
-            
+
             let aimd = self.aimd_for_endpoint(&endpoint_id).await;
             let aimd_guard = match aimd.acquire() {
                 Some(guard) => guard,
@@ -242,7 +242,7 @@ pub async fn proxy_responses(
                     continue;
                 }
             };
-            
+
             let provider_kind = endpoint.provider_kind;
             last_context = Some((endpoint_id.clone(), provider_kind));
             let context = self.driver_context(
@@ -252,7 +252,7 @@ pub async fn proxy_responses(
                 request.metadata.clone(),
             );
             let attempt_metadata = context.metadata.clone();
-            
+
             let attempt_record_index = attempts.len();
             self.emit_attempt_started(AttemptStartedEvent {
                 request_id: request_id.clone(),
@@ -409,8 +409,8 @@ pub async fn proxy_responses(
         }
     }
 
-/// Executes a stateless vector embeddings extraction.
-pub async fn proxy_embeddings(
+    /// Executes a stateless vector embeddings extraction.
+    pub async fn proxy_embeddings(
         &self,
         request: ProxyEmbeddingsRequest,
         target: crate::pool::ExecutionTarget,
@@ -428,7 +428,7 @@ pub async fn proxy_embeddings(
 
         for (attempt_index, endpoint) in endpoints.into_iter().enumerate() {
             let endpoint_id = endpoint.endpoint_id.clone();
-            
+
             let aimd = self.aimd_for_endpoint(&endpoint_id).await;
             let _aimd_guard = match aimd.acquire() {
                 Some(guard) => guard,
@@ -437,7 +437,7 @@ pub async fn proxy_embeddings(
                     continue;
                 }
             };
-            
+
             let provider_kind = endpoint.provider_kind;
             last_context = Some((endpoint_id.clone(), provider_kind));
             let context = self.driver_context(
@@ -447,7 +447,7 @@ pub async fn proxy_embeddings(
                 request.metadata.clone(),
             );
             let attempt_metadata = context.metadata.clone();
-            
+
             let attempt_record_index = attempts.len();
             self.emit_attempt_started(AttemptStartedEvent {
                 request_id: request_id.clone(),

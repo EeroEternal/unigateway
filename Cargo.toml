@@ -1,6 +1,6 @@
 [package]
 name = "unigateway"
-version = "1.2.1"
+version = "1.3.0"
 edition = "2024"
 rust-version = "1.92"
 description = "Lightweight, local-first LLM gateway for developers. A stable, single-binary unified entry point for all your AI tools and models."
@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "api-bindings", "command-line-util
 authors = ["EeroEternal <songmqq@proton.me>"]
 
 [workspace]
-members = ["unigateway-core", "unigateway-runtime"]
+members = ["unigateway-core", "unigateway-protocol", "unigateway-host", "unigateway-config", "unigateway-cli"]
 
 [workspace.dependencies]
 anyhow = "1"
@@ -25,7 +25,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tracing = "0.1"
-unigateway-core = { version = "1.2.1", path = "unigateway-core" }
+unigateway-core = { version = "1.3.0", path = "unigateway-core" }
+unigateway-cli = { version = "1.3.0", path = "unigateway-cli" }
+unigateway-config = { version = "1.3.0", path = "unigateway-config" }
+unigateway-protocol = { version = "1.3.0", path = "unigateway-protocol" }
 
 [[bin]]
 name = "ug"
@@ -60,7 +63,10 @@ clap_complete = "4.6.0"
 console = "0.16.3"
 indicatif = "0.18.4"
 unigateway-core.workspace = true
-unigateway-runtime = { version = "1.2.1", path = "unigateway-runtime" }
+unigateway-cli.workspace = true
+unigateway-config.workspace = true
+unigateway-protocol.workspace = true
+unigateway-host = { version = "1.3.0", path = "unigateway-host" }
 
 [profile.release]
 lto = "thin"

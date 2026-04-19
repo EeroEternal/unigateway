@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -148,7 +148,8 @@ impl AdaptiveConcurrency {
         );
 
         // Set cooldown
-        self.cooldown_until.store(now + self.config.cooldown_ms, Ordering::SeqCst);
+        self.cooldown_until
+            .store(now + self.config.cooldown_ms, Ordering::SeqCst);
     }
 }
 

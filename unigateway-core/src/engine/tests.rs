@@ -30,6 +30,9 @@ enum TestBehavior {
 fn endpoint(endpoint_id: &str) -> Endpoint {
     Endpoint {
         endpoint_id: endpoint_id.to_string(),
+        provider_name: Some(endpoint_id.to_string()),
+        source_endpoint_id: None,
+        provider_family: None,
         provider_kind: ProviderKind::OpenAiCompatible,
         driver_id: "openai-compatible".to_string(),
         base_url: format!("https://{endpoint_id}.example.com"),
@@ -869,9 +872,7 @@ async fn hooks_receive_failed_attempts_and_failed_request_report() {
 async fn aimd_on_saturation_reduces_limit_for_429() {
     let registry = Arc::new(InMemoryDriverRegistry::new());
     registry.register(Arc::new(BehaviorDriver {
-        chat: HashMap::from([
-            ("a".to_string(), TestBehavior::Upstream429),
-        ]),
+        chat: HashMap::from([("a".to_string(), TestBehavior::Upstream429)]),
         responses: HashMap::new(),
     }));
 
@@ -916,7 +917,12 @@ async fn aimd_on_saturation_reduces_limit_for_429() {
     let aimd_after = engine.aimd_metrics().await;
     let new_limit = aimd_after.get("a").unwrap().current_limit;
 
-    assert!(new_limit < initial_limit, "AIMD limit should decrease after 429 response. before: {}, after: {}", initial_limit, new_limit);
+    assert!(
+        new_limit < initial_limit,
+        "AIMD limit should decrease after 429 response. before: {}, after: {}",
+        initial_limit,
+        new_limit
+    );
 }
 
 #[tokio::test]
@@ -944,7 +950,7 @@ async fn aimd_saturation_yields_all_endpoints_saturated() {
     while let Some(guard) = aimd.acquire() {
         guards.push(guard);
     }
-    
+
     // Now execute a request, it should fail immediately with AllEndpointsSaturated
     let result = engine
         .proxy_chat(

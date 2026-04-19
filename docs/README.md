@@ -25,6 +25,7 @@
 | 文件 | 说明 |
 | --- | --- |
 | [`memory.md`](dev/memory.md) | 贡献者与 AI 代理用的代码心智模型与入口文件 |
+| [`refactor-baseline.md`](dev/refactor-baseline.md) | 重构基线、已完成项、当前边界和后续抽象机会 |
 | [`roadmap.md`](dev/roadmap.md) | 产品阶段与近期优先级（会随迭代更新） |
 | [`local-gateway.md`](dev/local-gateway.md) | 本地网关定位下的适配、观测、CLI 强化待办 |
 | [`openclaw.md`](dev/openclaw.md) | OpenClaw 与本地网关联动的示例流程 |
