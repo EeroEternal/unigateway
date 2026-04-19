@@ -8,6 +8,8 @@ use unigateway_core::{
     ProxyResponsesRequest,
 };
 
+pub const ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY: &str = "unigateway.requested_model_alias";
+
 /// Translates an OpenAI-compatible JSON payload into a core `ProxyChatRequest`.
 pub fn openai_payload_to_chat_request(
     payload: &Value,
@@ -67,6 +69,11 @@ pub fn anthropic_payload_to_chat_request(
     payload: &Value,
     default_model: &str,
 ) -> Result<ProxyChatRequest> {
+    let model = payload
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or(default_model)
+        .to_string();
     let mut messages = Vec::new();
     if let Some(system) = payload.get("system").and_then(Value::as_str) {
         messages.push(CoreMessage {
@@ -77,11 +84,7 @@ pub fn anthropic_payload_to_chat_request(
     messages.extend(chat_messages(payload)?);
 
     Ok(ProxyChatRequest {
-        model: payload
-            .get("model")
-            .and_then(Value::as_str)
-            .unwrap_or(default_model)
-            .to_string(),
+        model: model.clone(),
         messages,
         temperature: payload
             .get("temperature")
@@ -96,7 +99,7 @@ pub fn anthropic_payload_to_chat_request(
             .and_then(Value::as_u64)
             .map(|v| v as u32),
         stream: stream_flag(payload, true),
-        metadata: HashMap::new(),
+        metadata: anthropic_requested_model_alias(model),
     })
 }
 
@@ -136,6 +139,10 @@ fn stream_flag(payload: &Value, default: bool) -> bool {
         .get("stream")
         .and_then(Value::as_bool)
         .unwrap_or(default)
+}
+
+pub fn anthropic_requested_model_alias(model: String) -> HashMap<String, String> {
+    HashMap::from([(ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(), model)])
 }
 
 fn chat_messages(payload: &Value) -> Result<Vec<CoreMessage>> {
@@ -235,8 +242,9 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        anthropic_payload_to_chat_request, openai_payload_to_chat_request,
-        openai_payload_to_embed_request, openai_payload_to_responses_request,
+        ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, anthropic_payload_to_chat_request,
+        openai_payload_to_chat_request, openai_payload_to_embed_request,
+        openai_payload_to_responses_request,
     };
 
     #[test]
@@ -277,6 +285,12 @@ mod tests {
         .expect("request");
 
         assert!(req.stream);
+        assert_eq!(
+            req.metadata
+                .get(ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY)
+                .map(String::as_str),
+            Some("claude-3-5-sonnet-latest")
+        );
     }
 
     #[test]

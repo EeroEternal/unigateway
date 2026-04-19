@@ -1,39 +1,39 @@
 use crate::types::GatewayRequestState;
-use anyhow::Result;
-use unigateway_core::ProviderPool;
-use unigateway_core::UniGatewayEngine;
-use unigateway_host::host::{EngineHost, HostEnvProvider, HostFuture, PoolHost, build_env_pool};
-
-impl EngineHost for GatewayRequestState {
-    fn core_engine(&self) -> &UniGatewayEngine {
-        self.engine()
-    }
-}
+use unigateway_host::env::{EnvPoolHost, EnvProvider, build_env_pool};
+use unigateway_host::error::{PoolLookupError, PoolLookupResult};
+use unigateway_host::host::{HostFuture, PoolHost, PoolLookupOutcome};
 
 impl PoolHost for GatewayRequestState {
     fn pool_for_service<'a>(
         &'a self,
         service_id: &'a str,
-    ) -> HostFuture<'a, Result<Option<ProviderPool>>> {
-        Box::pin(async move { Ok(self.engine().get_pool(service_id).await) })
+    ) -> HostFuture<'a, PoolLookupResult<PoolLookupOutcome>> {
+        Box::pin(async move {
+            Ok(match self.engine().get_pool(service_id).await {
+                Some(pool) => PoolLookupOutcome::found(pool),
+                None => PoolLookupOutcome::not_found(),
+            })
+        })
     }
+}
 
+impl EnvPoolHost for GatewayRequestState {
     fn env_pool<'a>(
         &'a self,
-        provider: HostEnvProvider,
+        provider: EnvProvider,
         api_key_override: Option<&'a str>,
-    ) -> HostFuture<'a, Result<Option<ProviderPool>>> {
+    ) -> HostFuture<'a, PoolLookupResult<PoolLookupOutcome>> {
         Box::pin(async move {
             let (base_url, env_api_key, default_model) = match provider {
-                HostEnvProvider::OpenAi => (
-                    self.provider_base_url(HostEnvProvider::OpenAi),
-                    self.provider_api_key(HostEnvProvider::OpenAi),
-                    self.provider_model(HostEnvProvider::OpenAi),
+                EnvProvider::OpenAi => (
+                    self.provider_base_url(EnvProvider::OpenAi),
+                    self.provider_api_key(EnvProvider::OpenAi),
+                    self.provider_model(EnvProvider::OpenAi),
                 ),
-                HostEnvProvider::Anthropic => (
-                    self.provider_base_url(HostEnvProvider::Anthropic),
-                    self.provider_api_key(HostEnvProvider::Anthropic),
-                    self.provider_model(HostEnvProvider::Anthropic),
+                EnvProvider::Anthropic => (
+                    self.provider_base_url(EnvProvider::Anthropic),
+                    self.provider_api_key(EnvProvider::Anthropic),
+                    self.provider_model(EnvProvider::Anthropic),
                 ),
             };
 
@@ -42,7 +42,7 @@ impl PoolHost for GatewayRequestState {
                 .unwrap_or(env_api_key);
 
             if api_key.trim().is_empty() {
-                return Ok(None);
+                return Ok(PoolLookupOutcome::not_found());
             }
 
             let pool = build_env_pool(provider, default_model, base_url, api_key);
@@ -50,9 +50,9 @@ impl PoolHost for GatewayRequestState {
             self.engine()
                 .upsert_pool(pool.clone())
                 .await
-                .map_err(|error| anyhow::Error::msg(error.to_string()))?;
+                .map_err(PoolLookupError::other)?;
 
-            Ok(Some(pool))
+            Ok(PoolLookupOutcome::found(pool))
         })
     }
 }

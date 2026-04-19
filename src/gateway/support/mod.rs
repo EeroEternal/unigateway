@@ -4,10 +4,7 @@ use std::sync::Arc;
 
 use axum::{http::HeaderMap, response::Response};
 use serde_json::Value;
-use unigateway_host::core::{
-    try_anthropic_chat_via_core, try_openai_chat_via_core, try_openai_embeddings_via_core,
-    try_openai_responses_via_core,
-};
+use unigateway_host::core::HostRequest;
 use unigateway_protocol::{
     anthropic_payload_to_chat_request, openai_payload_to_chat_request,
     openai_payload_to_embed_request, openai_payload_to_responses_request,
@@ -41,16 +38,8 @@ pub(super) async fn handle_openai_chat_request(
             execute_prepared_host_request(
                 state,
                 &prepared,
-                request,
+                HostRequest::Chat(request),
                 openai_chat_spec(),
-                |prepared, source, request| {
-                    try_openai_chat_via_core(
-                        &prepared.host,
-                        source,
-                        prepared.hint.as_deref(),
-                        request,
-                    )
-                },
             )
             .await
         },
@@ -72,16 +61,8 @@ pub(super) async fn handle_openai_responses_request(
             execute_prepared_host_request(
                 state,
                 &prepared,
-                request,
+                HostRequest::Responses(request),
                 openai_responses_spec(),
-                |prepared, source, request| {
-                    try_openai_responses_via_core(
-                        &prepared.host,
-                        source,
-                        prepared.hint.as_deref(),
-                        request,
-                    )
-                },
             )
             .await
         },
@@ -100,26 +81,11 @@ pub(super) async fn handle_anthropic_messages_request(
         payload,
         anthropic_payload_to_chat_request,
         |prepared, request| async move {
-            let requested_model = request.model.clone();
-
             execute_prepared_host_request(
                 state,
                 &prepared,
-                request,
+                HostRequest::Chat(request),
                 anthropic_chat_spec(),
-                |prepared, source, request| {
-                    let requested_model = requested_model.clone();
-                    async move {
-                        try_anthropic_chat_via_core(
-                            &prepared.host,
-                            source,
-                            prepared.hint.as_deref(),
-                            request,
-                            &requested_model,
-                        )
-                        .await
-                    }
-                },
             )
             .await
         },
@@ -141,16 +107,8 @@ pub(super) async fn handle_openai_embeddings_request(
             execute_prepared_host_request(
                 state,
                 &prepared,
-                request,
+                HostRequest::Embeddings(request),
                 openai_embeddings_spec(),
-                |prepared, source, request| {
-                    try_openai_embeddings_via_core(
-                        &prepared.host,
-                        source,
-                        prepared.hint.as_deref(),
-                        request,
-                    )
-                },
             )
             .await
         },

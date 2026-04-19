@@ -18,7 +18,7 @@
 | --- | --- |
 | [`config.md`](guide/config.md) | `unigateway.toml` 字段与同步到 core 的规则 |
 | [`providers.md`](guide/providers.md) | 常见 Provider 的 TOML 与调用示例 |
-| [`embed.md`](guide/embed.md) | 在其它 Rust 应用中嵌入 `unigateway-core` / `runtime` |
+| [`embed.md`](guide/embed.md) | 在其它 Rust 应用中嵌入 `unigateway-core` / host（详见 dev 嵌入栈文档） |
 
 ## dev
 
@@ -26,6 +26,7 @@
 | --- | --- |
 | [`memory.md`](dev/memory.md) | 贡献者与 AI 代理用的代码心智模型与入口文件 |
 | [`refactor-baseline.md`](dev/refactor-baseline.md) | 重构基线、已完成项、当前边界和后续抽象机会 |
+| [`embed-sdk.md`](dev/embed-sdk.md) | 嵌入栈心智模型、`unigateway-sdk` 门面方向与对外 API 演进 |
 | [`roadmap.md`](dev/roadmap.md) | 产品阶段与近期优先级（会随迭代更新） |
 | [`local-gateway.md`](dev/local-gateway.md) | 本地网关定位下的适配、观测、CLI 强化待办 |
 | [`openclaw.md`](dev/openclaw.md) | OpenClaw 与本地网关联动的示例流程 |

@@ -34,3 +34,38 @@ jobs:
 
     - name: Run tests
       run: cargo test --verbose
+
+  sdk-features:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        feature-set: [core, protocol, host, embed, testing]
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@1.92.0
+
+    - name: Cache dependencies
+      uses: Swatinem/rust-cache@v2
+
+    - name: Check unigateway-sdk feature set
+      run: cargo check -p unigateway-sdk --no-default-features --features ${{ matrix.feature-set }}
+
+    - name: Test unigateway-sdk feature set
+      run: cargo test -p unigateway-sdk --no-default-features --features ${{ matrix.feature-set }}
+
+  host-testing:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@1.92.0
+
+    - name: Cache dependencies
+      uses: Swatinem/rust-cache@v2
+
+    - name: Test unigateway-host testing feature
+      run: cargo test -p unigateway-host --features testing

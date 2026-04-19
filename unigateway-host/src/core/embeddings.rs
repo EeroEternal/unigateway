@@ -1,28 +1,24 @@
-use anyhow::{Result, anyhow};
-use unigateway_core::ProxyEmbeddingsRequest;
-use unigateway_protocol::{RuntimeHttpResponse, render_openai_embeddings_response};
+use unigateway_core::{ProviderPool, ProxyEmbeddingsRequest};
+use unigateway_protocol::{ProtocolHttpResponse, render_openai_embeddings_response};
 
-use crate::host::{HostContext, HostPoolSource};
+use crate::error::{HostError, HostResult};
+use crate::host::HostContext;
 
-use super::targeting::{build_openai_compatible_target, prepare_host_pool};
+use super::targeting::build_openai_compatible_target;
 
-pub async fn try_openai_embeddings_via_core(
+pub(super) async fn execute_openai_embeddings_via_core(
     host: &HostContext<'_>,
-    source: HostPoolSource<'_>,
+    pool: &ProviderPool,
     hint: Option<&str>,
     request: ProxyEmbeddingsRequest,
-) -> Result<Option<RuntimeHttpResponse>> {
-    let pool = match prepare_host_pool(host, source).await? {
-        Some(pool) => pool,
-        None => return Ok(None),
-    };
-
-    let target = build_openai_compatible_target(&pool.endpoints, &pool.pool_id, hint)?;
+) -> HostResult<ProtocolHttpResponse> {
+    let target = build_openai_compatible_target(&pool.endpoints, &pool.pool_id, hint)
+        .map_err(HostError::targeting)?;
     let response = host
         .core_engine()
         .proxy_embeddings(request, target)
         .await
-        .map_err(|error| anyhow!(error.to_string()))?;
+        .map_err(HostError::core)?;
 
-    Ok(Some(render_openai_embeddings_response(response)))
+    Ok(render_openai_embeddings_response(response))
 }

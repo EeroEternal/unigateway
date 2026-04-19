@@ -1,23 +1,5 @@
 use anyhow::{Result, anyhow};
-use unigateway_core::{
-    Endpoint, EndpointRef, ExecutionPlan, ExecutionTarget, ProviderKind, ProviderPool,
-};
-
-use crate::host::{HostContext, HostPoolSource};
-
-/// Fetches the pool for `service_id` from the host.
-///
-/// This is a thin delegation to [`PoolHost::pool_for_service`].
-///
-/// Config-backed pools returned here are expected to have been registered during startup or
-/// hot-reload sync. Env-backed fallback pools travel through [`PoolHost::env_pool`]
-/// instead and may be materialized on demand by the embedder.
-pub(super) async fn prepare_host_pool(
-    host: &HostContext<'_>,
-    source: HostPoolSource<'_>,
-) -> Result<Option<ProviderPool>> {
-    host.resolve_pool(source).await
-}
+use unigateway_core::{Endpoint, EndpointRef, ExecutionPlan, ExecutionTarget, ProviderKind};
 
 pub(super) fn build_execution_target(
     endpoints: &[Endpoint],

@@ -8,6 +8,7 @@ use axum::{
 };
 use serde_json::Value;
 use tracing::info;
+use unigateway_host::env::EnvProvider;
 use unigateway_host::host::HostContext;
 
 use crate::middleware::{GatewayAuth, error_json, extract_openai_api_key, extract_x_api_key};
@@ -34,7 +35,7 @@ where
 {
     let prepared = prepare_openai_request(state, headers, payload).await?;
     parse_prepared_request(prepared, payload, parse_request, |_| {
-        state.provider_model(unigateway_host::host::HostEnvProvider::OpenAi)
+        state.provider_model(EnvProvider::OpenAi)
     })
     .await
 }
@@ -51,7 +52,7 @@ where
 {
     let prepared = prepare_anthropic_request(state, headers, payload).await?;
     parse_prepared_request(prepared, payload, parse_request, |_| {
-        state.provider_model(unigateway_host::host::HostEnvProvider::Anthropic)
+        state.provider_model(EnvProvider::Anthropic)
     })
     .await
 }
@@ -91,7 +92,7 @@ where
 {
     let start = Instant::now();
     let token = extract_token();
-    let host = HostContext::from_parts(state.as_ref(), state.as_ref());
+    let host = HostContext::from_parts(state.engine(), state.as_ref());
     let hint = target_provider_hint(headers, payload);
     let auth = GatewayAuth::try_authenticate(state, &token).await?;
 

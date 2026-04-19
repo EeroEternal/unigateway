@@ -1,0 +1,24 @@
+[package]
+name = "unigateway-sdk"
+version = "1.5.0"
+edition = "2024"
+rust-version = "1.92"
+description = "Thin facade crate for embedders using UniGateway core, protocol, and host libraries."
+license = "MIT"
+repository = "https://github.com/EeroEternal/unigateway"
+readme = "README.md"
+keywords = ["llm", "gateway", "sdk", "openai", "anthropic"]
+categories = ["api-bindings", "web-programming::http-server"]
+
+[features]
+default = ["host"]
+embed = ["host"]
+core = ["dep:unigateway-core"]
+protocol = ["core", "dep:unigateway-protocol"]
+host = ["protocol", "dep:unigateway-host"]
+testing = ["host", "unigateway-host/testing"]
+
+[dependencies]
+unigateway-core = { workspace = true, optional = true }
+unigateway-protocol = { workspace = true, optional = true }
+unigateway-host = { workspace = true, optional = true }

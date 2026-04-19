@@ -246,6 +246,7 @@ where
         stream,
         completion,
         request_id: _,
+        request_metadata,
     } = streaming;
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let response_request_id = context.request_id.clone();
@@ -333,5 +334,6 @@ where
         stream,
         completion: receiver,
         request_id: response_request_id,
+        request_metadata,
     }
 }

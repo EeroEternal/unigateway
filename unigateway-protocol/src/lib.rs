@@ -2,9 +2,10 @@ mod http_response;
 mod requests;
 mod responses;
 
-pub use http_response::{RuntimeByteStream, RuntimeHttpResponse, RuntimeResponseBody};
+pub use http_response::{ProtocolByteStream, ProtocolHttpResponse, ProtocolResponseBody};
 pub use requests::{
-    anthropic_payload_to_chat_request, openai_payload_to_chat_request,
+    ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, anthropic_payload_to_chat_request,
+    anthropic_requested_model_alias, openai_payload_to_chat_request,
     openai_payload_to_embed_request, openai_payload_to_responses_request,
 };
 pub use responses::{

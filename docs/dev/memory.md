@@ -4,9 +4,9 @@ This document is optimized for contributors and AI agents that need a fast but a
 
 ## One-Screen Summary
 
-UniGateway is a local-first LLM gateway with a CLI-first product shell, a reusable config state crate, a reusable host bridge, and a reusable core execution engine.
+UniGateway is a local-first LLM gateway with a CLI-first product shell, a reusable config state crate, a reusable host bridge, a reusable core execution engine, and a published embedder facade crate.
 
-The repository currently has four main layers:
+The repository currently has five main layers:
 
 1. Product shell in `src/`
   - HTTP server, admin API surface, gateway authentication, telemetry, and product-shell workflows.
@@ -14,14 +14,17 @@ The repository currently has four main layers:
 2. Config state in `unigateway-config/`
   - TOML-backed `GatewayState`, admin / CLI mutations, routing helpers, and config → core pool projection.
 3. Host bridge in `unigateway-host/`
-  - Converts product-level state into a stable host contract and translates core results into OpenAI / Anthropic-compatible neutral HTTP response payloads.
+  - Converts product-level state into a stable host contract, exposes a unified dispatch API, returns typed `HostError` values for embedder-facing failures, and translates core results into protocol-owned neutral HTTP response payloads.
 4. Core execution engine in `unigateway-core/`
   - Manages provider pools, endpoint selection, retry / fallback policy, driver execution, streaming completion, and request reports.
+5. Embedder facade in `unigateway-sdk/`
+  - Re-exports `unigateway-core`, `unigateway-protocol`, and `unigateway-host` under a single namespaced dependency without adding a second abstraction layer.
 
 The most important architectural shift is this:
 
 - Old mental model: gateway handlers directly parse payloads, route to providers, and call upstreams.
 - Current mental model: product shell prepares requests, host-layer code resolves execution targets, and `unigateway-core` performs the actual provider execution.
+- Embedder entry model: external applications should usually start from `unigateway-sdk`, then reach through to `core`, `protocol`, and `host` namespaces as needed.
 
 ## Product Identity
 
@@ -138,34 +141,57 @@ Main responsibilities:
 
 - Define a stable host contract between product shell and reusable host logic.
 - Delegate protocol parsing and neutral HTTP response shaping to `unigateway-protocol`.
-- Materialize env-backed fallback pools through the host boundary and map core errors into neutral HTTP error payloads.
+- Materialize env-backed fallback pools through the host boundary.
+- Expose unified dispatch over chat / responses / embeddings while keeping the root product shell thin.
+- Return typed host errors while leaving HTTP response adaptation to the root product shell.
 
 Key files:
 
 - `unigateway-host/src/host.rs`
-  - Defines `HostContext`, `HostPoolSource`, `HostEnvProvider`, and the host traits:
-    - `EngineHost`
-    - `PoolHost`
+  - Defines `HostContext`, `PoolHost`, and explicit `PoolLookupOutcome` values for host-side pool resolution.
+- `unigateway-host/src/error.rs`
+  - Defines typed `HostError` / `HostResult` for dispatch mismatch, pool lookup, targeting, and core execution failures.
+- `unigateway-host/src/env.rs`
+  - Defines `EnvProvider`, `EnvPoolHost`, and env-backed fallback helpers for the product shell.
 - `unigateway-protocol/src/lib.rs`
   - Re-exports protocol request parsers, response renderers, and neutral response types.
 - `unigateway-protocol/src/requests.rs`
   - JSON payload to `Proxy*Request` translation.
 - `unigateway-protocol/src/responses.rs`
-  - `ProxySession` and completed response to the neutral protocol response type `RuntimeHttpResponse`, including SSE shaping.
+  - `ProxySession` and completed response to the neutral protocol response type `ProtocolHttpResponse`, including SSE shaping.
 - `unigateway-protocol/src/http_response.rs`
   - Neutral HTTP response body and streaming types shared by protocol rendering and the product shell.
 - `unigateway-host/src/core/mod.rs`
-  - Re-exports host execution entry points.
+  - Re-exports the host dispatch API.
 - `unigateway-host/src/core/chat/mod.rs`
-  - Pool resolution, target building, and chat execution wrappers.
+  - Target building and chat execution helpers used by dispatch.
 - `unigateway-host/src/core/responses.rs`
   - OpenAI Responses API execution and stream compatibility fallback.
 - `unigateway-host/src/core/embeddings.rs`
   - Embeddings execution wrapper.
 - `unigateway-host/src/core/targeting.rs`
-  - Build `ExecutionTarget`, resolve host pools, and apply provider-hint matching.
-- `unigateway-host/src/flow.rs`
-  - Common host flow combinators and core error response mapping.
+  - Build `ExecutionTarget` values and apply provider-hint matching.
+- `unigateway-host/src/core/dispatch.rs`
+  - Unified `dispatch_request` entry point, request/target enums, typed dispatch mismatch handling, and shared fallback helpers.
+- `unigateway-host/src/status.rs`
+  - Map typed `HostError` values to HTTP status codes for the product shell.
+
+### `unigateway-sdk/`: embedder facade
+
+Main responsibilities:
+
+- Provide one dependency entry point for embedders.
+- Re-export the underlying crates as `unigateway_sdk::core`, `unigateway_sdk::protocol`, and `unigateway_sdk::host`.
+- Centralize feature selection and version-alignment guidance.
+
+Key files:
+
+- `unigateway-sdk/src/lib.rs`
+  - Thin namespaced re-exports only.
+- `unigateway-sdk/Cargo.toml`
+  - Feature layout for `core`, `protocol`, `host`, and `embed`.
+- `unigateway-sdk/README.md`
+  - Version policy and facade positioning for embedders.
 
 ### `unigateway-core/`: reusable execution engine
 
@@ -484,7 +510,7 @@ Hooks can be attached to `UniGatewayEngine` via `GatewayHooks`. In the product s
 - `src/host_adapter.rs`
 - `unigateway-host/src/host.rs`
 - `unigateway-host/src/core/*`
-- `unigateway-host/src/flow.rs`
+- `unigateway-host/src/status.rs`
 
 ### Core execution
 

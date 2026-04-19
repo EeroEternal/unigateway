@@ -31,6 +31,32 @@ brew install EeroEternal/tap/ug          # macOS (Homebrew)
 cargo install unigateway                 # Rust toolchain
 ```
 
+## Embedding
+
+UniGateway is also a Rust embedder stack, not just the `ug` binary.
+
+Recommended dependency path:
+
+```toml
+[dependencies]
+unigateway-sdk = "1.5"
+```
+
+`unigateway-sdk` is intentionally a thin facade. It re-exports the underlying crates as
+`unigateway_sdk::core`, `unigateway_sdk::protocol`, and `unigateway_sdk::host` without adding a
+second abstraction layer.
+
+Version compatibility:
+
+- Recommended path: depend on `unigateway-sdk` only.
+- If you must mix `unigateway-sdk` with direct `unigateway-core` / `unigateway-protocol` /
+  `unigateway-host` dependencies, keep all of them on the same release line.
+
+Embedder docs:
+
+- See [docs/guide/embed.md](docs/guide/embed.md) for the integration guide.
+- See [docs/dev/embed-sdk.md](docs/dev/embed-sdk.md) for the facade positioning and API evolution notes.
+
 ## 🛠️ Usage
 
 ### 1. Quick Start

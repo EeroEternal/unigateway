@@ -1,25 +1,28 @@
-use std::future::Future;
 use std::sync::Arc;
 
 use axum::response::Response;
 use tracing::info;
 use unigateway_host::{
-    flow::{missing_upstream_api_key_response, resolve_core_only_host_flow},
-    host::{HostEnvProvider, HostPoolSource},
+    core::{HostDispatchOutcome, HostDispatchTarget, HostProtocol, HostRequest, dispatch_request},
+    env::{EnvPoolHost, EnvProvider},
+    error::HostError,
+    host::PoolLookupOutcome,
 };
-use unigateway_protocol::RuntimeHttpResponse;
 
 use crate::types::GatewayRequestState;
 
 use super::request_flow::PreparedGatewayRequest;
-use super::response_flow::respond_prepared_host_result;
+use super::response_flow::{
+    missing_upstream_api_key_response, resolve_core_only_host_flow, respond_prepared_host_result,
+};
 
 type BeforeExecuteHook = for<'a> fn(&GatewayRequestState, &PreparedGatewayRequest<'a>);
 
 #[derive(Clone, Copy)]
 pub(super) struct HostExecutionSpec {
     endpoint: &'static str,
-    env_provider: HostEnvProvider,
+    protocol: HostProtocol,
+    env_provider: EnvProvider,
     unavailable_message: &'static str,
     before_execute: Option<BeforeExecuteHook>,
 }
@@ -27,7 +30,8 @@ pub(super) struct HostExecutionSpec {
 pub(super) fn openai_chat_spec() -> HostExecutionSpec {
     HostExecutionSpec {
         endpoint: "/v1/chat/completions",
-        env_provider: HostEnvProvider::OpenAi,
+        protocol: HostProtocol::OpenAiChat,
+        env_provider: EnvProvider::OpenAi,
         unavailable_message: "no provider pool available for chat",
         before_execute: None,
     }
@@ -36,7 +40,8 @@ pub(super) fn openai_chat_spec() -> HostExecutionSpec {
 pub(super) fn openai_responses_spec() -> HostExecutionSpec {
     HostExecutionSpec {
         endpoint: "/v1/responses",
-        env_provider: HostEnvProvider::OpenAi,
+        protocol: HostProtocol::OpenAiResponses,
+        env_provider: EnvProvider::OpenAi,
         unavailable_message: "no openai-compatible provider available for responses",
         before_execute: None,
     }
@@ -45,7 +50,8 @@ pub(super) fn openai_responses_spec() -> HostExecutionSpec {
 pub(super) fn anthropic_chat_spec() -> HostExecutionSpec {
     HostExecutionSpec {
         endpoint: "/v1/messages",
-        env_provider: HostEnvProvider::Anthropic,
+        protocol: HostProtocol::AnthropicMessages,
+        env_provider: EnvProvider::Anthropic,
         unavailable_message: "no provider pool available for messages",
         before_execute: Some(log_anthropic_request_execution),
     }
@@ -54,34 +60,26 @@ pub(super) fn anthropic_chat_spec() -> HostExecutionSpec {
 pub(super) fn openai_embeddings_spec() -> HostExecutionSpec {
     HostExecutionSpec {
         endpoint: "/v1/embeddings",
-        env_provider: HostEnvProvider::OpenAi,
+        protocol: HostProtocol::OpenAiEmbeddings,
+        env_provider: EnvProvider::OpenAi,
         unavailable_message: "no openai-compatible provider available for embeddings",
         before_execute: None,
     }
 }
 
-pub(super) async fn execute_prepared_host_request<'prepared, Request, Execute, CoreFuture>(
+pub(super) async fn execute_prepared_host_request(
     state: &Arc<GatewayRequestState>,
-    prepared: &'prepared PreparedGatewayRequest<'_>,
-    request: Request,
+    prepared: &PreparedGatewayRequest<'_>,
+    request: HostRequest,
     spec: HostExecutionSpec,
-    execute: Execute,
-) -> Response
-where
-    Execute: FnOnce(
-        &'prepared PreparedGatewayRequest<'_>,
-        HostPoolSource<'prepared>,
-        Request,
-    ) -> CoreFuture,
-    CoreFuture: Future<Output = anyhow::Result<Option<RuntimeHttpResponse>>>,
-{
+) -> Response {
     if let Some(before_execute) = spec.before_execute {
         before_execute(state.as_ref(), prepared);
     }
 
-    let source = match host_pool_source(state, prepared, spec.env_provider) {
-        Ok(source) => source,
-        Err(HostPoolSourceError::MissingUpstreamApiKey) => {
+    let target = match dispatch_target(state, prepared, spec.env_provider).await {
+        Ok(target) => target,
+        Err(ResolveDispatchTargetError::MissingUpstreamApiKey) => {
             return respond_prepared_host_result(
                 state,
                 prepared,
@@ -90,35 +88,66 @@ where
             )
             .await;
         }
+        Err(ResolveDispatchTargetError::Other(error)) => {
+            let result =
+                resolve_core_only_host_flow(async move { Err(error) }, spec.unavailable_message)
+                    .await;
+            return respond_prepared_host_result(state, prepared, spec.endpoint, result).await;
+        }
     };
 
-    let result =
-        resolve_core_only_host_flow(execute(prepared, source, request), spec.unavailable_message)
-            .await;
+    let result = resolve_core_only_host_flow(
+        async move {
+            match target {
+                DispatchTargetResolution::DispatchTarget(target) => {
+                    dispatch_request(
+                        &prepared.host,
+                        target,
+                        spec.protocol,
+                        prepared.hint.as_deref(),
+                        request,
+                    )
+                    .await
+                }
+                DispatchTargetResolution::PoolNotFound => Ok(HostDispatchOutcome::PoolNotFound),
+            }
+        },
+        spec.unavailable_message,
+    )
+    .await;
     respond_prepared_host_result(state, prepared, spec.endpoint, result).await
 }
 
-fn host_pool_source<'prepared>(
+async fn dispatch_target<'prepared>(
     state: &GatewayRequestState,
     prepared: &'prepared PreparedGatewayRequest<'_>,
-    env_provider: HostEnvProvider,
-) -> Result<HostPoolSource<'prepared>, HostPoolSourceError> {
+    env_provider: EnvProvider,
+) -> Result<DispatchTargetResolution<'prepared>, ResolveDispatchTargetError> {
     if let Some(auth) = prepared.auth.as_ref() {
-        return Ok(HostPoolSource::Service(&auth.key.service_id));
+        return Ok(DispatchTargetResolution::DispatchTarget(
+            HostDispatchTarget::Service(&auth.key.service_id),
+        ));
     }
 
     let api_key_override = (!prepared.token.is_empty()).then_some(prepared.token.as_str());
     if api_key_override.is_none() && env_api_key(state, env_provider).is_empty() {
-        return Err(HostPoolSourceError::MissingUpstreamApiKey);
+        return Err(ResolveDispatchTargetError::MissingUpstreamApiKey);
     }
 
-    Ok(HostPoolSource::Env {
-        provider: env_provider,
-        api_key_override,
-    })
+    state
+        .env_pool(env_provider, api_key_override)
+        .await
+        .map(|pool| match pool {
+            PoolLookupOutcome::Found(pool) => {
+                DispatchTargetResolution::DispatchTarget(HostDispatchTarget::Pool(pool))
+            }
+            PoolLookupOutcome::NotFound => DispatchTargetResolution::PoolNotFound,
+            _ => DispatchTargetResolution::PoolNotFound,
+        })
+        .map_err(|error| ResolveDispatchTargetError::Other(HostError::pool_lookup(error)))
 }
 
-fn env_api_key(state: &GatewayRequestState, provider: HostEnvProvider) -> &str {
+fn env_api_key(state: &GatewayRequestState, provider: EnvProvider) -> &str {
     state.provider_api_key(provider)
 }
 
@@ -127,7 +156,7 @@ fn log_anthropic_request_execution(
     prepared: &PreparedGatewayRequest<'_>,
 ) {
     let endpoint = "/v1/messages";
-    let env_api_key = env_api_key(state, HostEnvProvider::Anthropic);
+    let env_api_key = env_api_key(state, EnvProvider::Anthropic);
 
     info!(
         endpoint,
@@ -147,6 +176,12 @@ fn log_anthropic_request_execution(
     }
 }
 
-enum HostPoolSourceError {
+enum ResolveDispatchTargetError {
     MissingUpstreamApiKey,
+    Other(HostError),
+}
+
+enum DispatchTargetResolution<'a> {
+    DispatchTarget(HostDispatchTarget<'a>),
+    PoolNotFound,
 }

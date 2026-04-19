@@ -61,24 +61,27 @@ Responsibilities:
 - expose `HostContext` and host traits
 - build `ExecutionTarget`s for the core engine
 - delegate protocol parsing and neutral HTTP response shaping to `unigateway-protocol`
-- provide env-fallback and status-mapping helpers
+- provide env-fallback and typed host-error/status helpers
 
 Key files:
 
 - `unigateway-host/src/host.rs`
+- `unigateway-host/src/env.rs`
+- `unigateway-host/src/error.rs`
 - `unigateway-host/src/core/mod.rs`
 - `unigateway-host/src/core/chat/`
 - `unigateway-host/src/core/responses.rs`
 - `unigateway-host/src/core/embeddings.rs`
 - `unigateway-host/src/core/targeting.rs`
-- `unigateway-host/src/flow.rs`
+- `unigateway-host/src/core/dispatch.rs`
+- `unigateway-host/src/status.rs`
 
 ### 2.5. Protocol translation (`unigateway-protocol/`)
 
 Responsibilities:
 
 - parse OpenAI / Anthropic-compatible JSON payloads into `Proxy*Request`
-- render `ProxySession` values into a neutral protocol response type (`RuntimeHttpResponse`, legacy name)
+- render `ProxySession` values into a neutral protocol response type (`ProtocolHttpResponse`)
 - shape SSE streams without depending on axum or the product shell
 
 Key files:
@@ -237,13 +240,17 @@ For a detailed walkthrough on how backpressure and queue limits are safely evalu
 
 Host traits:
 
-- `EngineHost`
 - `PoolHost`
 
 Key host-side routing types:
 
-- `HostPoolSource`
-- `HostEnvProvider`
+- `HostDispatchTarget`
+- `HostProtocol`
+
+Env-only helper types:
+
+- `EnvProvider`
+- `EnvPoolHost`
 
 `HostContext` is the stable view host-layer code receives.
 
@@ -251,8 +258,8 @@ Design intent:
 
 - host-layer code should not depend on the concrete product `AppState`
 - gateway request handling should depend on `GatewayRequestState`, not the full product-shell state
-- host applications should provide engine access plus pool resolution through traits
-- env fallback should be materialized via `PoolHost::env_pool`, not via provider-specific config fields on the host context
+- host applications should provide pool resolution through traits while `HostContext` carries a direct engine reference
+- env fallback should be materialized via `EnvPoolHost::env_pool`, not mixed into the main `PoolHost` contract
 - later extraction or reuse should mostly be file movement, not API redesign
 
 ## Core Engine Model

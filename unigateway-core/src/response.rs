@@ -57,6 +57,7 @@ pub struct StreamingResponse<Chunk, Final> {
     pub stream: ResponseStream<Chunk>,
     pub completion: CompletionHandle<Final>,
     pub request_id: RequestId,
+    pub request_metadata: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

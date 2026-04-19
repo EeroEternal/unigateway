@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use unigateway_core::UniGatewayEngine;
-use unigateway_host::host::HostEnvProvider;
+use unigateway_host::env::EnvProvider;
 
 use crate::config::GatewayState;
 use crate::config::core_sync::sync_core_pools;
@@ -138,24 +138,24 @@ impl GatewayRequestState {
         self.bind.starts_with("127.0.0.1") || self.bind.starts_with("localhost")
     }
 
-    pub fn provider_base_url(&self, provider: HostEnvProvider) -> &str {
+    pub fn provider_base_url(&self, provider: EnvProvider) -> &str {
         match provider {
-            HostEnvProvider::OpenAi => self.openai_base_url.as_str(),
-            HostEnvProvider::Anthropic => self.anthropic_base_url.as_str(),
+            EnvProvider::OpenAi => self.openai_base_url.as_str(),
+            EnvProvider::Anthropic => self.anthropic_base_url.as_str(),
         }
     }
 
-    pub fn provider_api_key(&self, provider: HostEnvProvider) -> &str {
+    pub fn provider_api_key(&self, provider: EnvProvider) -> &str {
         match provider {
-            HostEnvProvider::OpenAi => self.openai_api_key.as_str(),
-            HostEnvProvider::Anthropic => self.anthropic_api_key.as_str(),
+            EnvProvider::OpenAi => self.openai_api_key.as_str(),
+            EnvProvider::Anthropic => self.anthropic_api_key.as_str(),
         }
     }
 
-    pub fn provider_model(&self, provider: HostEnvProvider) -> &str {
+    pub fn provider_model(&self, provider: EnvProvider) -> &str {
         match provider {
-            HostEnvProvider::OpenAi => self.openai_model.as_str(),
-            HostEnvProvider::Anthropic => self.anthropic_model.as_str(),
+            EnvProvider::OpenAi => self.openai_model.as_str(),
+            EnvProvider::Anthropic => self.anthropic_model.as_str(),
         }
     }
 }
@@ -173,10 +173,10 @@ impl SystemState {
         self.gateway.as_ref()
     }
 
-    pub fn provider_model(&self, provider: HostEnvProvider) -> &str {
+    pub fn provider_model(&self, provider: EnvProvider) -> &str {
         match provider {
-            HostEnvProvider::OpenAi => self.openai_model.as_str(),
-            HostEnvProvider::Anthropic => self.anthropic_model.as_str(),
+            EnvProvider::OpenAi => self.openai_model.as_str(),
+            EnvProvider::Anthropic => self.anthropic_model.as_str(),
         }
     }
 }
