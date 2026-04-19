@@ -2,6 +2,59 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.5.0]
+
+UniGateway v1.5.0 is the follow-up embedder-contract release. It isolates the second round of public host-surface tightening from the already-published v1.4.0 line instead of silently mutating that release after publish.
+
+### Breaking Changes
+
+* **`PoolHost::pool_for_service` and `EnvPoolHost::env_pool` now return `PoolLookupResult<PoolLookupOutcome>`**: the error side is now `PoolLookupError` instead of a generic `anyhow::Error`. Migration: update the trait signatures and replace `Err(anyhow!(...))` with `Err(PoolLookupError::other(...))` or a more specific `PoolLookupError` variant.
+* **Public host enums are now non-exhaustive**: `HostError`, `HostRequest`, `HostDispatchTarget`, and `HostDispatchOutcome` are now `#[non_exhaustive]`, and the public struct-style `HostError` variants are also non-exhaustive. External code must keep wildcard match arms and can no longer construct those struct-style variants directly with brace syntax.
+* **`unigateway_host::flow` has been removed from the public API**: product-shell-specific HTTP response shaping now lives only in the root crate. Embedders should stay on structured `HostDispatchOutcome` / `HostError` values and perform framework adaptation in their own application layer.
+
+### Highlights
+
+#### 1. Host Contract Tightening
+* **Typed pool lookup errors**: embedders can now distinguish unavailable, timeout, and fallback lookup failures through `PoolLookupErrorKind` / `PoolLookupError` instead of depending on stringified `anyhow` errors.
+* **Response shaping stays outside the host crate**: `unigateway-host` now stops at structured dispatch outcomes and typed errors; the root product shell performs the final HTTP response mapping.
+
+#### 2. Docs And Surface Cleanup
+* **`Endpoint` rustdoc clarified**: hint-matching guidance now documents the `Endpoint` struct itself instead of accidentally attaching to the `endpoint_id` field.
+* **Embedder docs moved to the 1.5 line**: README, embed guide, SDK README, and dev notes now all describe the post-1.4 public contract as a 1.5.0 release.
+
+#### 3. Tooling And Validation
+* **SDK feature CI wording aligned with reality**: release docs now explicitly mention that CI exercises `core`, `protocol`, `host`, `embed`, and `testing` feature combinations.
+* **Gateway stats now record real response statuses**: the root gateway response path records the actual HTTP status code instead of collapsing all host-side failures to a synthetic 500 in metrics.
+
+**Upgrade Note:** If you implemented `PoolHost` or `EnvPoolHost` against v1.4.0, treat v1.5.0 as a real source update: migrate the trait error type, add wildcard arms when matching non-exhaustive host enums, and remove any dependency on `unigateway_host::flow`.
+
+## [1.4.0]
+
+UniGateway v1.4.0 is the embedder-contract release. It keeps the multi-crate direction from v1.3.0, but treats the latest host-facing API tightening as a semver-significant upgrade instead of shipping it on the v1.3.x line.
+
+### Breaking Changes
+
+* **`PoolHost` / `EnvPoolHost` return signatures changed**: `Result<Option<ProviderPool>>` has been replaced by `Result<PoolLookupOutcome>`.
+* **Embedder implementations must update trait impls**: downstream hosts that implement `PoolHost::pool_for_service` or `EnvPoolHost::env_pool` now need to return `PoolLookupOutcome::Found(...)` / `PoolLookupOutcome::NotFound`.
+* **`PoolLookupOutcome` is non-exhaustive**: embedders matching on lookup results should keep a fallback arm so future host versions can add richer states without another immediate rewrite.
+
+### Highlights
+
+#### 1. Host Contract Tightening
+* **Typed host errors**: host dispatch and flow code now return `HostError`, separating dispatch mismatch, pool lookup failure, targeting failure, and core execution failure.
+* **Explicit pool lookup outcome**: service/env pool resolution no longer overloads `None`; dispatch paths now treat missing pools as an explicit host-side outcome.
+* **Dispatch semantics clearer**: root gateway execution keeps env fallback target resolution explicit instead of threading `Option` through internal control flow.
+
+#### 2. SDK Facade Polish
+* **Canonical full-stack feature renamed in practice**: `host` is now the canonical named full-stack feature, while `embed` remains as a 1.x compatibility alias.
+* **SDK docs tightened**: README and embedder guides now recommend `unigateway-sdk = "1.4"` as the primary entry point and describe the compatibility policy in release-line terms.
+
+#### 3. Tooling And Validation
+* **SDK feature CI broadened**: CI keeps checking the `core`, `protocol`, `host`, `embed`, and `testing` feature combinations.
+* **Workspace validation rerun**: format, tests, clippy, and SDK feature-set compilation all pass on the 1.4.0 line.
+
+**Upgrade Note:** If you implement `PoolHost` or `EnvPoolHost` directly, migrate `Ok(Some(pool))` to `Ok(PoolLookupOutcome::found(pool))` and `Ok(None)` to `Ok(PoolLookupOutcome::not_found())` before upgrading.
+
 ## [1.3.0]
 
 UniGateway v1.3.0 is the refactor release that turns the repository into a cleaner multi-crate workspace and significantly narrows the root product shell.
@@ -28,6 +81,11 @@ UniGateway v1.3.0 is the refactor release that turns the repository into a clean
 #### 5. Docs And Contributor Model Updated
 * **Refactor baseline refreshed**: contributor docs now describe the current workspace split, the narrowed runtime states, and the remaining architectural debt.
 * **Skills bumped**: MCP/OpenAPI skill metadata now targets v1.3.0.
+
+#### 6. New Embedder Facade Crate
+* **`unigateway-sdk` added**: embedders now have a single dependency entry point that re-exports `unigateway-core`, `unigateway-protocol`, and `unigateway-host` under namespaced modules.
+* **Thin facade by design**: the SDK only centralizes feature selection and version alignment; it does not introduce a second state model or execution abstraction.
+* **Version policy documented**: SDK consumers are expected to keep `unigateway-sdk`, `unigateway-core`, `unigateway-protocol`, and `unigateway-host` on the same minor line.
 
 **Upgrade Note:** If you embed UniGateway crates directly, pay attention to the crate rename from `unigateway-runtime` to `unigateway-host`, the new protocol crate boundary, and the narrower host/request state contracts.
 

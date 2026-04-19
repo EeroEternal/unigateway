@@ -10,8 +10,8 @@ use unigateway_protocol::testing::{
     openai_sse_chunks_from_chat_chunk,
 };
 
-use super::super::host::{HostEnvProvider, build_env_pool};
-use super::responses::{should_preserve_stream_error, without_response_tools};
+use super::super::env::{EnvProvider, build_env_pool};
+use super::dispatch::{should_preserve_stream_error, without_response_tools};
 use super::targeting::{build_openai_compatible_target, endpoint_matches_hint};
 
 fn endpoint() -> Endpoint {
@@ -43,7 +43,7 @@ fn endpoint_hint_matching_supports_existing_product_forms() {
 #[test]
 fn env_openai_pool_matches_basic_openai_hints() {
     let pool = build_env_pool(
-        HostEnvProvider::OpenAi,
+        EnvProvider::OpenAi,
         "gpt-4o-mini",
         "https://api.openai.com",
         "sk-test",
@@ -58,7 +58,7 @@ fn env_openai_pool_matches_basic_openai_hints() {
 #[test]
 fn env_anthropic_pool_matches_basic_anthropic_hints() {
     let pool = build_env_pool(
-        HostEnvProvider::Anthropic,
+        EnvProvider::Anthropic,
         "claude-3-5-sonnet",
         "https://api.anthropic.com",
         "sk-ant",
@@ -179,35 +179,35 @@ fn openai_compatible_target_rejects_target_without_match() {
 
 #[test]
 fn anthropic_completed_body_normalizes_openai_provider_output() {
-    let body = anthropic_completed_chat_body(
-        CompletedResponse {
-            response: ChatResponseFinal {
-                model: Some("glm-4.5".to_string()),
-                output_text: Some("pong".to_string()),
-                raw: serde_json::json!({
-                    "id": "chatcmpl_123",
-                    "object": "chat.completion",
-                }),
-            },
-            report: RequestReport {
-                request_id: "req_123".to_string(),
-                pool_id: Some("svc".to_string()),
-                selected_endpoint_id: "zhipu-main".to_string(),
-                selected_provider: ProviderKind::OpenAiCompatible,
-                attempts: Vec::new(),
-                usage: Some(unigateway_core::TokenUsage {
-                    input_tokens: Some(10),
-                    output_tokens: Some(4),
-                    total_tokens: Some(14),
-                }),
-                latency_ms: 12,
-                started_at: std::time::SystemTime::UNIX_EPOCH,
-                finished_at: std::time::SystemTime::UNIX_EPOCH,
-                metadata: HashMap::new(),
-            },
+    let body = anthropic_completed_chat_body(CompletedResponse {
+        response: ChatResponseFinal {
+            model: Some("glm-4.5".to_string()),
+            output_text: Some("pong".to_string()),
+            raw: serde_json::json!({
+                "id": "chatcmpl_123",
+                "object": "chat.completion",
+            }),
         },
-        "claude-3-5-sonnet-latest",
-    );
+        report: RequestReport {
+            request_id: "req_123".to_string(),
+            pool_id: Some("svc".to_string()),
+            selected_endpoint_id: "zhipu-main".to_string(),
+            selected_provider: ProviderKind::OpenAiCompatible,
+            attempts: Vec::new(),
+            usage: Some(unigateway_core::TokenUsage {
+                input_tokens: Some(10),
+                output_tokens: Some(4),
+                total_tokens: Some(14),
+            }),
+            latency_ms: 12,
+            started_at: std::time::SystemTime::UNIX_EPOCH,
+            finished_at: std::time::SystemTime::UNIX_EPOCH,
+            metadata: HashMap::from([(
+                unigateway_protocol::ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
+                "claude-3-5-sonnet-latest".to_string(),
+            )]),
+        },
+    });
 
     assert_eq!(
         body.get("type").and_then(serde_json::Value::as_str),

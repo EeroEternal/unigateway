@@ -9,7 +9,7 @@
 
 > **进度注记（2026-04-19）**：`unigateway-config` 的第一刀物理抽取已经落地：原 `src/config.rs` + `src/config/*` 已迁入独立 workspace crate，根 crate 当前只保留一个薄 `src/config.rs` re-export 兼容层；`resolve_upstream` / `normalize_base_url` 也已迁入 `unigateway-config::routing`，根 crate 的 `routing.rs` 收缩为请求 hint 抽取与兼容 re-export。
 
-> **进度注记（2026-04-18）**：第一轮 contract 收敛已经完成了大半：`RuntimeConfig` / `RuntimeConfigHost`、`RoutingHost` / `ResolvedProvider`、`try_*_via_env_core` 均已删除；env fallback 已统一走 `PoolHost::env_pool` + `HostPoolSource::Env`。另外，host 层现在已经返回中立 `RuntimeHttpResponse`，axum `Response` 只在根 crate 组装。本文下文已经按这一事实更新；这表示 host / protocol 边界已经显著收敛，不表示整个重构路线已经结项。
+> **进度注记（2026-04-19）**：host contract 的第二轮收口已经完成：`EngineHost` 已删除，env fallback 已从主 `PoolHost` contract 中拆到独立的 `EnvPoolHost` / `EnvProvider` 子模块，host 公开执行入口也已收束成更中立的 dispatch API。protocol crate 的中立响应类型已从 `RuntimeHttpResponse` 更名为 `ProtocolHttpResponse`。
 
 ## 0. 当前阶段总结
 
@@ -125,8 +125,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 - `AppState` 仍是各窄 state 的 fan-out 构造入口；如果继续瘦身，下一步要处理的是 assembly/test fixture 边界，而不是运行期 handler 依赖。
 - admin router 和 gateway router 仍运行在同一 axum app / 同一进程装配单元里。
 - `GatewayState` 虽已拆成组合子状态，但 config facade 仍然偏厚。
-- gateway support 层仍保留按协议家族拆开的 wrapper，尚未进一步收束成更中立的 dispatch 入口。
-- env fallback provider 家族仍硬编码在产品壳配置与 host 分派逻辑中。
+- host crate 虽已拥有更中立的 dispatch API，但 env provider 家族仍以固定枚举形式存在于 `unigateway-host::env` 子模块，扩一种 env-only provider 仍需改代码。
+- `ProtocolHttpResponse` 已完成更名，但对外 contract 的真正稳定度还需要通过一轮 embedder 实践验证。
+- `Endpoint` 上新增的 `provider_name` / `source_endpoint_id` / `provider_family` 已被 hint 匹配逻辑使用，但字段语义和 embedder 侧填充约定仍缺文档。
 - 根 crate 仍保留 `src/config.rs` 兼容 shim；如果要继续缩薄入口，需要最终让 root 直接依赖 `unigateway_config` 而不是保留 re-export。
 
 ## 1. 三层现实定位
@@ -145,7 +146,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 当前 `unigateway-host` 实际同时承担三件事：
 
-- **Host 抽象**：`HostContext` + 两个 host trait（`EngineHost` / `PoolHost`），外加 `HostPoolSource` / `HostEnvProvider` 这样的稳定路由输入，想让 core 可嵌入。
+- **Host 抽象**：`HostContext` + `PoolHost`，以及更中立的 `HostDispatchTarget` / `HostProtocol`；env-only 能力现在单独收在 `EnvProvider` / `EnvPoolHost` 子模块里。
 - **协议翻译**：已独立到 `unigateway-protocol`，负责 JSON payload ↔ `Proxy*Request`、`ProxySession` / completed response ↔ OpenAI/Anthropic 兼容响应与 SSE。
 - **env-fallback 的临时 pool 投影** + 中立 HTTP 响应封装。
 
@@ -177,11 +178,15 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ### 2.1 host 层的裂缝
 
-**H1. host 层已经脱离 axum，但还没有完全协议无关。**
-`flow.rs`、`core/*.rs` 现在统一依赖 `unigateway-protocol` 提供的中立 `RuntimeHttpResponse`，axum 封装已经回收到根 crate，协议请求解析与响应格式化也已从 `unigateway-host` 物理抽离。剩余问题一是 `HostEnvProvider` 这类枚举仍说明 host 层对产品支持的协议家族有感知，二是 `RuntimeHttpResponse` 这个类型名本身仍带着旧 runtime 命名残影，后续可以择机 polish。
+**H1. host 主 contract 已经把 env fallback 退回成可选能力，但 env provider 家族仍是显式产品意见。**
+`PoolHost` 现在只要求 service -> pool 的快路径查找；env fallback 已拆到独立的 `EnvPoolHost` / `EnvProvider` 子模块，不再强制所有 embedder 实现。这解决了“无 env fallback 的 embedder 也得写桩代码”的主问题。
 
-**H2. 对外执行 API 已统一，但产品壳里仍保留 protocol wrapper。**
-chat / responses / embeddings 现在只保留 `try_*_via_core(host, HostPoolSource, ...)` 一套入口，`try_*_via_env_core` 已删除；env fallback 也已统一改成 `HostPoolSource::Env`。剩余技术债主要收缩到 `execution_flow.rs` 这一层：虽然 source 选择逻辑已共享，但对外仍是 4 个协议感知 wrapper，而不是更中立的 dispatch 接口。
+当前剩余问题主要是：env provider 家族仍以固定枚举形式出现在 `unigateway-host::env` 中，root shell 也仍围绕 OpenAI / Anthropic 这两个家族做显式分派。它已经不再污染主 host contract，但还没有进化到完全可插拔的 provider-family registry。
+
+**H2. 对外执行 API 已收束成更中立的 dispatch contract。**
+`unigateway-host` 现在公开的是 `dispatch_request(host, target, protocol, hint, request)` 这一层，而不是四个按协议家族命名的 wrapper。service lookup 与显式 pool 都通过 `HostDispatchTarget` 进入同一条路径，OpenAI/Anthropic chat、responses、embeddings 则通过 `HostProtocol` + `HostRequest` 区分。
+
+这一步基本消除了“协议 wrapper 直接定型在 SDK 面上”的问题。剩余课题不再是“是否继续消灭 wrapper”，而是未来是否要把 `HostProtocol` 继续抽象成更开放的 trait/object 机制，让新协议类型不需要修改宿主 crate 的枚举定义。
 
 **H3. hint 过滤虽然已脱离 metadata 约定，但还没完全下沉成更强的一等抽象。**
 `endpoint_matches_hint` 现在已经优先读 `Endpoint` 上的一等字段（`provider_family` / `provider_name` / `source_endpoint_id`），不再依赖 metadata 字符串 key；但 `build_execution_target` / `build_openai_compatible_target` 仍是 host 层自由函数，还没有进一步收束成更中立的 target builder / execution plan API。
@@ -189,8 +194,10 @@ chat / responses / embeddings 现在只保留 `try_*_via_core(host, HostPoolSour
 **H4. 旧 routing host 裂缝已经清理，但 hint 入口仍留在产品壳。**
 `RoutingHost::resolve_providers` 与 `ResolvedProvider` 已删除，执行路径现在彻底统一成 `pool_for_service` / `env_pool` → targeting → core engine。剩余问题是 provider hint 的抽取仍发生在产品壳里，而真正的匹配规则在 host/core 边界内。
 
-**H5. 产品壳里还残留协议感知。**
-`execution_flow.rs` 仍以 OpenAI chat / responses / embeddings 和 Anthropic messages 为单位暴露入口，虽然 auth/env source 选择已经统一抽成共享 helper，但协议 wrapper 仍在产品壳层。
+**H5. 产品壳里仍按协议家族挂路由，但 host 对外 contract 已不再被协议 wrapper 绑死。**
+root crate 的 `execution_flow.rs` 与 `gateway/support/mod.rs` 仍然按 OpenAI chat / responses / embeddings 和 Anthropic messages 这些 HTTP surface 组织代码；这属于产品壳路由面仍带协议感知的自然结果。
+
+但和前一阶段不同，这种协议感知已经不再外溢到 `unigateway-host` 的公开执行入口上。换句话说，H5 现在可以重新回归为产品壳内部债，而不是 SDK contract 债。后续若继续做收口，重点应该是把 root crate 的请求准备 / 执行 / 响应链进一步压缩，而不是继续重构 host 主 API。
 
 ### 2.2 根 crate 的裂缝
 
@@ -225,10 +232,10 @@ chat / responses / embeddings 现在只保留 `try_*_via_core(host, HostPoolSour
 ### 3.1 先做：收益大、风险小（第一轮）
 
 1. **在已有 `env_pool` 合同的前提下，把「两套路由」收束成单一路径。**
-   **已完成。** `env_pool` 与 `pool_for_service` 现在统一通过 `HostPoolSource` 进入同一条 core 调用链；`try_*_via_env_core` 已删除，env 请求不再有独立的 runtime API 面。
+   **已完成。** `env_pool` 与 `pool_for_service` 现在统一通过 dispatch target 解析进入 `dispatch_request`；env 请求不再有独立的 host API 面。
 
 2. **消灭 host 层剩余 API 重复。**
-   **大体完成。** `execution_flow.rs` 已不再维护 core/env 两套执行 helper，并且 embeddings 的 no-pool 语义已经统一为 `Ok(None)`。剩余重复主要是产品壳仍保留 4 个协议 wrapper，而不是更中立的 dispatch 接口。
+   **已完成。** host 对外执行入口已经收束成 `dispatch_request`；HTTP error/response 组装也已留在 root crate 的 `response_flow.rs`。剩余重复主要是产品壳仍按 4 个 HTTP surface 组织路由，而不是 host public API 仍然分叉。
 
 3. **把 hint / kind 过滤下沉到 core**。
    引入 `ExecutionTarget::Plan` 的 builder（按 family / kind / hint 过滤），`Endpoint` 加 `family: Option<String>` / `tags: Vec<String>` 一等字段，删掉对 metadata 字符串约定的依赖。这样 core 层可以独立校验 hint 匹配，不依赖外部约定。
@@ -255,13 +262,13 @@ chat / responses / embeddings 现在只保留 `try_*_via_core(host, HostPoolSour
 8. **把协议翻译拆成独立 crate `unigateway-protocol`**。
    **已完成。** 现在由独立的 `unigateway-protocol` crate 承担 payload ↔ `Proxy*Request`、**ProxySession ↔ 中立响应类型**（不是 `axum::Response`）的转换，且**不依赖 axum**。具体地：
    - 请求解析位于 `unigateway-protocol/src/requests.rs`
-   - 响应格式化与 `RuntimeHttpResponse` 位于 `unigateway-protocol/src/responses.rs` / `src/http_response.rs`
+   - 响应格式化与 `ProtocolHttpResponse` 位于 `unigateway-protocol/src/responses.rs` / `src/http_response.rs`
    - `unigateway-host` 与根 crate 都直接依赖该 crate，而不再通过 host 内部模块转发协议逻辑
    - `unigateway-core` 的 `proxy_*` 继续只返回 `ProxySession` 等中立结果，**不**与 axum 耦合
    这一步完成后，`unigateway-host` 的边界已经明显收缩为 host contract + dispatch。
 
 9. **完成 `unigateway-runtime` → `unigateway-host` 物理重命名**。
-   **已完成。** crate 名、目录名、根 crate 依赖名，以及 `HostContext` / `EngineHost` / `PoolHost` / `HostPoolSource` / `HostEnvProvider` 等公开符号都已经收敛到 host 命名。
+   **已完成。** crate 名、目录名、根 crate 依赖名，以及 `HostContext` / `PoolHost` / `EnvPoolHost` / `EnvProvider` 等公开符号都已经收敛到 host 命名。
    这一步带来的直接收益：
    - crate 语义不再与 async executor 的 “runtime” 概念冲突
    - `unigateway-host` 与 `unigateway-protocol` / `unigateway-core` 的职责边界更直观

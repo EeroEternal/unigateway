@@ -9,7 +9,7 @@ use unigateway_core::{
     ProxySession, ResponsesEvent, ResponsesFinal, StreamingResponse, TokenUsage,
 };
 
-use crate::RuntimeHttpResponse;
+use crate::{ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, ProtocolHttpResponse};
 
 #[derive(Default)]
 pub struct OpenAiChatStreamAdapter {
@@ -19,10 +19,10 @@ pub struct OpenAiChatStreamAdapter {
 
 pub fn render_openai_chat_session(
     session: ProxySession<ChatResponseChunk, ChatResponseFinal>,
-) -> RuntimeHttpResponse {
+) -> ProtocolHttpResponse {
     match session {
         ProxySession::Completed(result) => {
-            RuntimeHttpResponse::ok_json(openai_completed_chat_body(result))
+            ProtocolHttpResponse::ok_json(openai_completed_chat_body(result))
         }
         ProxySession::Streaming(streaming) => {
             let request_id = streaming.request_id.clone();
@@ -54,20 +54,23 @@ pub fn render_openai_chat_session(
                 let _ = completion.await;
             });
 
-            RuntimeHttpResponse::ok_sse(Box::pin(stream.chain(done)))
+            ProtocolHttpResponse::ok_sse(Box::pin(stream.chain(done)))
         }
     }
 }
 
 pub fn render_anthropic_chat_session(
     session: ProxySession<ChatResponseChunk, ChatResponseFinal>,
-    requested_model: String,
-) -> RuntimeHttpResponse {
+) -> ProtocolHttpResponse {
     match session {
         ProxySession::Completed(result) => {
-            RuntimeHttpResponse::ok_json(anthropic_completed_chat_body(result, &requested_model))
+            ProtocolHttpResponse::ok_json(anthropic_completed_chat_body(result))
         }
         ProxySession::Streaming(streaming) => {
+            let requested_model = requested_model_alias_from_metadata(
+                &streaming.request_metadata,
+                streaming.request_id.as_str(),
+            );
             let (sender, receiver) = mpsc::channel(16);
             tokio::spawn(async move {
                 drive_anthropic_chat_stream(streaming, requested_model, sender).await;
@@ -77,14 +80,14 @@ pub fn render_anthropic_chat_session(
                 receiver.recv().await.map(|item| (item, receiver))
             });
 
-            RuntimeHttpResponse::ok_sse(Box::pin(stream))
+            ProtocolHttpResponse::ok_sse(Box::pin(stream))
         }
     }
 }
 
 pub fn render_openai_responses_session(
     session: ProxySession<ResponsesEvent, ResponsesFinal>,
-) -> RuntimeHttpResponse {
+) -> ProtocolHttpResponse {
     match session {
         ProxySession::Completed(result) => {
             let raw = result.response.raw;
@@ -102,7 +105,7 @@ pub fn render_openai_responses_session(
                     })),
                 })
             };
-            RuntimeHttpResponse::ok_json(body)
+            ProtocolHttpResponse::ok_json(body)
         }
         ProxySession::Streaming(streaming) => {
             let stream = streaming.stream.map(|item| match item {
@@ -129,14 +132,14 @@ pub fn render_openai_responses_session(
                 let _ = completion.await;
             });
 
-            RuntimeHttpResponse::ok_sse(Box::pin(stream.chain(done)))
+            ProtocolHttpResponse::ok_sse(Box::pin(stream.chain(done)))
         }
     }
 }
 
 pub fn render_openai_responses_stream_from_completed(
     session: ProxySession<ResponsesEvent, ResponsesFinal>,
-) -> RuntimeHttpResponse {
+) -> ProtocolHttpResponse {
     match session {
         ProxySession::Completed(result) => {
             let raw = &result.response.raw;
@@ -209,7 +212,7 @@ pub fn render_openai_responses_stream_from_completed(
             ))));
             chunks.push(Ok(Bytes::from("data: [DONE]\n\n")));
 
-            RuntimeHttpResponse::ok_sse(Box::pin(futures_util::stream::iter(chunks)))
+            ProtocolHttpResponse::ok_sse(Box::pin(futures_util::stream::iter(chunks)))
         }
         ProxySession::Streaming(streaming) => {
             render_openai_responses_session(ProxySession::Streaming(streaming))
@@ -219,7 +222,7 @@ pub fn render_openai_responses_stream_from_completed(
 
 pub fn render_openai_embeddings_response(
     response: CompletedResponse<EmbeddingsResponse>,
-) -> RuntimeHttpResponse {
+) -> ProtocolHttpResponse {
     let raw = response.response.raw;
     let body = if raw.is_object() {
         raw
@@ -234,12 +237,11 @@ pub fn render_openai_embeddings_response(
         })
     };
 
-    RuntimeHttpResponse::ok_json(body)
+    ProtocolHttpResponse::ok_json(body)
 }
 
 pub fn anthropic_completed_chat_body(
     result: CompletedResponse<ChatResponseFinal>,
-    requested_model: &str,
 ) -> serde_json::Value {
     if result.report.selected_provider == ProviderKind::Anthropic
         && result.response.raw.is_object()
@@ -253,11 +255,16 @@ pub fn anthropic_completed_chat_body(
         return result.response.raw;
     }
 
+    let requested_model = requested_model_alias_from_metadata(
+        &result.report.metadata,
+        result.response.model.as_deref().unwrap_or_default(),
+    );
+
     serde_json::json!({
         "id": result.report.request_id,
         "type": "message",
         "role": "assistant",
-        "model": result.response.model.unwrap_or_else(|| requested_model.to_string()),
+        "model": result.response.model.unwrap_or(requested_model),
         "content": [{
             "type": "text",
             "text": result.response.output_text.unwrap_or_default(),
@@ -633,4 +640,14 @@ async fn emit_sse_json(
         ))))
         .await
         .map_err(|_| anyhow!("anthropic downstream receiver dropped"))
+}
+
+fn requested_model_alias_from_metadata(
+    metadata: &std::collections::HashMap<String, String>,
+    fallback: &str,
+) -> String {
+    metadata
+        .get(ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY)
+        .cloned()
+        .unwrap_or_else(|| fallback.to_string())
 }

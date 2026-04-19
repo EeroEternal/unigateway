@@ -8,7 +8,7 @@ use axum::{
     routing::get,
 };
 use serde_json::json;
-use unigateway_host::host::HostEnvProvider;
+use unigateway_host::env::EnvProvider;
 
 use crate::types::{ModelItem, ModelList, SystemState};
 
@@ -44,13 +44,13 @@ pub(crate) async fn models(State(state): State<Arc<SystemState>>) -> impl IntoRe
         object: "list",
         data: vec![
             ModelItem {
-                id: state.provider_model(HostEnvProvider::OpenAi).to_string(),
+                id: state.provider_model(EnvProvider::OpenAi).to_string(),
                 object: "model",
                 created: chrono::Utc::now().timestamp(),
                 owned_by: "openai",
             },
             ModelItem {
-                id: state.provider_model(HostEnvProvider::Anthropic).to_string(),
+                id: state.provider_model(EnvProvider::Anthropic).to_string(),
                 object: "model",
                 created: chrono::Utc::now().timestamp(),
                 owned_by: "anthropic",

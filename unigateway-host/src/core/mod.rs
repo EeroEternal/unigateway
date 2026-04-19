@@ -1,4 +1,5 @@
 mod chat;
+mod dispatch;
 mod embeddings;
 mod responses;
 mod targeting;
@@ -6,6 +7,7 @@ mod targeting;
 #[cfg(test)]
 mod tests;
 
-pub use chat::{try_anthropic_chat_via_core, try_openai_chat_via_core};
-pub use embeddings::try_openai_embeddings_via_core;
-pub use responses::try_openai_responses_via_core;
+pub use dispatch::{
+    HostDispatchOutcome, HostDispatchTarget, HostProtocol, HostRequest,
+    anthropic_requested_model_alias, dispatch_request,
+};

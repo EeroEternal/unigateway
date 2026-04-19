@@ -1,25 +1,53 @@
 # UniGateway Embedder Guide
 
-This document explains how to embed `unigateway-core` (and optionally `unigateway-host`)
-into a host application such as OpenHub, a custom proxy, or an internal AI platform.
+This document explains how to embed UniGateway into a host application such as OpenHub,
+a custom proxy, or an internal AI platform.
+
+The recommended path is to depend on `unigateway-sdk` and use its namespaced re-exports:
+
+- `unigateway_sdk::core`
+- `unigateway_sdk::protocol`
+- `unigateway_sdk::host`
+
+If you need finer-grained control, you can still depend on `unigateway-core`,
+`unigateway-protocol`, and `unigateway-host` directly.
 
 ---
 
 ## 1. Dependency setup
 
-Add `unigateway-core` to your `Cargo.toml`. If you want the host contract helpers,
-add `unigateway-host` as well. If you also want protocol payload translation and
-neutral HTTP response formatting, add `unigateway-protocol`.
+Recommended path: add `unigateway-sdk` and use its namespaced re-exports.
+If you want finer-grained control, you can still depend on the individual crates
+directly.
 
 ```toml
 [dependencies]
-unigateway-core    = { path = "../unigateway-core" }   # or version = "1"
-unigateway-host = { path = "../unigateway-host" } # optional
-unigateway-protocol = { path = "../unigateway-protocol" } # optional
+unigateway-sdk = "1.5"
+
+# Or depend on individual crates directly:
+# unigateway-core = { path = "../unigateway-core" }
+# unigateway-protocol = { path = "../unigateway-protocol" }
+# unigateway-host = { path = "../unigateway-host" }
 ```
 
-The core crate brings reqwest and tokio as transitive dependencies.  No feature flags are
+`unigateway-sdk` is intentionally a thin facade. It re-exports the underlying crates as
+`unigateway_sdk::core`, `unigateway_sdk::protocol`, and `unigateway_sdk::host` instead of
+introducing a second abstraction layer.
+
+Recommended dependency policy:
+
+- Prefer depending on `unigateway-sdk` only.
+- Only mix direct `unigateway-core` / `unigateway-protocol` / `unigateway-host` dependencies if
+    you need explicit lower-level control.
+- If you do mix them, keep them on the same release line as `unigateway-sdk`.
+
+The core crate brings reqwest and tokio as transitive dependencies. No feature flags are
 required for the default HTTP transport.
+
+For `unigateway-sdk`, no extra feature flags are required for the default full embedder stack.
+If you disable default features, prefer `features = ["host"]`; `embed` remains available as a
+1.x compatibility alias. If you want reusable host fixtures for integration tests, enable
+`features = ["testing"]`.
 
 ---
 
@@ -28,7 +56,7 @@ required for the default HTTP transport.
 ### 2a. Zero-boilerplate (recommended)
 
 ```rust
-use unigateway_core::UniGatewayEngine;
+use unigateway_sdk::core::UniGatewayEngine;
 
 let engine = UniGatewayEngine::builder()
     .with_builtin_http_drivers()   // registers OpenAI + Anthropic drivers
@@ -43,9 +71,9 @@ default `ReqwestHttpTransport`, and registers both the `openai-compatible` and
 
 ```rust
 use std::sync::Arc;
-use unigateway_core::{UniGatewayEngine, InMemoryDriverRegistry};
-use unigateway_core::protocol::builtin_drivers;
-use unigateway_core::transport::ReqwestHttpTransport;
+use unigateway_sdk::core::{InMemoryDriverRegistry, UniGatewayEngine};
+use unigateway_sdk::core::protocol::builtin_drivers;
+use unigateway_sdk::core::transport::ReqwestHttpTransport;
 
 let transport = Arc::new(ReqwestHttpTransport::default());
 let registry  = Arc::new(InMemoryDriverRegistry::new());
@@ -64,9 +92,10 @@ Use this path when you need to add custom drivers or replace the HTTP transport.
 
 ```rust
 use std::sync::Arc;
-use unigateway_core::{UniGatewayEngine, GatewayHooks, RequestReport,
-                      AttemptStartedEvent, AttemptFinishedEvent};
 use futures_util::future::BoxFuture;
+use unigateway_sdk::core::{
+    AttemptFinishedEvent, AttemptStartedEvent, GatewayHooks, RequestReport, UniGatewayEngine,
+};
 
 struct MyHooks;
 
@@ -108,8 +137,9 @@ not hit an external datastore on every request.
 ### 3a. Startup sync
 
 ```rust
-use unigateway_core::{ProviderPool, Endpoint, ProviderKind, LoadBalancingStrategy,
-                      RetryPolicy, SecretString};
+use unigateway_sdk::core::{
+    Endpoint, LoadBalancingStrategy, ProviderKind, ProviderPool, RetryPolicy, SecretString,
+};
 
 // Fetch pools from your datastore once at startup.
 let pools: Vec<ProviderPool> = load_from_db().await?;
@@ -133,7 +163,7 @@ engine.remove_pool("pool-id").await?;
 ### 3c. Minimal pool construction example
 
 ```rust
-use unigateway_core::{
+use unigateway_sdk::core::{
     Endpoint, ProviderKind, ProviderPool, LoadBalancingStrategy,
     RetryPolicy, SecretString, ModelPolicy,
 };
@@ -147,6 +177,12 @@ let pool = ProviderPool {
     endpoints: vec![
         Endpoint {
             endpoint_id:   "ep-openai-1".to_string(),
+            // Used by provider-hint matching and often shown in operator-facing output.
+            provider_name: Some("openai-main".to_string()),
+            // Keeps the original upstream/source id available to hint matching.
+            source_endpoint_id: Some("openai-main".to_string()),
+            // Enables family-level hints such as "openai" or "deepseek".
+            provider_family: Some("openai".to_string()),
             provider_kind: ProviderKind::OpenAiCompatible,
             driver_id:     "openai-compatible".to_string(),
             base_url:      "https://api.openai.com".to_string(),
@@ -161,6 +197,14 @@ let pool = ProviderPool {
 engine.upsert_pool(pool).await?;
 ```
 
+Endpoint hint fields matter more than they look:
+
+- `provider_name`: stable operator-facing label used by provider-hint matching.
+- `source_endpoint_id`: original upstream or domain id retained across display renames.
+- `provider_family`: coarse vendor family such as `openai`, `anthropic`, or `deepseek`.
+
+When possible, fill all three and keep them stable across restarts so routing hints do not drift.
+
 ---
 
 ## 4. Proxying requests
@@ -168,8 +212,8 @@ engine.upsert_pool(pool).await?;
 ### 4a. Chat completion (streaming or non-streaming)
 
 ```rust
-use unigateway_core::{ExecutionTarget, ProxyChatRequest, ProxySession, Message, MessageRole};
 use std::collections::HashMap;
+use unigateway_sdk::core::{ExecutionTarget, Message, MessageRole, ProxyChatRequest, ProxySession};
 
 let request = ProxyChatRequest {
     model:       "gpt-4o-mini".to_string(),
@@ -188,7 +232,7 @@ let target = ExecutionTarget::Pool { pool_id: "my-service".to_string() };
 
 match engine.proxy_chat(request, target).await? {
     ProxySession::Completed(resp) => {
-        let text = resp.message.content;
+        let text = resp.response.output_text.unwrap_or_default();
         let report = resp.report;   // usage, latency, metadata
     }
     ProxySession::Streaming(streaming) => {
@@ -205,7 +249,7 @@ that flow through to hooks without any pool-level configuration.
 ### 4b. Embeddings
 
 ```rust
-use unigateway_core::{ProxyEmbeddingsRequest, ExecutionTarget};
+use unigateway_sdk::core::{ExecutionTarget, ProxyEmbeddingsRequest};
 
 let request = ProxyEmbeddingsRequest {
     model:           "text-embedding-3-small".to_string(),
@@ -223,7 +267,7 @@ let response = engine.proxy_embeddings(request, target).await?;
 ### 4c. OpenAI Responses API
 
 ```rust
-use unigateway_core::{ProxyResponsesRequest, ExecutionTarget};
+use unigateway_sdk::core::{ExecutionTarget, ProxyResponsesRequest};
 
 let request = ProxyResponsesRequest {
     model:    "gpt-4.1-mini".to_string(),
@@ -242,10 +286,10 @@ let session = engine.proxy_responses(request, target).await?;
 ## 5. Translating HTTP payloads (unigateway-protocol)
 
 When your HTTP handler receives a raw JSON body, use the helpers in
-`unigateway_protocol` to convert it into a typed core request:
+`unigateway_sdk::protocol` to convert it into a typed core request:
 
 ```rust
-use unigateway_protocol::{
+use unigateway_sdk::protocol::{
     openai_payload_to_chat_request,
     anthropic_payload_to_chat_request,
     openai_payload_to_embed_request,
@@ -265,19 +309,17 @@ normalised, and content can be either a string or an array of content blocks.
 
 ---
 
-## 6. Implementing the host traits
+## 6. Implementing the host contract
 
-If you use `unigateway-host`'s `HostContext` to drive the built-in request
-handlers, implement the two host traits on your application state struct:
+If you use `unigateway_sdk::host`'s `HostContext` to drive the built-in request
+handlers, you only need to implement `PoolHost` on your application state and
+pass the engine reference separately when building `HostContext`:
 
 ```rust
-use unigateway_core::{UniGatewayEngine, ProviderPool};
-use unigateway_host::host::{
-    EngineHost,
-    HostEnvProvider,
-    HostFuture,
-    PoolHost,
-    build_env_pool,
+use unigateway_sdk::core::{ProviderPool, UniGatewayEngine};
+use unigateway_sdk::host::{
+    EnvPoolHost, EnvProvider, HostContext, HostFuture, PoolHost, PoolLookupError,
+    PoolLookupOutcome, PoolLookupResult, build_env_pool,
 };
 
 struct AppState {
@@ -288,27 +330,28 @@ struct AppState {
     // ... other fields
 }
 
-impl EngineHost for AppState {
-    fn core_engine(&self) -> &UniGatewayEngine { &self.engine }
-}
-
 impl PoolHost for AppState {
-    fn pool_for_service<'a>(&'a self, service_id: &'a str) -> HostFuture<'a, anyhow::Result<Option<ProviderPool>>> {
+    fn pool_for_service<'a>(&'a self, service_id: &'a str) -> HostFuture<'a, PoolLookupResult<PoolLookupOutcome>> {
         // Fast in-memory read — the pool must already be upserted.
         Box::pin(async move {
-            Ok(self.engine.get_pool(service_id).await)
+            Ok(match self.engine.get_pool(service_id).await {
+                Some(pool) => PoolLookupOutcome::found(pool),
+                None => PoolLookupOutcome::not_found(),
+            })
         })
     }
+}
 
+impl EnvPoolHost for AppState {
     fn env_pool<'a>(
         &'a self,
-        provider: HostEnvProvider,
+        provider: EnvProvider,
         api_key_override: Option<&'a str>,
-    ) -> HostFuture<'a, anyhow::Result<Option<ProviderPool>>> {
+    ) -> HostFuture<'a, PoolLookupResult<PoolLookupOutcome>> {
         Box::pin(async move {
             let api_key = api_key_override.unwrap_or(self.openai_api_key.as_str());
             if api_key.is_empty() {
-                return Ok(None);
+                return Ok(PoolLookupOutcome::not_found());
             }
 
             let pool = build_env_pool(
@@ -321,19 +364,94 @@ impl PoolHost for AppState {
             self.engine
                 .upsert_pool(pool.clone())
                 .await
-                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+                .map_err(PoolLookupError::other)?;
 
-            Ok(Some(pool))
+            Ok(PoolLookupOutcome::found(pool))
         })
     }
 }
+
+let host = HostContext::from_parts(&app_state.engine, &app_state);
 ```
 
 > ⚠️  Do **not** query your database inside `pool_for_service`.  Pools must be loaded on
 > startup (or via a background sync task) and kept alive in the engine's in-memory state.
 >
-> `env_pool` is the only place where on-demand synthetic pools should be created. The runtime
-> core now receives a `HostPoolSource` and should not reconstruct provider config on its own.
+> `EnvPoolHost::env_pool` is optional. If your embedder does not support env-backed fallback
+> pools, you can omit it and inherit the default implementation, which returns
+> `Ok(PoolLookupOutcome::NotFound)`.
+>
+> If you do support env fallback, `EnvPoolHost::env_pool` is the only place where on-demand
+> synthetic pools should be created. The host dispatch API now receives either a service id or a
+> concrete pool target and should not reconstruct provider config on its own.
+
+> `PoolLookupOutcome` is `#[non_exhaustive]`. External embedders should keep a fallback arm when
+> matching so future host versions can add richer states without forcing another immediate rewrite.
+
+For reusable integration-test fixtures, enable `unigateway-host`'s `testing` feature or
+`unigateway-sdk`'s `testing` feature and use `unigateway_host::testing::MockHost` together with
+`unigateway_host::testing::build_context`.
+
+Version compatibility:
+
+- Keep `unigateway-sdk`, `unigateway-host`, `unigateway-core`, and `unigateway-protocol` on the same minor version.
+- When in doubt, pin all of them to the exact same release.
+
+### 6a. Adapting `ProtocolHttpResponse` to axum
+
+`unigateway-sdk` deliberately does not depend on a specific web framework, but the neutral
+response types are straightforward to adapt. For axum, a minimal adapter looks like this:
+
+```rust
+use axum::{
+    Json,
+    body::Body,
+    http::header,
+    response::{IntoResponse, Response},
+};
+use unigateway_sdk::protocol::{ProtocolHttpResponse, ProtocolResponseBody};
+
+fn into_axum_response(response: ProtocolHttpResponse) -> Response {
+    let (status, body) = response.into_parts();
+
+    match body {
+        ProtocolResponseBody::Json(value) => (status, Json(value)).into_response(),
+        ProtocolResponseBody::ServerSentEvents(stream) => (
+            status,
+            [(header::CONTENT_TYPE, "text/event-stream")],
+            Body::from_stream(stream),
+        )
+            .into_response(),
+    }
+}
+```
+
+That is intentionally the last adapter step. Parsing, dispatch, and neutral response rendering
+should stay in `core` / `protocol` / `host`; only the framework conversion should live in your
+application.
+
+Minimal stack example:
+
+```rust
+use unigateway_sdk::core::{ExecutionTarget, ProxySession, UniGatewayEngine};
+use unigateway_sdk::protocol::openai_payload_to_chat_request;
+
+async fn handle_chat(body: serde_json::Value) -> anyhow::Result<String> {
+    let engine = UniGatewayEngine::builder()
+        .with_builtin_http_drivers()
+        .build()?;
+
+    let request = openai_payload_to_chat_request(&body, "gpt-4o-mini")?;
+    let target = ExecutionTarget::Pool {
+        pool_id: "my-service".to_string(),
+    };
+
+    match engine.proxy_chat(request, target).await? {
+        ProxySession::Completed(response) => Ok(response.response.output_text.unwrap_or_default()),
+        ProxySession::Streaming(_streaming) => anyhow::bail!("example expects non-streaming chat"),
+    }
+}
+```
 
 ---
 

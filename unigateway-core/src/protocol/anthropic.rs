@@ -123,6 +123,7 @@ async fn start_chat_stream(
         stream: Box::pin(ReceiverStream::new(chunk_rx)),
         completion: completion_rx,
         request_id,
+        request_metadata: request.metadata.clone(),
     }))
 }
 

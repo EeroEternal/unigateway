@@ -57,11 +57,24 @@ pub struct ModelPolicy {
     pub model_mapping: HashMap<String, String>,
 }
 
+/// Provider endpoint backing a pool entry.
+///
+/// # Hint Matching
+///
+/// Host-side provider hints are matched case-insensitively against `endpoint_id`,
+/// `provider_name`, `source_endpoint_id`, and `provider_family`.
+///
+/// For stable embedder behavior, prefer keeping `provider_name`, `source_endpoint_id`, and
+/// `provider_family` populated and stable across restarts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Endpoint {
+    /// Stable endpoint identifier used by engine routing and direct endpoint selection.
     pub endpoint_id: EndpointId,
+    /// Human-facing provider name used for hint matching, for example `deepseek-main`.
     pub provider_name: Option<String>,
+    /// Original upstream/source endpoint identifier from the config or embedder domain.
     pub source_endpoint_id: Option<String>,
+    /// Provider family or vendor grouping used by higher-level hint matching, for example `deepseek`.
     pub provider_family: Option<String>,
     pub provider_kind: ProviderKind,
     pub driver_id: DriverId,
