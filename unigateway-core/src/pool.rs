@@ -60,6 +60,9 @@ pub struct ModelPolicy {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Endpoint {
     pub endpoint_id: EndpointId,
+    pub provider_name: Option<String>,
+    pub source_endpoint_id: Option<String>,
+    pub provider_family: Option<String>,
     pub provider_kind: ProviderKind,
     pub driver_id: DriverId,
     pub base_url: String,

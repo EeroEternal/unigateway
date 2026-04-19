@@ -1,17 +1,14 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::{Context, Result};
-use axum::{
-    Router,
-    routing::{get, post},
-};
+use axum::Router;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 
 use crate::config::GatewayState;
-use crate::types::{AppConfig, AppState};
+use crate::types::{AppConfig, AppState, GatewayRequestState, SystemState};
 
 pub async fn run(config: AppConfig) -> Result<()> {
     let config_path = std::path::Path::new(&config.config_path);
@@ -19,6 +16,9 @@ pub async fn run(config: AppConfig) -> Result<()> {
         .await
         .with_context(|| format!("load config: {}", config.config_path))?;
     let state = Arc::new(AppState::new(config.clone(), gateway.clone()));
+    let admin_state = Arc::new(crate::admin::AdminState::from_app_state(state.as_ref()));
+    let gateway_request_state = Arc::new(GatewayRequestState::from_app_state(state.as_ref()));
+    let system_state = Arc::new(SystemState::from_app_state(state.as_ref()));
     let (core_sync_tx, mut core_sync_rx) = mpsc::unbounded_channel();
     gateway.set_core_sync_notifier(core_sync_tx).await;
     state.sync_core_pools().await?;
@@ -45,39 +45,11 @@ pub async fn run(config: AppConfig) -> Result<()> {
     });
 
     let app = Router::new()
-        .route("/health", get(crate::system::health))
-        .route("/metrics", get(crate::system::metrics))
-        .route("/v1/models", get(crate::system::models))
-        .route(
-            "/api/admin/services",
-            get(crate::service::api_list_services).post(crate::service::api_create_service),
-        )
-        .route("/api/admin/modes", get(crate::service::api_list_modes))
-        .route(
-            "/api/admin/preferences/default-mode",
-            post(crate::service::api_set_default_mode),
-        )
-        .route(
-            "/api/admin/providers",
-            get(crate::provider::api_list_providers).post(crate::provider::api_create_provider),
-        )
-        .route("/v1/admin/queue_metrics", get(crate::system::queue_metrics))
-        .route(
-            "/api/admin/bindings",
-            post(crate::provider::api_bind_provider),
-        )
-        .route(
-            "/api/admin/api-keys",
-            get(crate::api_key::api_list_api_keys)
-                .post(crate::api_key::api_create_api_key)
-                .patch(crate::api_key::api_update_api_key_service),
-        )
-        .route("/v1/responses", post(crate::gateway::openai_responses))
-        .route("/v1/chat/completions", post(crate::gateway::openai_chat))
-        .route("/v1/embeddings", post(crate::gateway::openai_embeddings))
-        .route("/v1/messages", post(crate::gateway::anthropic_messages));
+        .merge(crate::system::router().with_state(system_state))
+        .merge(crate::gateway::router().with_state(gateway_request_state))
+        .merge(crate::admin::router().with_state(admin_state));
 
-    let app = app.with_state(state).layer(TraceLayer::new_for_http());
+    let app = app.layer(TraceLayer::new_for_http());
 
     let addr: SocketAddr = config.bind.parse().context("invalid UNIGATEWAY_BIND")?;
     let listener = TcpListener::bind(addr).await?;

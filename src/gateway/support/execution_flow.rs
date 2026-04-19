@@ -1,82 +1,133 @@
+use std::future::Future;
 use std::sync::Arc;
 
 use axum::response::Response;
 use tracing::info;
-use unigateway_core::{ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest};
-use unigateway_runtime::{
-    core::{
-        try_anthropic_chat_via_core, try_anthropic_chat_via_env_core, try_openai_chat_via_core,
-        try_openai_chat_via_env_core, try_openai_embeddings_via_core,
-        try_openai_embeddings_via_env_core, try_openai_responses_via_core,
-        try_openai_responses_via_env_core,
-    },
-    flow::{
-        RuntimeResponseResult, missing_upstream_api_key_response, prepare_anthropic_env_config,
-        prepare_openai_env_config, resolve_core_only_runtime_flow,
-    },
+use unigateway_host::{
+    flow::{missing_upstream_api_key_response, resolve_core_only_host_flow},
+    host::{HostEnvProvider, HostPoolSource},
 };
+use unigateway_protocol::RuntimeHttpResponse;
 
-use crate::types::AppState;
+use crate::types::GatewayRequestState;
 
 use super::request_flow::PreparedGatewayRequest;
-use super::response_flow::respond_prepared_runtime_result;
+use super::response_flow::respond_prepared_host_result;
 
-pub(super) async fn execute_prepared_openai_chat(
-    state: &Arc<AppState>,
-    prepared: &PreparedGatewayRequest<'_>,
-    request: &ProxyChatRequest,
-) -> Response {
-    let endpoint = "/v1/chat/completions";
+type BeforeExecuteHook = for<'a> fn(&GatewayRequestState, &PreparedGatewayRequest<'a>);
 
-    let result = if let Some(auth) = prepared.auth.as_ref() {
-        resolve_core_only_runtime_flow(
-            try_openai_chat_via_core(
-                &prepared.runtime,
-                &auth.key.service_id,
-                prepared.hint.as_deref(),
-                request.clone(),
-            ),
-            "no provider pool available for chat",
-        )
-        .await
-    } else {
-        execute_openai_chat_env(prepared, request).await
-    };
-
-    respond_prepared_runtime_result(state, prepared, endpoint, result).await
+#[derive(Clone, Copy)]
+pub(super) struct HostExecutionSpec {
+    endpoint: &'static str,
+    env_provider: HostEnvProvider,
+    unavailable_message: &'static str,
+    before_execute: Option<BeforeExecuteHook>,
 }
 
-pub(super) async fn execute_prepared_openai_responses(
-    state: &Arc<AppState>,
-    prepared: &PreparedGatewayRequest<'_>,
-    request: ProxyResponsesRequest,
-) -> Response {
-    let endpoint = "/v1/responses";
-
-    let result = if let Some(auth) = prepared.auth.as_ref() {
-        resolve_core_only_runtime_flow(
-            try_openai_responses_via_core(
-                &prepared.runtime,
-                &auth.key.service_id,
-                prepared.hint.as_deref(),
-                request.clone(),
-            ),
-            "no openai-compatible provider available for responses",
-        )
-        .await
-    } else {
-        execute_openai_responses_env(prepared, &request).await
-    };
-
-    respond_prepared_runtime_result(state, prepared, endpoint, result).await
+pub(super) fn openai_chat_spec() -> HostExecutionSpec {
+    HostExecutionSpec {
+        endpoint: "/v1/chat/completions",
+        env_provider: HostEnvProvider::OpenAi,
+        unavailable_message: "no provider pool available for chat",
+        before_execute: None,
+    }
 }
 
-pub(super) async fn execute_prepared_anthropic_chat(
-    state: &Arc<AppState>,
+pub(super) fn openai_responses_spec() -> HostExecutionSpec {
+    HostExecutionSpec {
+        endpoint: "/v1/responses",
+        env_provider: HostEnvProvider::OpenAi,
+        unavailable_message: "no openai-compatible provider available for responses",
+        before_execute: None,
+    }
+}
+
+pub(super) fn anthropic_chat_spec() -> HostExecutionSpec {
+    HostExecutionSpec {
+        endpoint: "/v1/messages",
+        env_provider: HostEnvProvider::Anthropic,
+        unavailable_message: "no provider pool available for messages",
+        before_execute: Some(log_anthropic_request_execution),
+    }
+}
+
+pub(super) fn openai_embeddings_spec() -> HostExecutionSpec {
+    HostExecutionSpec {
+        endpoint: "/v1/embeddings",
+        env_provider: HostEnvProvider::OpenAi,
+        unavailable_message: "no openai-compatible provider available for embeddings",
+        before_execute: None,
+    }
+}
+
+pub(super) async fn execute_prepared_host_request<'prepared, Request, Execute, CoreFuture>(
+    state: &Arc<GatewayRequestState>,
+    prepared: &'prepared PreparedGatewayRequest<'_>,
+    request: Request,
+    spec: HostExecutionSpec,
+    execute: Execute,
+) -> Response
+where
+    Execute: FnOnce(
+        &'prepared PreparedGatewayRequest<'_>,
+        HostPoolSource<'prepared>,
+        Request,
+    ) -> CoreFuture,
+    CoreFuture: Future<Output = anyhow::Result<Option<RuntimeHttpResponse>>>,
+{
+    if let Some(before_execute) = spec.before_execute {
+        before_execute(state.as_ref(), prepared);
+    }
+
+    let source = match host_pool_source(state, prepared, spec.env_provider) {
+        Ok(source) => source,
+        Err(HostPoolSourceError::MissingUpstreamApiKey) => {
+            return respond_prepared_host_result(
+                state,
+                prepared,
+                spec.endpoint,
+                Err(missing_upstream_api_key_response()),
+            )
+            .await;
+        }
+    };
+
+    let result =
+        resolve_core_only_host_flow(execute(prepared, source, request), spec.unavailable_message)
+            .await;
+    respond_prepared_host_result(state, prepared, spec.endpoint, result).await
+}
+
+fn host_pool_source<'prepared>(
+    state: &GatewayRequestState,
+    prepared: &'prepared PreparedGatewayRequest<'_>,
+    env_provider: HostEnvProvider,
+) -> Result<HostPoolSource<'prepared>, HostPoolSourceError> {
+    if let Some(auth) = prepared.auth.as_ref() {
+        return Ok(HostPoolSource::Service(&auth.key.service_id));
+    }
+
+    let api_key_override = (!prepared.token.is_empty()).then_some(prepared.token.as_str());
+    if api_key_override.is_none() && env_api_key(state, env_provider).is_empty() {
+        return Err(HostPoolSourceError::MissingUpstreamApiKey);
+    }
+
+    Ok(HostPoolSource::Env {
+        provider: env_provider,
+        api_key_override,
+    })
+}
+
+fn env_api_key(state: &GatewayRequestState, provider: HostEnvProvider) -> &str {
+    state.provider_api_key(provider)
+}
+
+fn log_anthropic_request_execution(
+    state: &GatewayRequestState,
     prepared: &PreparedGatewayRequest<'_>,
-    request: &ProxyChatRequest,
-) -> Response {
+) {
     let endpoint = "/v1/messages";
+    let env_api_key = env_api_key(state, HostEnvProvider::Anthropic);
 
     info!(
         endpoint,
@@ -89,142 +140,13 @@ pub(super) async fn execute_prepared_anthropic_chat(
         info!(
             endpoint,
             token_present = !prepared.token.is_empty(),
-            env_key_present = !prepared.runtime.config.anthropic_api_key.is_empty(),
-            using_env_fallback =
-                prepared.token.is_empty() && !prepared.runtime.config.anthropic_api_key.is_empty(),
+            env_key_present = !env_api_key.is_empty(),
+            using_env_fallback = prepared.token.is_empty() && !env_api_key.is_empty(),
             "anthropic request falling back to env upstream key"
         );
     }
-
-    let result = if let Some(auth) = prepared.auth.as_ref() {
-        resolve_core_only_runtime_flow(
-            try_anthropic_chat_via_core(
-                &prepared.runtime,
-                &auth.key.service_id,
-                prepared.hint.as_deref(),
-                request.clone(),
-                &request.model,
-            ),
-            "no provider pool available for messages",
-        )
-        .await
-    } else {
-        execute_anthropic_chat_env(prepared, request).await
-    };
-
-    respond_prepared_runtime_result(state, prepared, endpoint, result).await
 }
 
-pub(super) async fn execute_prepared_openai_embeddings(
-    state: &Arc<AppState>,
-    prepared: &PreparedGatewayRequest<'_>,
-    request: &ProxyEmbeddingsRequest,
-) -> Response {
-    let endpoint = "/v1/embeddings";
-
-    let result = if let Some(auth) = prepared.auth.as_ref() {
-        resolve_core_only_runtime_flow(
-            try_openai_embeddings_via_core(
-                &prepared.runtime,
-                &auth.key.service_id,
-                prepared.hint.as_deref(),
-                request.clone(),
-            ),
-            "no openai-compatible provider available for embeddings",
-        )
-        .await
-    } else {
-        execute_openai_embeddings_env(prepared, request).await
-    };
-
-    respond_prepared_runtime_result(state, prepared, endpoint, result).await
-}
-
-async fn execute_openai_chat_env(
-    prepared: &PreparedGatewayRequest<'_>,
-    request: &ProxyChatRequest,
-) -> RuntimeResponseResult {
-    let env = match prepare_openai_env_config(&prepared.token, prepared.runtime.config) {
-        Some(env) => env,
-        None => return Err(missing_upstream_api_key_response()),
-    };
-
-    resolve_core_only_runtime_flow(
-        try_openai_chat_via_env_core(
-            &prepared.runtime,
-            prepared.hint.as_deref(),
-            request.clone(),
-            env.base_url,
-            &env.api_key,
-        ),
-        "no provider pool available for chat",
-    )
-    .await
-}
-
-async fn execute_openai_responses_env(
-    prepared: &PreparedGatewayRequest<'_>,
-    request: &ProxyResponsesRequest,
-) -> RuntimeResponseResult {
-    let env = match prepare_openai_env_config(&prepared.token, prepared.runtime.config) {
-        Some(env) => env,
-        None => return Err(missing_upstream_api_key_response()),
-    };
-
-    resolve_core_only_runtime_flow(
-        try_openai_responses_via_env_core(
-            &prepared.runtime,
-            prepared.hint.as_deref(),
-            request.clone(),
-            env.base_url,
-            &env.api_key,
-        ),
-        "no openai-compatible provider available for responses",
-    )
-    .await
-}
-
-async fn execute_anthropic_chat_env(
-    prepared: &PreparedGatewayRequest<'_>,
-    request: &ProxyChatRequest,
-) -> RuntimeResponseResult {
-    let env = match prepare_anthropic_env_config(&prepared.token, prepared.runtime.config) {
-        Some(env) => env,
-        None => return Err(missing_upstream_api_key_response()),
-    };
-
-    resolve_core_only_runtime_flow(
-        try_anthropic_chat_via_env_core(
-            &prepared.runtime,
-            prepared.hint.as_deref(),
-            request.clone(),
-            &request.model,
-            env.base_url,
-            &env.api_key,
-        ),
-        "no provider pool available for messages",
-    )
-    .await
-}
-
-async fn execute_openai_embeddings_env(
-    prepared: &PreparedGatewayRequest<'_>,
-    request: &ProxyEmbeddingsRequest,
-) -> RuntimeResponseResult {
-    let env = match prepare_openai_env_config(&prepared.token, prepared.runtime.config) {
-        Some(env) => env,
-        None => return Err(missing_upstream_api_key_response()),
-    };
-
-    resolve_core_only_runtime_flow(
-        try_openai_embeddings_via_env_core(
-            &prepared.runtime,
-            prepared.hint.as_deref(),
-            request.clone(),
-            env.base_url,
-            &env.api_key,
-        ),
-        "no openai-compatible provider available for embeddings",
-    )
-    .await
+enum HostPoolSourceError {
+    MissingUpstreamApiKey,
 }

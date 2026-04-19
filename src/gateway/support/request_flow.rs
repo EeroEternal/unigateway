@@ -8,22 +8,22 @@ use axum::{
 };
 use serde_json::Value;
 use tracing::info;
-use unigateway_runtime::host::RuntimeContext;
+use unigateway_host::host::HostContext;
 
 use crate::middleware::{GatewayAuth, error_json, extract_openai_api_key, extract_x_api_key};
 use crate::routing::target_provider_hint;
-use crate::types::AppState;
+use crate::types::GatewayRequestState;
 
 pub(super) struct PreparedGatewayRequest<'a> {
     pub start: Instant,
-    pub runtime: RuntimeContext<'a>,
+    pub host: HostContext<'a>,
     pub token: String,
     pub hint: Option<String>,
     pub auth: Option<GatewayAuth>,
 }
 
 pub(super) async fn prepare_and_parse_openai_request<'a, Request, Parse, ParseError>(
-    state: &'a Arc<AppState>,
+    state: &'a Arc<GatewayRequestState>,
     headers: &HeaderMap,
     payload: &Value,
     parse_request: Parse,
@@ -33,14 +33,14 @@ where
     ParseError: Display,
 {
     let prepared = prepare_openai_request(state, headers, payload).await?;
-    parse_prepared_request(prepared, payload, parse_request, |prepared| {
-        prepared.runtime.config.openai_model
+    parse_prepared_request(prepared, payload, parse_request, |_| {
+        state.provider_model(unigateway_host::host::HostEnvProvider::OpenAi)
     })
     .await
 }
 
 pub(super) async fn prepare_and_parse_anthropic_request<'a, Request, Parse, ParseError>(
-    state: &'a Arc<AppState>,
+    state: &'a Arc<GatewayRequestState>,
     headers: &HeaderMap,
     payload: &Value,
     parse_request: Parse,
@@ -50,32 +50,30 @@ where
     ParseError: Display,
 {
     let prepared = prepare_anthropic_request(state, headers, payload).await?;
-    parse_prepared_request(prepared, payload, parse_request, |prepared| {
-        prepared.runtime.config.anthropic_model
+    parse_prepared_request(prepared, payload, parse_request, |_| {
+        state.provider_model(unigateway_host::host::HostEnvProvider::Anthropic)
     })
     .await
 }
 
 async fn prepare_openai_request<'a>(
-    state: &'a Arc<AppState>,
+    state: &'a Arc<GatewayRequestState>,
     headers: &HeaderMap,
     payload: &Value,
 ) -> Result<PreparedGatewayRequest<'a>, Response> {
-    prepare_gateway_request(state, headers, payload, |runtime| {
-        extract_openai_api_key(headers, runtime.config.openai_api_key)
+    prepare_gateway_request(state, headers, payload, || {
+        extract_openai_api_key(headers, "")
     })
     .await
 }
 
 async fn prepare_anthropic_request<'a>(
-    state: &'a Arc<AppState>,
+    state: &'a Arc<GatewayRequestState>,
     headers: &HeaderMap,
     payload: &Value,
 ) -> Result<PreparedGatewayRequest<'a>, Response> {
-    let prepared = prepare_gateway_request(state, headers, payload, |runtime| {
-        extract_x_api_key(headers, runtime.config.anthropic_api_key)
-    })
-    .await?;
+    let prepared =
+        prepare_gateway_request(state, headers, payload, || extract_x_api_key(headers, "")).await?;
 
     log_prepared_anthropic_request(headers, payload, &prepared);
 
@@ -83,28 +81,23 @@ async fn prepare_anthropic_request<'a>(
 }
 
 async fn prepare_gateway_request<'a, ExtractToken>(
-    state: &'a Arc<AppState>,
+    state: &'a Arc<GatewayRequestState>,
     headers: &HeaderMap,
     payload: &Value,
     extract_token: ExtractToken,
 ) -> Result<PreparedGatewayRequest<'a>, Response>
 where
-    ExtractToken: FnOnce(&RuntimeContext<'a>) -> String,
+    ExtractToken: FnOnce() -> String,
 {
     let start = Instant::now();
-    let runtime = RuntimeContext::from_parts(
-        state.as_ref(),
-        state.as_ref(),
-        state.as_ref(),
-        state.as_ref(),
-    );
-    let token = extract_token(&runtime);
+    let token = extract_token();
+    let host = HostContext::from_parts(state.as_ref(), state.as_ref());
     let hint = target_provider_hint(headers, payload);
     let auth = GatewayAuth::try_authenticate(state, &token).await?;
 
     Ok(PreparedGatewayRequest {
         start,
-        runtime,
+        host,
         token,
         hint,
         auth,

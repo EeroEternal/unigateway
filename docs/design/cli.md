@@ -32,7 +32,7 @@ Proposed structure:
 - `unigateway metrics [--config <PATH>]`
   - Print/export basic metrics (total requests, per-endpoint counts, etc.).
 
-Implement in `cli.rs` with `clap::Parser` + `Subcommand` and match dispatch.
+Implement in `unigateway-cli/src/lib.rs` with `clap::Parser` + `Subcommand`; keep root `src/main.rs` focused on binary startup and dispatch glue.
 
 ### 3. Output and AI/Script Friendliness
 
@@ -62,7 +62,9 @@ So AI/scripts can parse stdout for automation.
 ### 5. Directory and Modules (Current)
 
 - No `src/app/` directory: `src/server.rs` has `run()` and route registration; `AppConfig` in `types.rs`; gateway and admin logic in single-file modules under `src/`.
-- `src/cli.rs`: CLI parsing and dispatch; uses `GatewayState` for create/bind/print_metrics.
+- `unigateway-cli/src/lib.rs`: CLI parsing surface plus the public execution entrypoints re-exported from `diagnostics`, `guide`, `modes`, `process`, `render/*`, and `setup`.
+- `unigateway-cli/src/setup.rs`: interactive quickstart / guide flow plus provider-prompt helpers.
+- `src/main.rs`: root binary glue that parses CLI input and dispatches directly into `unigateway-cli`.
 - No `src/ui/` in this repo; primary management is CLI + `/api/admin/*` JSON API.
 
 ### 6. Suggested Next Steps

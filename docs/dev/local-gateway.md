@@ -11,7 +11,7 @@ UniGateway 是**无 Web UI 的本地 LLM 流量控制面**：
 - 职责边界：请求级代理与路由，不做会话记忆、不做 prompt 注入、不做 agent loop、不做 MCP 聚合。
 - 目标用户：使用 Claude Code、Codex、OpenClaw、Cursor、Zed、Cline、OpenHands 等 agent / IDE 客户端的个人开发者与 power user。
 
-现有三层架构（product shell / runtime / core）完全匹配这一定位；待办集中在**适配覆盖度、可观测运营面、CLI 集成能力**三条线。
+现有三层架构（product shell / host / core）完全匹配这一定位；待办集中在**适配覆盖度、可观测运营面、CLI 集成能力**三条线。
 
 ---
 
@@ -24,7 +24,7 @@ UniGateway 是**无 Web UI 的本地 LLM 流量控制面**：
 - `openai/`：chat completions、responses（含 `previous_response_id`，见 `openai/requests.rs`）、embeddings、streaming。
 - `anthropic.rs`：messages 原生 driver。
 
-runtime 层 `unigateway-runtime/src/core/chat/streaming.rs` 提供 Anthropic↔OpenAI SSE 双向翻译。
+当前由 `unigateway-protocol/src/responses.rs` 负责 Anthropic↔OpenAI SSE 兼容翻译与中立响应格式化。
 
 agent 客户端覆盖的骨架已就位。以下列出需要填平的细节。
 
@@ -91,7 +91,7 @@ agent 工具普遍**硬编码** model id（`claude-3-5-sonnet-20241022`、`gpt-5
 注入路径（不改 core API，只接线）：
 
 1. `src/gateway/support/request_flow.rs` 鉴权后，把 `gateway_key_id` 与用户可读的 `key_label`（如 `claude-code-laptop`、`codex-ci`）放入 per-request 上下文。
-2. `unigateway-runtime/src/core/targeting.rs` 构造 `ExecutionTarget` 时把两字段塞进 metadata。
+2. `unigateway-host/src/core/targeting.rs` 构造 `ExecutionTarget` 时把两字段塞进 metadata。
 3. `RequestReport.metadata` 自然带出。
 
 先做完这一步，后续所有运营视图才有数据源。

@@ -1,19 +1,21 @@
 # UniGateway Embedder Guide
 
-This document explains how to embed `unigateway-core` (and optionally `unigateway-runtime`)
+This document explains how to embed `unigateway-core` (and optionally `unigateway-host`)
 into a host application such as OpenHub, a custom proxy, or an internal AI platform.
 
 ---
 
 ## 1. Dependency setup
 
-Add `unigateway-core` to your `Cargo.toml`.  If you want the protocol translation helpers
-and the OpenAI / Anthropic HTTP-response formatters, add `unigateway-runtime` as well.
+Add `unigateway-core` to your `Cargo.toml`. If you want the host contract helpers,
+add `unigateway-host` as well. If you also want protocol payload translation and
+neutral HTTP response formatting, add `unigateway-protocol`.
 
 ```toml
 [dependencies]
 unigateway-core    = { path = "../unigateway-core" }   # or version = "1"
-unigateway-runtime = { path = "../unigateway-runtime" } # optional
+unigateway-host = { path = "../unigateway-host" } # optional
+unigateway-protocol = { path = "../unigateway-protocol" } # optional
 ```
 
 The core crate brings reqwest and tokio as transitive dependencies.  No feature flags are
@@ -99,8 +101,8 @@ let engine = UniGatewayEngine::builder()
 ### Key rule
 
 **Pools must be registered in the engine before any request is proxied.**
-`engine.upsert_pool(pool)` is the authoritative write path.  The engine stores pools
-in-memory; `pool_for_service` in the runtime host should read from this in-memory state,
+`engine.upsert_pool(pool)` is the authoritative write path. The engine stores pools
+in-memory; `pool_for_service` in the host layer should read from this in-memory state,
 not hit an external datastore on every request.
 
 ### 3a. Startup sync
@@ -237,13 +239,13 @@ let session = engine.proxy_responses(request, target).await?;
 
 ---
 
-## 5. Translating HTTP payloads (unigateway-runtime)
+## 5. Translating HTTP payloads (unigateway-protocol)
 
 When your HTTP handler receives a raw JSON body, use the helpers in
-`unigateway_runtime::protocol` to convert it into a typed core request:
+`unigateway_protocol` to convert it into a typed core request:
 
 ```rust
-use unigateway_runtime::protocol::{
+use unigateway_protocol::{
     openai_payload_to_chat_request,
     anthropic_payload_to_chat_request,
     openai_payload_to_embed_request,
@@ -263,43 +265,75 @@ normalised, and content can be either a string or an array of content blocks.
 
 ---
 
-## 6. Implementing the runtime host traits
+## 6. Implementing the host traits
 
-If you use `unigateway-runtime`'s `RuntimeContext` to drive the built-in request
-handlers, implement the four host traits on your application state struct:
+If you use `unigateway-host`'s `HostContext` to drive the built-in request
+handlers, implement the two host traits on your application state struct:
 
 ```rust
 use unigateway_core::{UniGatewayEngine, ProviderPool};
-use unigateway_runtime::host::{
-    RuntimeConfigHost, RuntimeConfig,
-    RuntimeEngineHost,
-    RuntimePoolHost, RuntimeFuture,
-    RuntimeRoutingHost, ResolvedProvider,
+use unigateway_host::host::{
+    EngineHost,
+    HostEnvProvider,
+    HostFuture,
+    PoolHost,
+    build_env_pool,
 };
 
 struct AppState {
     engine: std::sync::Arc<UniGatewayEngine>,
+    openai_base_url: String,
+    openai_api_key: String,
+    openai_model: String,
     // ... other fields
 }
 
-impl RuntimeEngineHost for AppState {
+impl EngineHost for AppState {
     fn core_engine(&self) -> &UniGatewayEngine { &self.engine }
 }
 
-impl RuntimePoolHost for AppState {
-    fn pool_for_service<'a>(&'a self, service_id: &'a str) -> RuntimeFuture<'a, anyhow::Result<Option<ProviderPool>>> {
+impl PoolHost for AppState {
+    fn pool_for_service<'a>(&'a self, service_id: &'a str) -> HostFuture<'a, anyhow::Result<Option<ProviderPool>>> {
         // Fast in-memory read — the pool must already be upserted.
         Box::pin(async move {
             Ok(self.engine.get_pool(service_id).await)
         })
     }
-}
 
-// RuntimeConfigHost + RuntimeRoutingHost omitted for brevity.
+    fn env_pool<'a>(
+        &'a self,
+        provider: HostEnvProvider,
+        api_key_override: Option<&'a str>,
+    ) -> HostFuture<'a, anyhow::Result<Option<ProviderPool>>> {
+        Box::pin(async move {
+            let api_key = api_key_override.unwrap_or(self.openai_api_key.as_str());
+            if api_key.is_empty() {
+                return Ok(None);
+            }
+
+            let pool = build_env_pool(
+                provider,
+                &self.openai_model,
+                &self.openai_base_url,
+                api_key,
+            );
+
+            self.engine
+                .upsert_pool(pool.clone())
+                .await
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+
+            Ok(Some(pool))
+        })
+    }
+}
 ```
 
 > ⚠️  Do **not** query your database inside `pool_for_service`.  Pools must be loaded on
 > startup (or via a background sync task) and kept alive in the engine's in-memory state.
+>
+> `env_pool` is the only place where on-demand synthetic pools should be created. The runtime
+> core now receives a `HostPoolSource` and should not reconstruct provider config on its own.
 
 ---
 

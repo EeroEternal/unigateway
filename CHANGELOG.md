@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.3.0]
+
+UniGateway v1.3.0 is the refactor release that turns the repository into a cleaner multi-crate workspace and significantly narrows the root product shell.
+
+### Highlights
+
+#### 1. Workspace Split And Naming Cleanup
+* **Dedicated crates**: config, protocol, host, and CLI responsibilities now live in `unigateway-config`, `unigateway-protocol`, `unigateway-host`, and `unigateway-cli` instead of being folded into the root crate.
+* **Runtime renamed to host**: the old `unigateway-runtime` surface has been physically renamed and narrowed to a host bridge with clearer contracts.
+
+#### 2. Narrow Runtime State Boundaries
+* **Three HTTP surfaces**: system, gateway, and admin routes now mount with dedicated state types instead of sharing a wide `AppState` at request time.
+* **Gateway request isolation**: middleware, host adapter, and gateway request support flows now run on `GatewayRequestState`.
+* **Admin isolation**: admin CRUD, metrics, and MCP management all live under `src/admin/` and use `AdminState`.
+
+#### 3. Thinner Root Product Shell
+* **System router extracted**: `/health`, `/metrics`, and `/v1/models` now run through `SystemState` and a dedicated system router.
+* **Config access tightened**: root code no longer reaches directly into `GatewayState` internals for runtime quotas and queue state.
+
+#### 4. GatewayState Split
+* **Config store + runtime limiter**: `GatewayState` now composes a durable config store and a separate in-memory runtime limiter instead of carrying both concerns as one monolith.
+* **Core sync remains explicit**: config-to-core pool projection continues to be driven through explicit sync methods rather than ad hoc state reads.
+
+#### 5. Docs And Contributor Model Updated
+* **Refactor baseline refreshed**: contributor docs now describe the current workspace split, the narrowed runtime states, and the remaining architectural debt.
+* **Skills bumped**: MCP/OpenAPI skill metadata now targets v1.3.0.
+
+**Upgrade Note:** If you embed UniGateway crates directly, pay attention to the crate rename from `unigateway-runtime` to `unigateway-host`, the new protocol crate boundary, and the narrower host/request state contracts.
+
 ## [1.2.0]
 
 We are thrilled to announce **UniGateway v1.2.0**, marking our most stable, secure, and developer-friendly release yet. This release jumps directly from the v0.x / v1.0 iterations, consolidating all critical architectural polishing and cleanup!
