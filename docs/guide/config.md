@@ -2,9 +2,9 @@
 
 UniGateway uses a single TOML file (default `unigateway.toml`) for services, providers, bindings, and API keys.
 
-This file is the persisted product configuration, not the direct execution state. At runtime, the product shell projects the config into `unigateway-core::ProviderPool` values via `src/config/core_sync.rs`, and those pools are stored inside `UniGatewayEngine`.
+This file is the persisted product configuration, not the direct execution state. At runtime, your application calls **`unigateway-config`** projection (`core_sync.rs`) to build `unigateway-core::ProviderPool` values and upsert them into `UniGatewayEngine`.
 
-The file is loaded at startup and written back when configuration changes (for example via CLI or Admin API). Request counts and in-flight rate state are memory-only and are not stored in the file.
+The file is loaded at startup and written back when configuration changes (for example via your admin API or tooling). Request counts and in-flight rate state are memory-only and are not stored in the file.
 
 ## Example
 
@@ -51,7 +51,7 @@ At runtime, UniGateway projects config objects into core engine objects like thi
 - one `binding` + one `provider` -> one core `Endpoint`
 - one `api_key.service_id` -> selects which service / pool a request uses
 
-Important mapping details from `src/config/core_sync.rs`:
+Important mapping details from `unigateway-config/src/core_sync.rs`:
 
 - `service.id` becomes `ProviderPool.pool_id`
 - `service.routing_strategy` maps to core `LoadBalancingStrategy`

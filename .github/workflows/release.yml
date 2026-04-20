@@ -9,222 +9,36 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  BIN_NAME: ug
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            archive: ug-aarch64-apple-darwin.tar.gz
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            archive: ug-x86_64-apple-darwin.tar.gz
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            archive: ug-x86_64-unknown-linux-gnu.tar.gz
-    runs-on: ${{ matrix.os }}
+  verify:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.92.0
         with:
-          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
 
-      - name: Add target
-        run: rustup target add ${{ matrix.target }}
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
-      - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Package
-        run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../${{ matrix.archive }} ${{ env.BIN_NAME }}
-          cd ../../..
-          shasum -a 256 ${{ matrix.archive }} > ${{ matrix.archive }}.sha256
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.archive }}
-          path: |
-            ${{ matrix.archive }}
-            ${{ matrix.archive }}.sha256
+      - name: Run tests
+        run: cargo test --workspace
 
   release:
-    needs: build
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-
-      - name: Download aarch64 macOS artifact
-        id: download_aarch64_macos
-        uses: actions/download-artifact@v8
-        with:
-          name: ug-aarch64-apple-darwin.tar.gz
-          path: dist
-        continue-on-error: true
-
-      - name: Retry download aarch64 macOS artifact
-        if: steps.download_aarch64_macos.outcome == 'failure'
-        uses: actions/download-artifact@v8
-        with:
-          name: ug-aarch64-apple-darwin.tar.gz
-          path: dist
-
-      - name: Download x86_64 macOS artifact
-        id: download_x86_64_macos
-        uses: actions/download-artifact@v8
-        with:
-          name: ug-x86_64-apple-darwin.tar.gz
-          path: dist
-        continue-on-error: true
-
-      - name: Retry download x86_64 macOS artifact
-        if: steps.download_x86_64_macos.outcome == 'failure'
-        uses: actions/download-artifact@v8
-        with:
-          name: ug-x86_64-apple-darwin.tar.gz
-          path: dist
-
-      - name: Download Linux artifact
-        id: download_linux
-        uses: actions/download-artifact@v8
-        with:
-          name: ug-x86_64-unknown-linux-gnu.tar.gz
-          path: dist
-        continue-on-error: true
-
-      - name: Retry download Linux artifact
-        if: steps.download_linux.outcome == 'failure'
-        uses: actions/download-artifact@v8
-        with:
-          name: ug-x86_64-unknown-linux-gnu.tar.gz
-          path: dist
-
-      - name: Verify release artifacts
-        run: |
-          test -f dist/ug-aarch64-apple-darwin.tar.gz
-          test -f dist/ug-aarch64-apple-darwin.tar.gz.sha256
-          test -f dist/ug-x86_64-apple-darwin.tar.gz
-          test -f dist/ug-x86_64-apple-darwin.tar.gz.sha256
-          test -f dist/ug-x86_64-unknown-linux-gnu.tar.gz
-          test -f dist/ug-x86_64-unknown-linux-gnu.tar.gz.sha256
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: dist/*
-
-  update-homebrew:
-    needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Download aarch64 macOS artifact
-        id: download_aarch64_macos
-        uses: actions/download-artifact@v8
-        with:
-          name: ug-aarch64-apple-darwin.tar.gz
-          path: dist
-        continue-on-error: true
-
-      - name: Retry download aarch64 macOS artifact
-        if: steps.download_aarch64_macos.outcome == 'failure'
-        uses: actions/download-artifact@v8
-        with:
-          name: ug-aarch64-apple-darwin.tar.gz
-          path: dist
-
-      - name: Download x86_64 macOS artifact
-        id: download_x86_64_macos
-        uses: actions/download-artifact@v8
-        with:
-          name: ug-x86_64-apple-darwin.tar.gz
-          path: dist
-        continue-on-error: true
-
-      - name: Retry download x86_64 macOS artifact
-        if: steps.download_x86_64_macos.outcome == 'failure'
-        uses: actions/download-artifact@v8
-        with:
-          name: ug-x86_64-apple-darwin.tar.gz
-          path: dist
-
-      - name: Download Linux artifact
-        id: download_linux
-        uses: actions/download-artifact@v8
-        with:
-          name: ug-x86_64-unknown-linux-gnu.tar.gz
-          path: dist
-        continue-on-error: true
-
-      - name: Retry download Linux artifact
-        if: steps.download_linux.outcome == 'failure'
-        uses: actions/download-artifact@v8
-        with:
-          name: ug-x86_64-unknown-linux-gnu.tar.gz
-          path: dist
-
-      - name: Verify release artifacts
-        run: |
-          test -f dist/ug-aarch64-apple-darwin.tar.gz
-          test -f dist/ug-aarch64-apple-darwin.tar.gz.sha256
-          test -f dist/ug-x86_64-apple-darwin.tar.gz
-          test -f dist/ug-x86_64-apple-darwin.tar.gz.sha256
-          test -f dist/ug-x86_64-unknown-linux-gnu.tar.gz
-          test -f dist/ug-x86_64-unknown-linux-gnu.tar.gz.sha256
-
-      - name: Update Homebrew tap
-        env:
-          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          SHA_ARM=$(awk '{print $1}' dist/ug-aarch64-apple-darwin.tar.gz.sha256)
-          SHA_X86_MAC=$(awk '{print $1}' dist/ug-x86_64-apple-darwin.tar.gz.sha256)
-          SHA_LINUX=$(awk '{print $1}' dist/ug-x86_64-unknown-linux-gnu.tar.gz.sha256)
-
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/EeroEternal/homebrew-tap.git" tap
-          mkdir -p tap/Formula
-          cat > tap/Formula/ug.rb <<EOF
-          class Ug < Formula
-            desc "Lightweight, local-first LLM gateway for developers"
-            homepage "https://github.com/EeroEternal/unigateway"
-            version "${VERSION}"
-            license "MIT"
-
-            on_macos do
-              if Hardware::CPU.arm?
-                url "https://github.com/EeroEternal/unigateway/releases/download/v${VERSION}/ug-aarch64-apple-darwin.tar.gz"
-                sha256 "${SHA_ARM}"
-              else
-                url "https://github.com/EeroEternal/unigateway/releases/download/v${VERSION}/ug-x86_64-apple-darwin.tar.gz"
-                sha256 "${SHA_X86_MAC}"
-              end
-            end
-
-            on_linux do
-              url "https://github.com/EeroEternal/unigateway/releases/download/v${VERSION}/ug-x86_64-unknown-linux-gnu.tar.gz"
-              sha256 "${SHA_LINUX}"
-            end
-
-            def install
-              bin.install "ug"
-            end
-          end
-          EOF
-          cd tap
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/ug.rb
-          git diff --cached --quiet || { git commit -m "ug ${VERSION}" && git push; }

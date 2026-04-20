@@ -12,13 +12,13 @@
 | 协议与响应形态 | `unigateway-protocol` | JSON ↔ `Proxy*Request`；`ProxySession` ↔ `ProtocolHttpResponse`；不执行上游调用。 |
 | 宿主接缝与分派 | `unigateway-host` | `HostContext`、`PoolHost` / `EnvPoolHost`、dispatch、targeting、调用 `proxy_*` 并衔接 protocol 渲染。 |
 
-嵌入方通常**不需要**依赖 `unigateway-cli`、`unigateway-config`，也不需要依赖根 crate `unigateway` 的 binary 产品壳。CLI、config、admin route、中间件和进程生命周期都属于 ug 的产品语义，不属于嵌入栈的默认依赖面。
+本仓库**不再提供**根 binary 产品壳或 `unigateway-cli`。嵌入方通常从 **`unigateway-sdk`** 起步；若需要持久化配置与 admin 语义，再按需依赖 **`unigateway-config`**。HTTP 路由、鉴权、admin、MCP、进程生命周期都属于**宿主应用**（例如你们自研的管理网关），不属于 SDK 的默认依赖面。
 
-根 crate `unigateway`（`ug`）当前应视为嵌入栈的一个**消费者**：它消费 core + protocol + host，再叠加 CLI、config、HTTP 路由、admin 与产品专属 glue。ParaRouter 一类嵌入型应用与 ug 在这个意义上是平级的，只是消费方式不同。
+宿主应用与 `unigateway-sdk` 的关系是**消费者**：在自身进程里装配 `GatewayState` / core 同步 / `HostContext`，把 `HostDispatchOutcome` 映射到自己的 HTTP 栈即可。
 
 ## 2. `unigateway-sdk` 的当前状态
 
-`unigateway-sdk` 已经实现并发布，当前版本线为 `1.5.0`。
+`unigateway-sdk` 已经实现并发布；与 workspace 其它成员对齐的版本线见根 `Cargo.toml` 与 crates.io。
 
 当前定位很明确：它是**薄门面**，不是新的底层抽象层。
 
@@ -52,7 +52,7 @@
 
 ```toml
 [dependencies]
-unigateway-sdk = "1.5"
+unigateway-sdk = "1.6"
 ```
 
 当需要更细粒度控制时，嵌入方仍然可以直接依赖三层 crate；但那属于显式选择，不再是默认推荐路径。若混用底层 crate，应保持与 `unigateway-sdk` 同一 release line。
@@ -65,10 +65,10 @@ unigateway-sdk = "1.5"
 - **`EngineHost` 删除**：`HostContext::from_parts(engine, pool_host)` 直接持有 `&UniGatewayEngine`。
 - **中立响应类型更名**：`unigateway-protocol` 对外统一使用 `ProtocolHttpResponse`，不再暴露旧的 `Runtime*` 命名。
 - **统一 dispatch 入口**：host 对外主路径已收束为 `dispatch_request` + `HostDispatchTarget` + `HostProtocol` + `HostRequest`。
-- **host 错误已类型化**：`dispatch_request` 已返回 `HostError`，embedder 可以稳定区分 dispatch 错配、pool lookup、targeting 与 core execution 失败，产品壳再自行完成 HTTP 适配。
+- **host 错误已类型化**：`dispatch_request` 已返回 `HostError`，embedder 可以稳定区分 dispatch 错配、pool lookup、targeting 与 core execution 失败，再由宿主应用完成 HTTP 适配。
 - **host execution 失败继续细化**：`HostError` 不再只包一层 `GatewayError`，而是把 upstream http、transport、stream abort、invalid request、all attempts failed 等执行失败展开成 host-facing 变体。
 - **pool lookup 错误也开始脱离 `anyhow`**：host contract 现在区分 `PoolLookupOutcome` 与 `PoolLookupError`，embedder 可以把 timeout / unavailable 这类 lookup 失败作为类型化错误返回，而不是只剩字符串。
-- **dispatch target 语义更明确**：产品壳侧已不再用裸 `Option<HostDispatchTarget>` 表达 env fallback 结果，而是显式区分 `DispatchTarget` 与 `PoolNotFound`。
+- **dispatch target 语义更明确**：宿主侧已不再用裸 `Option<HostDispatchTarget>` 表达 env fallback 结果，而是显式区分 `DispatchTarget` 与 `PoolNotFound`。
 - **pool lookup outcome 已显式化**：`PoolHost` / `EnvPoolHost` 现在对外返回 `PoolLookupOutcome`，不再把“查到 pool”和“没有可用 pool”混在 `Option` 语义里。
 - **Anthropic 请求 model alias 收口**：通过 `ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY` 贯穿请求解析、streaming metadata 与响应渲染，不再额外传 `requested_model` 参数。
 - **SDK 门面已发布**：`unigateway-sdk` 已加入 workspace、补齐 README / guide / changelog，并已发布到 crates.io。
@@ -83,7 +83,7 @@ unigateway-sdk = "1.5"
 - **`HostProtocol` 只是 `#[non_exhaustive]`，仍不是插件式协议注册**：新增协议族仍需要修改 `unigateway-host`。
 - **dispatch 仍是运行时配对**：虽然现在是 typed `HostError`，但 `HostProtocol` 与 `HostRequest` 的错配仍不是编译期禁止。
 - **env 符号仍显式公开**：`EnvProvider` / `EnvPoolHost` 已经不污染主 contract，但是否还要进一步缩 visibility 或通过门面再收口，仍可评估。
-- **旧 flow 模块已退出 public surface**：产品壳专属的 HTTP response helper 已回收到根 crate，host crate 不再对外暴露这一层 API。
+- **HTTP 适配完全在宿主侧**：根产品 crate 已删除；host 只返回结构化结果与中立的 `ProtocolHttpResponse`，由嵌入方映射到自己的 HTTP 框架。
 
 这些剩余项的重点已经从“crate 边界拆分”转向“嵌入 contract 继续抛光”。
 
@@ -96,7 +96,7 @@ unigateway-sdk = "1.5"
 - 仓库 [`README.md`](../../README.md)：已补充 embedder 入口和版本共升说明。
 - `CHANGELOG.md`：已补充 `unigateway-sdk` 发布条目。
 
-当前版本约定也已明确：默认推荐直接依赖 `unigateway-sdk`；若混用 `unigateway-core`、`unigateway-protocol`、`unigateway-host`，应保持同一 release line。由于 `PoolHost` / `EnvPoolHost` 的 trait 返回签名进一步收紧、host public enum 变成 `#[non_exhaustive]`，这一轮 contract 收口应明确落在 `1.5.0` 线，而不是继续停留在 `1.4.x`。
+当前版本约定：默认推荐直接依赖 `unigateway-sdk`；若混用 `unigateway-core`、`unigateway-protocol`、`unigateway-host`，应保持同一 release line（例如与 `1.6.x` 对齐）。
 
 ## 7. 与 `refactor-baseline.md` 的分工
 
@@ -126,9 +126,9 @@ unigateway-sdk = "1.5"
 
 从兼容策略角度，需要明确告诉审计方的点有两个：
 
-- **保守兼容的部分**：`embed` feature 没有删除，只是降级为兼容别名；默认依赖路径仍然保持简单的 `unigateway-sdk = "1.5"`。
+- **保守兼容的部分**：`embed` feature 没有删除，只是降级为兼容别名；默认依赖路径仍然保持简单的 `unigateway-sdk = "1.6"`（或与你锁定的 minor 对齐）。
 - **真实 public API 变化的部分**：`PoolHost` / `EnvPoolHost` 的返回签名从 `Result<Option<ProviderPool>>` 变成了 `Result<PoolLookupOutcome>`。这使 contract 更清晰，但也意味着实现这些 trait 的 embedder 代码需要跟着调整。
-- **semver 处理方式**：这一类 trait signature break 和 public enum `#[non_exhaustive]` 收紧应明确落在 `1.5.0`，并在 changelog 里单列 `Breaking Changes`，避免任何 `1.4.x` patch 升级把下游实现 silently 打穿。
+- **semver 处理方式**：公共 contract 的收紧应在 changelog 中单列 `Breaking Changes`，避免 patch 升级 silently 打穿下游实现。
 
 因此，建议 ParaRouter 重点复核以下问题：
 

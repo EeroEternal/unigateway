@@ -1,6 +1,8 @@
 # UniGateway and OpenClaw Integration Example
 
-This document provides an OpenClaw integration example for individual developer scenarios, aiming to let OpenClaw treat UniGateway as a unified local OpenAI-compatible entry point.
+> **2026-04:** This repository no longer ships the `ug` HTTP gateway. Treat UniGateway here as **libraries**; you need a **separate process** (your gateway) listening on an OpenAI-compatible base URL with gateway API keys—then OpenClaw’s custom-provider flow is unchanged in spirit.
+
+This document provides an OpenClaw integration example for individual developer scenarios, aiming to let OpenClaw treat a UniGateway-powered host as a unified local OpenAI-compatible entry point.
 
 ## 1. Integration Strategy
 
@@ -16,21 +18,11 @@ In other words, OpenClaw doesn't need to directly understand the differences bet
 
 Ensure you have completed the following steps:
 
-1. Start UniGateway
-
-```bash
-ug serve
-```
+1. Start **your** gateway process (the one that embeds `unigateway-*` and exposes `/v1/*`).
 
 2. Prepare a gateway key corresponding to at least one mode
 
-If you have executed `ug quickstart`, a `default` mode and its corresponding key are usually automatically generated.
-
-You can also create one manually:
-
-```bash
-ug create-api-key --key ugk_default_example --service-id default
-```
+Create services/providers/bindings and keys via your gateway’s admin API or config workflow (`unigateway-config` mutations, or TOML you load yourself).
 
 3. Confirm the integration template for the current mode
 
@@ -120,33 +112,11 @@ Therefore:
 
 Suggested verification order:
 
-1. Start the gateway
-
-```bash
-ug serve
-```
-
-2. Check modes
-
-```bash
-ug mode list
-ug route explain default
-```
-
-3. Check the OpenClaw template for the current mode
-
-```bash
-ug integrations --mode default --tool openclaw
-```
-
-4. Run diagnostics
-
-```bash
-ug doctor --mode default
-ug test --mode default
-```
-
-5. Then initiate a request from OpenClaw
+1. Confirm the gateway process is healthy (`GET /health` or your own probe).
+2. List modes / services via **your** admin API or config inspection (`GET /api/admin/modes` if implemented).
+3. Apply the OpenClaw provider snippet from your gateway’s integration docs (or hand-built env vars pointing at the same base URL + key).
+4. Run a smoke `curl` against `/v1/chat/completions` with the gateway key, then exercise OpenClaw.
+5. Initiate a request from OpenClaw
 
 If OpenClaw can receive replies normally, it indicates the access chain has been established.
 

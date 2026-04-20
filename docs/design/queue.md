@@ -1,6 +1,6 @@
 # 并发防挤压与异步排队机制 (Concurrency & Queuing)
 
-UniGateway 提供了一个高吞吐的内建网关并发流控与缓冲排队机制。该设计旨在抵御瞬时流量洪峰攻击，并在高负载状态下仍然为多租户提供有序、公平的体验。本机制由 `src/middleware.rs` 驱动并生效于网关层的鉴权阶段 (GatewayAuth)。
+UniGateway 在 **`unigateway-config::runtime`** 中提供按 Gateway API Key 的 QPS、并发与排队语义；宿主 HTTP 进程在鉴权通过后应调用 `GatewayState` 的 acquire/release API，再进入 host/core 执行。下文描述的是该运行时模型的设计意图（历史上曾由已删除的 `src/middleware.rs` 在 Axum 层驱动）。
 
 ## 设计初衷
 

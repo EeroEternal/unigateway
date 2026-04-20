@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+## [1.6.0]
+
+UniGateway v1.6.0 is a **product-shape release**: the repository is now a **library workspace** only. The supported public dependency for new projects is **`unigateway-sdk`**.
+
+### Breaking Changes (product)
+
+* **Removed the standalone `ug` binary and the root product crate** (`src/` HTTP server, admin/MCP glue, middleware). **`unigateway-cli` has been removed** from this repository. Embed and ship your own process/HTTP surface using **`unigateway-sdk`** (and optional direct `unigateway-*` crates). Release CI no longer publishes `ug` tarball artifacts or updates the Homebrew formula for `ug`.
+* **Removed the `skills/` directory** (`SKILL.md`, `openapi.yaml`) that documented the old CLI-oriented agent skill; gateway HTTP contracts should be maintained by the host application that embeds this workspace.
+
+### Crates.io
+
+* **`unigateway` crate**: republished as a **deprecated compatibility shim** that re-exports `unigateway-sdk`. Its `description` and README state that new code should depend on `unigateway-sdk` instead; the `ug` binary is not shipped from this crate.
+
+### Validation
+
+* Workspace `fmt`, `clippy -D warnings`, and `test` pass on the 1.6.0 line.
+
 ## [1.5.2]
 
 UniGateway v1.5.2 is a patch release focused on Anthropic protocol fidelity, especially for tools, thinking, and cross-provider compatibility.

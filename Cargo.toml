@@ -1,22 +1,16 @@
-[package]
-name = "unigateway"
-version = "1.5.2"
-edition = "2024"
-rust-version = "1.92"
-description = "Lightweight, local-first LLM gateway for developers. A stable, single-binary unified entry point for all your AI tools and models."
-license = "MIT"
-repository = "https://github.com/EeroEternal/unigateway"
-readme = "README.md"
-keywords = ["llm", "gateway", "openai", "anthropic", "proxy"]
-categories = ["web-programming::http-server", "api-bindings", "command-line-utilities"]
-authors = ["EeroEternal <songmqq@proton.me>"]
-
 [workspace]
-members = ["unigateway-core", "unigateway-protocol", "unigateway-host", "unigateway-config", "unigateway-cli", "unigateway-sdk"]
+members = [
+    "unigateway-core",
+    "unigateway-protocol",
+    "unigateway-host",
+    "unigateway-config",
+    "unigateway-sdk",
+    "unigateway",
+]
+resolver = "2"
 
 [workspace.dependencies]
 anyhow = "1"
-axum = "0.7"
 bytes = "1"
 futures-util = "0.3"
 rand = "0.8"
@@ -25,50 +19,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tracing = "0.1"
-unigateway-core = { version = "1.5.2", path = "unigateway-core" }
-unigateway-cli = { version = "1.5.2", path = "unigateway-cli" }
-unigateway-config = { version = "1.5.2", path = "unigateway-config" }
-unigateway-host = { version = "1.5.2", path = "unigateway-host" }
-unigateway-protocol = { version = "1.5.2", path = "unigateway-protocol" }
-unigateway-sdk = { version = "1.5.2", path = "unigateway-sdk" }
-
-[[bin]]
-name = "ug"
-path = "src/main.rs"
-
-[dependencies]
-anyhow.workspace = true
-axum = { workspace = true, features = ["macros"] }
-clap = { version = "4", features = ["derive"] }
-chrono = { version = "0.4", features = ["serde"] }
-reqwest.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-toml = "0.8"
-tokio = { workspace = true, features = ["signal"] }
-tower-http = { version = "0.6", features = ["trace"] }
-tracing.workspace = true
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-hex = "0.4"
-rand.workspace = true
-url = "2"
-llm_providers = "0.8.1"
-futures-util.workspace = true
-bytes.workspace = true
-dirs = "6.0.0"
-dialoguer = "0.12.0"
-tempfile = "3.27.0"
-libc = "0.2.183"
-rmcp = { version = "1", features = ["server", "transport-io", "macros"] }
-schemars = "1"
-clap_complete = "4.6.0"
-console = "0.16.3"
-indicatif = "0.18.4"
-unigateway-core.workspace = true
-unigateway-cli.workspace = true
-unigateway-config.workspace = true
-unigateway-protocol.workspace = true
-unigateway-host.workspace = true
+unigateway-core = { version = "1.6.0", path = "unigateway-core" }
+unigateway-config = { version = "1.6.0", path = "unigateway-config" }
+unigateway-host = { version = "1.6.0", path = "unigateway-host" }
+unigateway-protocol = { version = "1.6.0", path = "unigateway-protocol" }
+unigateway-sdk = { version = "1.6.0", path = "unigateway-sdk" }
 
 [profile.release]
 lto = "thin"

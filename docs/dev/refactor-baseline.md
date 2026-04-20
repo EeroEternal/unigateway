@@ -1,6 +1,8 @@
 # 重构基线：分层定位与抽象余地
 
-本文件是对当前 UniGateway workspace 分层（`unigateway-core` / `unigateway-host` / `unigateway-protocol` / `unigateway-config` / 根 crate `unigateway`）的一次整体体检，作为后续重构工作的基础参考。
+> **仓库形态注记（2026-04）**：独立 `ug` binary、根目录 `src/` 与 `unigateway-cli` 已移除；本文中关于根 crate、`src/*`、CLI 的段落均为**历史拆分过程记录**。当前事实来源以 [`../design/arch.md`](../design/arch.md)、[`memory.md`](./memory.md) 顶部说明与根 `Cargo.toml` workspace 成员为准。
+
+本文件是对某一阶段 UniGateway workspace 分层（`unigateway-core` / `unigateway-host` / `unigateway-protocol` / `unigateway-config`、以及当时尚存在的根产品 crate）的一次整体体检，作为后续重构工作的基础参考。
 
 - 配合阅读：[`memory.md`](./memory.md)（快速心智模型）、[`../design/arch.md`](../design/arch.md)（当前架构描述）。
 - 本文不描述"应然"的终态架构，而是盘点**当前实现**中的耦合点、裂缝与抽象机会，按 ROI 给出建议顺序。

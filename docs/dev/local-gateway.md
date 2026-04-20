@@ -1,17 +1,21 @@
 # UniGateway 作为本地网关的优化待办
 
-本文档面向贡献者与 AI 代理，汇总 UniGateway 作为「个人本地 LLM 网关」这一产品定位下需要继续优化的工作。它是对现有 `memory.md`、`arch.md` 的补充，聚焦「把多个 AI 工具的流量统一托管到本地、路由到不同后端」这一场景。
+> **2026-04：** 本仓库已收敛为 **SDK / 库 workspace**，不再包含 `ug` 与根目录 `src/` HTTP 产品壳。下文中的 CLI、单进程守护、默认 `3210` 端口等描述，均指**由宿主网关产品实现时的目标形态**；库本身只提供 config / host / core / protocol 能力。
 
-## 定位重申
+本文档面向贡献者与 AI 代理，汇总「个人本地 LLM 网关」这一**产品形态**下仍可演进的方向，作为自建网关（例如独立管理服务项目）的 backlog 参考。它补充 `memory.md`、`arch.md`，聚焦多工具流量统一托管与路由。
 
-UniGateway 是**无 Web UI 的本地 LLM 流量控制面**：
+## 定位重申（宿主应用职责）
 
-- 进程形态：`ug serve` 启动的单进程本地守护（默认 `127.0.0.1:3210`）。
-- 交互形态：只通过 **CLI + HTTP admin/metric 接口**被集成，不内嵌管理 UI。
-- 职责边界：请求级代理与路由，不做会话记忆、不做 prompt 注入、不做 agent loop、不做 MCP 聚合。
-- 目标用户：使用 Claude Code、Codex、OpenClaw、Cursor、Zed、Cline、OpenHands 等 agent / IDE 客户端的个人开发者与 power user。
+一个完整的本地网关通常是**无 Web UI 的流量控制面**，由你的二进制提供：
 
-现有三层架构（product shell / host / core）完全匹配这一定位；待办集中在**适配覆盖度、可观测运营面、CLI 集成能力**三条线。
+- 进程形态：常驻 HTTP 监听（端口与 bind 由你决定）。
+- 交互形态：**CLI（可选）+ HTTP admin/metric**；管理 UI 外置。
+- 职责边界：请求级代理与路由；会话记忆、prompt 注入、agent loop、MCP 聚合等仍建议放在上层产品。
+- 目标用户：使用 Claude Code、Codex、OpenClaw、Cursor、Zed 等客户端的个人开发者与 power user。
+
+库侧分层为 **config / host / protocol / core**；HTTP、认证、admin 路由与 CLI 属于宿主。
+
+下文表格与小节中若仍出现 `src/...` 路径，指**已删除的旧产品壳**中的实现位置；在自建网关里请自行建立对应模块。
 
 ---
 

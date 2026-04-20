@@ -1,17 +1,18 @@
 # UniGateway Roadmap
 
-This document guides the next few rounds of iterations, aiming to converge UniGateway from a "general-purpose lightweight LLM gateway" into a "unified model entry point for individual developers / AI power users."
+> **2026-04:** This workspace ships **Rust libraries only** (`unigateway-sdk` and friends). CLI / install script / Homebrew flows for `ug` are gone. Items below that mention `ug` or a bundled HTTP server describe **historical product work** or **follow-up for separate gateway applications** (for example a management server you ship yourself).
+
+This document guides iterations on the **embeddable stack** and notes product ideas that may live outside this repo.
 
 ## 0. Current Progress Update (2026-03-15)
 
-The main target has entered the phase of "core capabilities are shaped, continuing with tool integration and product polishing."
+The library stack (core / host / protocol / config / SDK) is stable enough for downstream gateways to build on; UX surfaces move to those hosts.
 
-### Completed Core Capabilities
+### Completed Core Capabilities (library)
 
-- Mode-oriented CLI: `ug mode list/show/use`
-- Route explanation: `ug route explain`
-- Integration template output: `ug integrations`
-- Diagnostics and smoke tests: `ug doctor`, `ug test`
+- Config → core pool projection, admin mutation helpers, and runtime rate limits in `unigateway-config`.
+- Typed host dispatch, protocol-neutral responses, and cross-provider streaming paths in `unigateway-host` + `unigateway-protocol` + `unigateway-core`.
+- **Former** mode-oriented CLI / doctor / integrations lived in the removed `ug` binary; re-home them in a gateway product if still desired.
 - Quickstart defaults to generating `fast` / `strong` / `backup`
 - Provider / model data changed to dynamically generated based on registry
 - OpenAI / Anthropic default to enabling streaming

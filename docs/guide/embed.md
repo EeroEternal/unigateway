@@ -22,7 +22,7 @@ directly.
 
 ```toml
 [dependencies]
-unigateway-sdk = "1.5"
+unigateway-sdk = "1.6"
 
 # Or depend on individual crates directly:
 # unigateway-core = { path = "../unigateway-core" }

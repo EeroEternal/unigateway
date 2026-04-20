@@ -4,22 +4,21 @@
 
 ## 仓库概览
 
-UniGateway 是面向个人开发者与重度用户的本地优先 LLM 网关：单进程、TOML 配置、OpenAI/Anthropic 兼容 HTTP 面，CLI 为产品主入口。
+UniGateway 是面向嵌入方的本地优先 LLM **库 workspace**：TOML 配置状态、OpenAI/Anthropic 协议与执行引擎以 crate 形式交付；HTTP、CLI、用户与租户管理由宿主应用（例如独立网关产品）自行实现。
 
 - **语言**：Rust（workspace edition 见根 `Cargo.toml`）
-- **MSRV**：根 `Cargo.toml` 中的 `rust-version`
-- **Workspace 成员**：`unigateway-core`（执行引擎与协议驱动）、`unigateway-host`（host 桥与执行封装）、`unigateway-protocol`（协议翻译与中立响应）、`unigateway-config`（配置持久化、admin mutation、core pool 投影）、`unigateway-cli`（clap 命令面与参数类型）、根 crate `unigateway`（HTTP、CLI 执行与装配）
+- **MSRV**：各成员 crate 的 `Cargo.toml` 中的 `rust-version`
+- **Workspace 成员**：`unigateway-core`（执行引擎与协议驱动）、`unigateway-host`（host 桥与执行封装）、`unigateway-protocol`（协议翻译与中立响应）、`unigateway-config`（配置持久化、mutation、core pool 投影）、`unigateway-sdk`（对外门面 re-export）
 
 ## 目录结构（简）
 
 ```text
-src/                      # 产品壳：CLI、HTTP、配置、网关中间件、薄 handler
-unigateway-cli/           # clap 命令树、子命令参数、GuideCommand
-unigateway-config/        # GatewayState、schema、persist、admin mutation、core sync
+unigateway-sdk/           # 对外门面（re-export core / protocol / host）
+unigateway-config/        # GatewayState、schema、persist、mutation、core sync
 unigateway-host/          # HostContext、执行封装、host contract
 unigateway-protocol/      # 协议请求解析、响应格式化、中立 HTTP 响应
 unigateway-core/          # UniGatewayEngine、路由、驱动、上游请求
-docs/design/              # 架构、CLI、admin、排队与调度设计
+docs/design/              # 架构、admin、排队与调度设计
 docs/guide/               # 配置格式、Provider 示例、嵌入指南
 docs/dev/                 # 路线图、贡献者 memory、集成草稿（`dev/` 下单文件宜短名 kebab-case，如 `embed-sdk.md`）
 ```
@@ -42,6 +41,23 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 修改任意 `.rs` 后应在提交前跑通 `fmt` 与 `clippy`（与 Azure 等仓库惯例一致）。
 
+GitHub Actions 还会在 `ubuntu-latest` 上执行两组命令，发布前不要只依赖本机结果：
+
+```bash
+# .github/workflows/rust.yml 的 build job
+cargo fmt -- --check
+cargo clippy -- -D warnings
+cargo build --verbose
+cargo test --verbose
+
+# .github/workflows/release.yml 的 verify job
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+如果改动包含 host / protocol / root crate，发布前至少手动对齐一次上述 GitHub Linux 命令；不要默认 macOS 本地通过就等于 Ubuntu CI 通过。
+
 ## 编码约定（摘要）
 
 - 遵循 `rustfmt` 默认风格；公共 API 使用 `///` 文档注释，说明参数、返回值与可恢复错误。
@@ -57,6 +73,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 - 小步提交、保持 diff 聚焦需求；不顺带大段无关格式化或「顺手重构」。
 - 为新行为补充或更新 `#[cfg(test)]` 测试；对外部 HTTP 使用 mock 或可控替身。
 - 文档与注释随代码同步更新；用户可见行为变化时考虑更新 `README.md` 或 `docs/guide/`。
+- 发布新版本时，先把 release commit 推到 `main` 并确认 `Rust` workflow 在 GitHub Linux 上变绿，再创建并推送 `v*` tag；不要先推 tag 再补 `main` 上的 CI 修复。
+- 对带 guard 的 `match` 分支，如果错误值本身不会被使用，写成 `Err(_)` 或 `_error`；不要保留未使用绑定。GitHub Linux 上的 `cargo clippy -- -D warnings` 会把这类问题直接卡死。
 
 ## 不建议的行为
 
@@ -69,6 +87,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 - [ ] `cargo test --workspace` 通过
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` 无告警
 - [ ] `cargo fmt --all -- --check` 通过
+- [ ] 如准备发版，已额外跑过 `.github/workflows/rust.yml` 中的 `cargo fmt -- --check`、`cargo clippy -- -D warnings`、`cargo build --verbose`、`cargo test --verbose`
+- [ ] 如准备发版，`main` 上对应提交的 GitHub `Rust` workflow 已通过，再推 `v*` tag
 - [ ] 未包含密钥、token、或本机私密路径
 - [ ] 与改动相关的文档链接仍有效（`docs/` 下路径）
 

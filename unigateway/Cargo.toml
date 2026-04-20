@@ -1,0 +1,14 @@
+[package]
+name = "unigateway"
+version = "1.6.0"
+edition = "2024"
+rust-version = "1.92"
+description = "DEPRECATED: use the `unigateway-sdk` crate. Compatibility shim only; the standalone `ug` binary is not published from this repository."
+license = "MIT"
+repository = "https://github.com/EeroEternal/unigateway"
+readme = "README.md"
+keywords = ["llm", "gateway", "openai", "anthropic", "deprecated"]
+categories = ["api-bindings"]
+
+[dependencies]
+unigateway-sdk.workspace = true
