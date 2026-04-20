@@ -1,6 +1,6 @@
 [package]
 name = "unigateway-host"
-version = "1.5.0"
+version = "1.5.1"
 edition = "2024"
 rust-version = "1.92"
 description = "Reusable host contracts and compatibility surface for UniGateway embedders."
@@ -20,5 +20,5 @@ serde_json.workspace = true
 serde.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 tracing.workspace = true
-unigateway-core = { version = "1.5.0", path = "../unigateway-core" }
+unigateway-core = { version = "1.5.1", path = "../unigateway-core" }
 unigateway-protocol.workspace = true

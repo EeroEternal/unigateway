@@ -1,6 +1,6 @@
 [package]
 name = "unigateway"
-version = "1.5.0"
+version = "1.5.1"
 edition = "2024"
 rust-version = "1.92"
 description = "Lightweight, local-first LLM gateway for developers. A stable, single-binary unified entry point for all your AI tools and models."
@@ -25,12 +25,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tracing = "0.1"
-unigateway-core = { version = "1.5.0", path = "unigateway-core" }
-unigateway-cli = { version = "1.5.0", path = "unigateway-cli" }
-unigateway-config = { version = "1.5.0", path = "unigateway-config" }
-unigateway-host = { version = "1.5.0", path = "unigateway-host" }
-unigateway-protocol = { version = "1.5.0", path = "unigateway-protocol" }
-unigateway-sdk = { version = "1.5.0", path = "unigateway-sdk" }
+unigateway-core = { version = "1.5.1", path = "unigateway-core" }
+unigateway-cli = { version = "1.5.1", path = "unigateway-cli" }
+unigateway-config = { version = "1.5.1", path = "unigateway-config" }
+unigateway-host = { version = "1.5.1", path = "unigateway-host" }
+unigateway-protocol = { version = "1.5.1", path = "unigateway-protocol" }
+unigateway-sdk = { version = "1.5.1", path = "unigateway-sdk" }
 
 [[bin]]
 name = "ug"

@@ -211,3 +211,41 @@ fn runtime_limit_error_response(error: RuntimeLimitError) -> Response {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use axum::http::{HeaderMap, HeaderValue, header};
+
+    use super::{extract_openai_api_key, extract_x_api_key};
+
+    #[test]
+    fn anthropic_requests_prefer_x_api_key() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", HeaderValue::from_static("ugk_anthropic"));
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer sk-upstream"),
+        );
+
+        assert_eq!(extract_x_api_key(&headers, ""), "ugk_anthropic");
+    }
+
+    #[test]
+    fn anthropic_requests_accept_bearer_fallback() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer ugk_bearer"),
+        );
+
+        assert_eq!(extract_x_api_key(&headers, ""), "ugk_bearer");
+    }
+
+    #[test]
+    fn openai_requests_accept_x_api_key() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", HeaderValue::from_static("ugk_openai"));
+
+        assert_eq!(extract_openai_api_key(&headers, ""), "ugk_openai");
+    }
+}

@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.5.1]
+
+UniGateway v1.5.1 is a patch release focused on hardening Anthropic-compatible gateway auth expectations for downstream tools like Cherry Studio.
+
+### Fixes
+
+* **Locked in `x-api-key` auth extraction behavior with regression tests**: the gateway now has explicit coverage ensuring Anthropic-style `x-api-key` headers are preferred on `/v1/messages`, Bearer auth still works as a compatibility fallback, and OpenAI-compatible entry points continue accepting `x-api-key` for clients that send it.
+
+### Validation
+
+* **Header extraction regressions are now covered in unit tests**: this release adds targeted tests around gateway-key parsing so future refactors do not silently regress Cherry Studio and other Anthropic-style clients.
+
 ## [1.5.0]
 
 UniGateway v1.5.0 is the follow-up embedder-contract release. It isolates the second round of public host-surface tightening from the already-published v1.4.0 line instead of silently mutating that release after publish.
