@@ -30,11 +30,20 @@ pub fn openai_payload_to_chat_request(
             .get("top_p")
             .and_then(Value::as_f64)
             .map(|v| v as f32),
+        top_k: payload
+            .get("top_k")
+            .and_then(Value::as_u64)
+            .map(|v| v as u32),
         max_tokens: payload
             .get("max_tokens")
             .and_then(Value::as_u64)
             .map(|v| v as u32),
+        stop_sequences: payload.get("stop").cloned(),
         stream: stream_flag(payload, false),
+        system: None,
+        tools: payload.get("tools").cloned(),
+        tool_choice: payload.get("tool_choice").cloned(),
+        raw_messages: None,
         metadata: HashMap::new(),
     })
 }
@@ -94,11 +103,20 @@ pub fn anthropic_payload_to_chat_request(
             .get("top_p")
             .and_then(Value::as_f64)
             .map(|v| v as f32),
+        top_k: payload
+            .get("top_k")
+            .and_then(Value::as_u64)
+            .map(|v| v as u32),
         max_tokens: payload
             .get("max_tokens")
             .and_then(Value::as_u64)
             .map(|v| v as u32),
+        stop_sequences: payload.get("stop_sequences").cloned(),
         stream: stream_flag(payload, true),
+        system: payload.get("system").cloned(),
+        tools: payload.get("tools").cloned(),
+        tool_choice: payload.get("tool_choice").cloned(),
+        raw_messages: payload.get("messages").cloned(),
         metadata: anthropic_requested_model_alias(model),
     })
 }
@@ -251,13 +269,15 @@ mod tests {
     fn openai_requests_default_to_non_streaming() {
         let req = openai_payload_to_chat_request(
             &json!({
-                "messages": [{"role": "user", "content": "hello"}]
+                "messages": [{"role": "user", "content": "hello"}],
+                "stop": ["DONE"]
             }),
             "gpt-4o-mini",
         )
         .expect("request");
 
         assert!(!req.stream);
+        assert_eq!(req.stop_sequences, Some(json!(["DONE"])));
     }
 
     #[test]
@@ -278,13 +298,17 @@ mod tests {
     fn anthropic_requests_default_to_streaming() {
         let req = anthropic_payload_to_chat_request(
             &json!({
-                "messages": [{"role": "user", "content": "hello"}]
+                "messages": [{"role": "user", "content": "hello"}],
+                "top_k": 5,
+                "stop_sequences": ["DONE", "HALT"]
             }),
             "claude-3-5-sonnet-latest",
         )
         .expect("request");
 
         assert!(req.stream);
+        assert_eq!(req.top_k, Some(5));
+        assert_eq!(req.stop_sequences, Some(json!(["DONE", "HALT"])));
         assert_eq!(
             req.metadata
                 .get(ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY)

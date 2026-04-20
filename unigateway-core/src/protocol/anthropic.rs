@@ -296,7 +296,7 @@ pub fn build_chat_request(
     request: &ProxyChatRequest,
 ) -> Result<TransportRequest, GatewayError> {
     let mut system_parts = Vec::new();
-    let messages = request
+    let fallback_messages = request
         .messages
         .iter()
         .filter_map(|message| match message.role {
@@ -316,21 +316,58 @@ pub fn build_chat_request(
         })
         .collect::<Vec<_>>();
 
-    let payload = json!({
-        "model": resolved_model(endpoint, &request.model),
-        "system": if system_parts.is_empty() { None } else { Some(system_parts.join("\n")) },
-        "messages": messages,
-        "temperature": request.temperature,
-        "top_p": request.top_p,
-        "max_tokens": request.max_tokens.unwrap_or(1024),
-        "stream": request.stream,
+    let system = request.system.clone().or_else(|| {
+        if system_parts.is_empty() {
+            None
+        } else {
+            Some(Value::String(system_parts.join("\n")))
+        }
     });
+    let messages = request
+        .raw_messages
+        .clone()
+        .unwrap_or(Value::Array(fallback_messages));
+
+    let mut payload = serde_json::Map::from_iter([
+        (
+            "model".to_string(),
+            Value::String(resolved_model(endpoint, &request.model)),
+        ),
+        ("messages".to_string(), messages),
+        (
+            "max_tokens".to_string(),
+            json!(request.max_tokens.unwrap_or(1024)),
+        ),
+        ("stream".to_string(), Value::Bool(request.stream)),
+    ]);
+
+    if let Some(system) = system {
+        payload.insert("system".to_string(), system);
+    }
+    if let Some(temperature) = request.temperature {
+        payload.insert("temperature".to_string(), json!(temperature));
+    }
+    if let Some(top_p) = request.top_p {
+        payload.insert("top_p".to_string(), json!(top_p));
+    }
+    if let Some(top_k) = request.top_k {
+        payload.insert("top_k".to_string(), json!(top_k));
+    }
+    if let Some(stop_sequences) = request.stop_sequences.clone() {
+        payload.insert("stop_sequences".to_string(), stop_sequences);
+    }
+    if let Some(toools) = request.tools.clone() {
+        payload.insert("tools".to_string(), toools);
+    }
+    if let Some(tool_choice) = request.tool_choice.clone() {
+        payload.insert("tool_choice".to_string(), tool_choice);
+    }
 
     TransportRequest::post_json(
         Some(endpoint.endpoint_id.clone()),
         join_url(&endpoint.base_url, "messages"),
         anthropic_headers(endpoint),
-        &payload,
+        &Value::Object(payload),
         None,
     )
 }
@@ -487,9 +524,15 @@ mod tests {
                         content: "hello".to_string(),
                     },
                 ],
+                system: None,
+                tools: None,
+                tool_choice: None,
+                raw_messages: None,
                 temperature: Some(0.2),
                 top_p: None,
+                top_k: Some(8),
                 max_tokens: None,
+                stop_sequences: Some(json!(["DONE", "HALT"])),
                 stream: false,
                 metadata: HashMap::new(),
             },
@@ -511,6 +554,16 @@ mod tests {
         assert_eq!(
             body.get("max_tokens").and_then(serde_json::Value::as_u64),
             Some(1024)
+        );
+        assert_eq!(
+            body.get("top_k").and_then(serde_json::Value::as_u64),
+            Some(8)
+        );
+        assert_eq!(
+            body.get("stop_sequences")
+                .and_then(serde_json::Value::as_array)
+                .map(Vec::len),
+            Some(2)
         );
     }
 
@@ -542,9 +595,15 @@ mod tests {
                         role: MessageRole::User,
                         content: "hello".to_string(),
                     }],
+                    system: None,
+                    tools: None,
+                    tool_choice: None,
+                    raw_messages: None,
                     temperature: None,
                     top_p: None,
+                    top_k: None,
                     max_tokens: Some(256),
+                    stop_sequences: None,
                     stream: false,
                     metadata: HashMap::new(),
                 },
@@ -597,9 +656,15 @@ mod tests {
                         role: MessageRole::User,
                         content: "hello".to_string(),
                     }],
+                    system: None,
+                    tools: None,
+                    tool_choice: None,
+                    raw_messages: None,
                     temperature: None,
                     top_p: None,
+                    top_k: None,
                     max_tokens: Some(128),
+                    stop_sequences: None,
                     stream: true,
                     metadata: HashMap::new(),
                 },

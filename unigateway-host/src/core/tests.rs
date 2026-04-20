@@ -1,13 +1,19 @@
 use std::collections::HashMap;
 
+use futures_util::StreamExt;
+use http::StatusCode;
+use tokio::sync::oneshot;
 use unigateway_core::{
     ChatResponseChunk, ChatResponseFinal, CompletedResponse, Endpoint, EndpointRef, ExecutionPlan,
-    ExecutionTarget, GatewayError, ModelPolicy, ProviderKind, ProxyResponsesRequest, RequestReport,
-    SecretString,
+    ExecutionTarget, GatewayError, ModelPolicy, ProviderKind, ProxyResponsesRequest, ProxySession,
+    RequestReport, SecretString, StreamingResponse,
 };
 use unigateway_protocol::testing::{
     OpenAiChatStreamAdapter, anthropic_completed_chat_body, openai_completed_chat_body,
     openai_sse_chunks_from_chat_chunk,
+};
+use unigateway_protocol::{
+    ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, ProtocolResponseBody, render_anthropic_chat_session,
 };
 
 use super::super::env::{EnvProvider, build_env_pool};
@@ -230,6 +236,159 @@ fn anthropic_completed_body_normalizes_openai_provider_output() {
 }
 
 #[test]
+fn anthropic_completed_body_converts_openai_tool_calls_to_tool_use() {
+    let body = anthropic_completed_chat_body(CompletedResponse {
+        response: ChatResponseFinal {
+            model: Some("gpt-4o-mini".to_string()),
+            output_text: None,
+            raw: serde_json::json!({
+                "id": "chatcmpl_456",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "I'll call a tool",
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "lookup_weather",
+                                "arguments": "{\"city\":\"Paris\"}"
+                            }
+                        }]
+                    },
+                    "finish_reason": "tool_calls"
+                }],
+                "usage": {
+                    "prompt_tokens": 9,
+                    "completion_tokens": 3,
+                    "total_tokens": 12,
+                    "cache_creation_input_tokens": 2,
+                    "cache_read_input_tokens": 1
+                }
+            }),
+        },
+        report: RequestReport {
+            request_id: "req_tool_1".to_string(),
+            pool_id: Some("svc".to_string()),
+            selected_endpoint_id: "zhipu-main".to_string(),
+            selected_provider: ProviderKind::OpenAiCompatible,
+            attempts: Vec::new(),
+            usage: None,
+            latency_ms: 12,
+            started_at: std::time::SystemTime::UNIX_EPOCH,
+            finished_at: std::time::SystemTime::UNIX_EPOCH,
+            metadata: HashMap::from([(
+                ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
+                "claude-3-5-sonnet-latest".to_string(),
+            )]),
+        },
+    });
+
+    let content = body
+        .get("content")
+        .and_then(serde_json::Value::as_array)
+        .expect("content array");
+
+    assert_eq!(
+        content[0].get("text").and_then(serde_json::Value::as_str),
+        Some("I'll call a tool")
+    );
+    assert_eq!(
+        content[1].get("type").and_then(serde_json::Value::as_str),
+        Some("tool_use")
+    );
+    assert_eq!(
+        content[1]
+            .get("input")
+            .and_then(|input| input.get("city"))
+            .and_then(serde_json::Value::as_str),
+        Some("Paris")
+    );
+    assert_eq!(
+        body.get("stop_reason").and_then(serde_json::Value::as_str),
+        Some("tool_use")
+    );
+    assert_eq!(
+        body.get("id").and_then(serde_json::Value::as_str),
+        Some("msg_chatcmpl_456")
+    );
+    assert_eq!(
+        body.get("usage")
+            .and_then(|usage| usage.get("input_tokens"))
+            .and_then(serde_json::Value::as_u64),
+        Some(9)
+    );
+    assert_eq!(
+        body.get("usage")
+            .and_then(|usage| usage.get("cache_creation_input_tokens"))
+            .and_then(serde_json::Value::as_u64),
+        Some(2)
+    );
+    assert_eq!(
+        body.get("usage")
+            .and_then(|usage| usage.get("cache_read_input_tokens"))
+            .and_then(serde_json::Value::as_u64),
+        Some(1)
+    );
+}
+
+#[test]
+fn anthropic_completed_body_converts_openai_reasoning_to_thinking_block() {
+    let body = anthropic_completed_chat_body(CompletedResponse {
+        response: ChatResponseFinal {
+            model: Some("gpt-4o-mini".to_string()),
+            output_text: Some("Paris is sunny".to_string()),
+            raw: serde_json::json!({
+                "id": "chatcmpl_reasoning_1",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "reasoning_content": "need to inspect weather first",
+                        "content": "Paris is sunny"
+                    },
+                    "finish_reason": "stop"
+                }]
+            }),
+        },
+        report: RequestReport {
+            request_id: "req_reasoning_1".to_string(),
+            pool_id: Some("svc".to_string()),
+            selected_endpoint_id: "zhipu-main".to_string(),
+            selected_provider: ProviderKind::OpenAiCompatible,
+            attempts: Vec::new(),
+            usage: None,
+            latency_ms: 12,
+            started_at: std::time::SystemTime::UNIX_EPOCH,
+            finished_at: std::time::SystemTime::UNIX_EPOCH,
+            metadata: HashMap::from([(
+                ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
+                "claude-3-5-sonnet-latest".to_string(),
+            )]),
+        },
+    });
+
+    let content = body
+        .get("content")
+        .and_then(serde_json::Value::as_array)
+        .expect("content array");
+
+    assert_eq!(
+        content[0].get("type").and_then(serde_json::Value::as_str),
+        Some("thinking")
+    );
+    assert_eq!(
+        content[0]
+            .get("thinking")
+            .and_then(serde_json::Value::as_str),
+        Some("need to inspect weather first")
+    );
+    assert_eq!(
+        content[1].get("text").and_then(serde_json::Value::as_str),
+        Some("Paris is sunny")
+    );
+}
+
+#[test]
 fn openai_completed_body_normalizes_anthropic_provider_output() {
     let body = openai_completed_chat_body(CompletedResponse {
         response: ChatResponseFinal {
@@ -277,6 +436,533 @@ fn openai_completed_body_normalizes_anthropic_provider_output() {
             .and_then(serde_json::Value::as_u64),
         Some(4)
     );
+}
+
+#[tokio::test]
+async fn anthropic_stream_renderer_converts_openai_tool_call_deltas() {
+    let (completion_tx, completion_rx) = oneshot::channel();
+    assert!(
+        completion_tx
+            .send(Ok(CompletedResponse {
+                response: ChatResponseFinal {
+                    model: Some("gpt-4o-mini".to_string()),
+                    output_text: None,
+                    raw: serde_json::json!({
+                        "choices": [{
+                            "finish_reason": "tool_calls"
+                        }]
+                    }),
+                },
+                report: RequestReport {
+                    request_id: "req_stream_1".to_string(),
+                    pool_id: Some("svc".to_string()),
+                    selected_endpoint_id: "zhipu-main".to_string(),
+                    selected_provider: ProviderKind::OpenAiCompatible,
+                    attempts: Vec::new(),
+                    usage: Some(unigateway_core::TokenUsage {
+                        input_tokens: Some(7),
+                        output_tokens: Some(2),
+                        total_tokens: Some(9),
+                    }),
+                    latency_ms: 8,
+                    started_at: std::time::SystemTime::UNIX_EPOCH,
+                    finished_at: std::time::SystemTime::UNIX_EPOCH,
+                    metadata: HashMap::new(),
+                },
+            }))
+            .is_ok()
+    );
+
+    let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        stream: Box::pin(futures_util::stream::iter(vec![
+            Ok(ChatResponseChunk {
+                delta: Some("Let me check ".to_string()),
+                raw: serde_json::json!({
+                    "id": "chatcmpl_1",
+                    "model": "gpt-4o-mini",
+                    "choices": [{
+                        "delta": {
+                            "content": "Let me check "
+                        }
+                    }]
+                }),
+            }),
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "id": "chatcmpl_1",
+                    "model": "gpt-4o-mini",
+                    "choices": [{
+                        "delta": {
+                            "tool_calls": [{
+                                "index": 0,
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "lookup_weather",
+                                    "arguments": "{\"city\":\""
+                                }
+                            }]
+                        }
+                    }]
+                }),
+            }),
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "id": "chatcmpl_1",
+                    "model": "gpt-4o-mini",
+                    "choices": [{
+                        "delta": {
+                            "tool_calls": [{
+                                "index": 0,
+                                "function": {
+                                    "arguments": "Paris\"}"
+                                }
+                            }]
+                        }
+                    }]
+                }),
+            }),
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "id": "chatcmpl_1",
+                    "model": "gpt-4o-mini",
+                    "choices": [{
+                        "delta": {},
+                        "finish_reason": "tool_calls"
+                    }]
+                }),
+            }),
+        ])),
+        completion: completion_rx,
+        request_id: "req_stream_1".to_string(),
+        request_metadata: HashMap::from([(
+            ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
+            "claude-3-5-sonnet-latest".to_string(),
+        )]),
+    }));
+
+    let (status, body) = response.into_parts();
+    assert_eq!(status, StatusCode::OK);
+
+    let ProtocolResponseBody::ServerSentEvents(stream) = body else {
+        panic!("expected sse body");
+    };
+
+    let events = stream
+        .map(|item| String::from_utf8(item.expect("sse chunk").to_vec()).expect("utf8 chunk"))
+        .collect::<Vec<_>>()
+        .await;
+
+    assert!(
+        events
+            .iter()
+            .any(|event| event.contains("event: message_start"))
+    );
+    assert!(events.iter().any(|event| event.contains("event: ping")));
+    assert!(events.iter().any(|event| {
+        event.contains("event: message_start") && event.contains("\"id\":\"msg_req_stream_1\"")
+    }));
+    let text_start = events
+        .iter()
+        .position(|event| {
+            event.contains("event: content_block_start") && event.contains("\"type\":\"text\"")
+        })
+        .expect("text block start");
+    let text_stop = events
+        .iter()
+        .position(|event| {
+            event.contains("event: content_block_stop") && event.contains("\"index\":0")
+        })
+        .expect("text block stop");
+    let tool_start = events
+        .iter()
+        .position(|event| {
+            event.contains("event: content_block_start") && event.contains("\"type\":\"tool_use\"")
+        })
+        .expect("tool block start");
+
+    assert!(text_start < text_stop);
+    assert!(text_stop < tool_start);
+
+    assert!(events.iter().any(|event| {
+        event.contains("event: content_block_delta")
+            && event.contains("\"type\":\"text_delta\"")
+            && event.contains("Let me check ")
+    }));
+    let tool_deltas = events
+        .iter()
+        .filter(|event| {
+            event.contains("event: content_block_delta")
+                && event.contains("\"type\":\"input_json_delta\"")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(tool_deltas.len(), 2);
+    assert!(tool_deltas[0].contains("{\\\"city\\\":\\\""));
+    assert!(tool_deltas[1].contains("Paris\\\"}"));
+    assert!(events.iter().any(|event| {
+        event.contains("event: message_delta") && event.contains("\"stop_reason\":\"tool_use\"")
+    }));
+}
+
+#[tokio::test]
+async fn anthropic_stream_renderer_converts_openai_reasoning_deltas_to_thinking_blocks() {
+    let (completion_tx, completion_rx) = oneshot::channel();
+    assert!(
+        completion_tx
+            .send(Ok(CompletedResponse {
+                response: ChatResponseFinal {
+                    model: Some("gpt-4o-mini".to_string()),
+                    output_text: Some("final answer".to_string()),
+                    raw: serde_json::json!({
+                        "choices": [{
+                            "finish_reason": "stop"
+                        }]
+                    }),
+                },
+                report: RequestReport {
+                    request_id: "req_stream_reasoning_1".to_string(),
+                    pool_id: Some("svc".to_string()),
+                    selected_endpoint_id: "zhipu-main".to_string(),
+                    selected_provider: ProviderKind::OpenAiCompatible,
+                    attempts: Vec::new(),
+                    usage: Some(unigateway_core::TokenUsage {
+                        input_tokens: Some(6),
+                        output_tokens: Some(4),
+                        total_tokens: Some(10),
+                    }),
+                    latency_ms: 8,
+                    started_at: std::time::SystemTime::UNIX_EPOCH,
+                    finished_at: std::time::SystemTime::UNIX_EPOCH,
+                    metadata: HashMap::new(),
+                },
+            }))
+            .is_ok()
+    );
+
+    let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        stream: Box::pin(futures_util::stream::iter(vec![
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "id": "chatcmpl_reasoning_1",
+                    "model": "gpt-4o-mini",
+                    "choices": [{
+                        "delta": {
+                            "reasoning_content": "need to think first"
+                        }
+                    }]
+                }),
+            }),
+            Ok(ChatResponseChunk {
+                delta: Some("final answer".to_string()),
+                raw: serde_json::json!({
+                    "id": "chatcmpl_reasoning_1",
+                    "model": "gpt-4o-mini",
+                    "choices": [{
+                        "delta": {
+                            "content": "final answer"
+                        }
+                    }]
+                }),
+            }),
+        ])),
+        completion: completion_rx,
+        request_id: "req_stream_reasoning_1".to_string(),
+        request_metadata: HashMap::from([(
+            ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
+            "claude-3-5-sonnet-latest".to_string(),
+        )]),
+    }));
+
+    let (_, body) = response.into_parts();
+    let ProtocolResponseBody::ServerSentEvents(stream) = body else {
+        panic!("expected sse body");
+    };
+
+    let events = stream
+        .map(|item| String::from_utf8(item.expect("sse chunk").to_vec()).expect("utf8 chunk"))
+        .collect::<Vec<_>>()
+        .await;
+
+    let thinking_start = events
+        .iter()
+        .position(|event| {
+            event.contains("event: content_block_start") && event.contains("\"type\":\"thinking\"")
+        })
+        .expect("thinking block start");
+    let thinking_delta = events
+        .iter()
+        .position(|event| {
+            event.contains("event: content_block_delta")
+                && event.contains("\"type\":\"thinking_delta\"")
+                && event.contains("need to think first")
+        })
+        .expect("thinking delta");
+    let signature_delta = events
+        .iter()
+        .position(|event| {
+            event.contains("event: content_block_delta")
+                && event.contains("\"type\":\"signature_delta\"")
+        })
+        .expect("signature delta");
+    let thinking_stop = events
+        .iter()
+        .position(|event| {
+            event.contains("event: content_block_stop") && event.contains("\"index\":0")
+        })
+        .expect("thinking stop");
+    let text_start = events
+        .iter()
+        .position(|event| {
+            event.contains("event: content_block_start") && event.contains("\"type\":\"text\"")
+        })
+        .expect("text block start");
+
+    assert!(thinking_start < thinking_delta);
+    assert!(thinking_delta < signature_delta);
+    assert!(signature_delta < thinking_stop);
+    assert!(thinking_stop < text_start);
+}
+
+#[tokio::test]
+async fn anthropic_stream_renderer_flushes_unfinished_tool_calls_with_placeholders() {
+    let (completion_tx, completion_rx) = oneshot::channel();
+    assert!(
+        completion_tx
+            .send(Ok(CompletedResponse {
+                response: ChatResponseFinal {
+                    model: Some("gpt-4o-mini".to_string()),
+                    output_text: None,
+                    raw: serde_json::json!({
+                        "choices": [{
+                            "finish_reason": "tool_calls"
+                        }]
+                    }),
+                },
+                report: RequestReport {
+                    request_id: "req_stream_2".to_string(),
+                    pool_id: Some("svc".to_string()),
+                    selected_endpoint_id: "zhipu-main".to_string(),
+                    selected_provider: ProviderKind::OpenAiCompatible,
+                    attempts: Vec::new(),
+                    usage: Some(unigateway_core::TokenUsage {
+                        input_tokens: Some(5),
+                        output_tokens: Some(2),
+                        total_tokens: Some(7),
+                    }),
+                    latency_ms: 8,
+                    started_at: std::time::SystemTime::UNIX_EPOCH,
+                    finished_at: std::time::SystemTime::UNIX_EPOCH,
+                    metadata: HashMap::new(),
+                },
+            }))
+            .is_ok()
+    );
+
+    let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        stream: Box::pin(futures_util::stream::iter(vec![Ok(ChatResponseChunk {
+            delta: None,
+            raw: serde_json::json!({
+                "id": "chatcmpl_2",
+                "model": "gpt-4o-mini",
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [{
+                            "index": 0,
+                            "function": {
+                                "arguments": "{\"city\":\"Paris\"}"
+                            }
+                        }]
+                    }
+                }]
+            }),
+        })])),
+        completion: completion_rx,
+        request_id: "req_stream_2".to_string(),
+        request_metadata: HashMap::from([(
+            ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
+            "claude-3-5-sonnet-latest".to_string(),
+        )]),
+    }));
+
+    let (_, body) = response.into_parts();
+    let ProtocolResponseBody::ServerSentEvents(stream) = body else {
+        panic!("expected sse body");
+    };
+
+    let events = stream
+        .map(|item| String::from_utf8(item.expect("sse chunk").to_vec()).expect("utf8 chunk"))
+        .collect::<Vec<_>>()
+        .await;
+
+    assert!(events.iter().any(|event| {
+        event.contains("event: content_block_start")
+            && event.contains("\"type\":\"tool_use\"")
+            && event.contains("toolu_unknown")
+            && event.contains("\"name\":\"tool\"")
+    }));
+    assert!(events.iter().any(|event| {
+        event.contains("event: content_block_delta")
+            && event.contains("\"type\":\"input_json_delta\"")
+            && event.contains("{\\\"city\\\":\\\"Paris\\\"}")
+    }));
+}
+
+#[tokio::test]
+async fn anthropic_stream_renderer_multiplexes_interleaved_tool_calls() {
+    let (completion_tx, completion_rx) = oneshot::channel();
+    assert!(
+        completion_tx
+            .send(Ok(CompletedResponse {
+                response: ChatResponseFinal {
+                    model: Some("gpt-4o-mini".to_string()),
+                    output_text: None,
+                    raw: serde_json::json!({
+                        "choices": [{
+                            "finish_reason": "tool_calls"
+                        }]
+                    }),
+                },
+                report: RequestReport {
+                    request_id: "req_stream_3".to_string(),
+                    pool_id: Some("svc".to_string()),
+                    selected_endpoint_id: "zhipu-main".to_string(),
+                    selected_provider: ProviderKind::OpenAiCompatible,
+                    attempts: Vec::new(),
+                    usage: Some(unigateway_core::TokenUsage {
+                        input_tokens: Some(10),
+                        output_tokens: Some(4),
+                        total_tokens: Some(14),
+                    }),
+                    latency_ms: 8,
+                    started_at: std::time::SystemTime::UNIX_EPOCH,
+                    finished_at: std::time::SystemTime::UNIX_EPOCH,
+                    metadata: HashMap::new(),
+                },
+            }))
+            .is_ok()
+    );
+
+    let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        stream: Box::pin(futures_util::stream::iter(vec![
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "id": "chatcmpl_3",
+                    "model": "gpt-4o-mini",
+                    "choices": [{
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_weather",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "lookup_weather",
+                                        "arguments": "{\"city\":\""
+                                    }
+                                },
+                                {
+                                    "index": 1,
+                                    "id": "call_time",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "lookup_time",
+                                        "arguments": "{\"timezone\":\""
+                                    }
+                                }
+                            ]
+                        }
+                    }]
+                }),
+            }),
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "id": "chatcmpl_3",
+                    "model": "gpt-4o-mini",
+                    "choices": [{
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 1,
+                                    "function": {
+                                        "arguments": "UTC\"}"
+                                    }
+                                },
+                                {
+                                    "index": 0,
+                                    "function": {
+                                        "arguments": "Paris\"}"
+                                    }
+                                }
+                            ]
+                        }
+                    }]
+                }),
+            }),
+        ])),
+        completion: completion_rx,
+        request_id: "req_stream_3".to_string(),
+        request_metadata: HashMap::from([(
+            ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
+            "claude-3-5-sonnet-latest".to_string(),
+        )]),
+    }));
+
+    let (_, body) = response.into_parts();
+    let ProtocolResponseBody::ServerSentEvents(stream) = body else {
+        panic!("expected sse body");
+    };
+
+    let events = stream
+        .map(|item| String::from_utf8(item.expect("sse chunk").to_vec()).expect("utf8 chunk"))
+        .collect::<Vec<_>>()
+        .await;
+
+    let tool_starts = events
+        .iter()
+        .filter(|event| {
+            event.contains("event: content_block_start") && event.contains("\"type\":\"tool_use\"")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(tool_starts.len(), 2);
+    assert!(
+        tool_starts
+            .iter()
+            .any(|event| event.contains("call_weather"))
+    );
+    assert!(tool_starts.iter().any(|event| event.contains("call_time")));
+
+    let tool_deltas = events
+        .iter()
+        .filter(|event| {
+            event.contains("event: content_block_delta")
+                && event.contains("\"type\":\"input_json_delta\"")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(tool_deltas.len(), 4);
+    assert!(
+        tool_deltas
+            .iter()
+            .any(|event| event.contains("{\\\"city\\\":\\\""))
+    );
+    assert!(tool_deltas.iter().any(|event| event.contains("Paris\\\"}")));
+    assert!(
+        tool_deltas
+            .iter()
+            .any(|event| event.contains("{\\\"timezone\\\":\\\""))
+    );
+    assert!(tool_deltas.iter().any(|event| event.contains("UTC\\\"}")));
+
+    let tool_stops = events
+        .iter()
+        .filter(|event| event.contains("event: content_block_stop"))
+        .count();
+    assert_eq!(tool_stops, 2);
 }
 
 #[test]

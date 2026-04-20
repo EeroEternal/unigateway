@@ -83,9 +83,15 @@ fn build_chat_request_maps_model_and_url() {
                 role: MessageRole::User,
                 content: "hello".to_string(),
             }],
+            system: None,
+            tools: None,
+            tool_choice: None,
+            raw_messages: None,
             temperature: Some(0.3),
             top_p: None,
+            top_k: None,
             max_tokens: Some(32),
+            stop_sequences: None,
             stream: false,
             metadata: HashMap::new(),
         },
@@ -103,6 +109,170 @@ fn build_chat_request_maps_model_and_url() {
     assert_eq!(
         body.get("model").and_then(serde_json::Value::as_str),
         Some("mapped-model")
+    );
+}
+
+#[test]
+fn build_chat_request_translates_anthropic_raw_messages_and_tool_choice() {
+    let request = build_chat_request(
+        &endpoint(),
+        &ProxyChatRequest {
+            model: "alias".to_string(),
+            messages: Vec::new(),
+            system: Some(json!("be concise")),
+            tools: Some(json!([{
+                "name": "lookup_weather",
+                "description": "Look up the weather",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "city": {"type": "string"}
+                    },
+                    "required": ["city"]
+                }
+            }])),
+            tool_choice: Some(json!({
+                "type": "tool",
+                "name": "lookup_weather"
+            })),
+            raw_messages: Some(json!([
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "weather in paris"}]
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "thinking": "need weather first"
+                        },
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_1",
+                            "name": "lookup_weather",
+                            "input": {"city": "Paris"}
+                        }
+                    ]
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_1",
+                            "content": "18C"
+                        }
+                    ]
+                }
+            ])),
+            temperature: None,
+            top_p: None,
+            top_k: Some(7),
+            max_tokens: Some(64),
+            stop_sequences: Some(json!(["DONE", "HALT"])),
+            stream: false,
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("chat request");
+
+    let body: Value = serde_json::from_slice(&request.body.expect("body")).expect("json body");
+    let messages = body
+        .get("messages")
+        .and_then(Value::as_array)
+        .expect("messages array");
+
+    assert_eq!(messages.len(), 3);
+    assert_eq!(
+        messages[0]
+            .get("content")
+            .and_then(Value::as_array)
+            .and_then(|blocks| blocks.first())
+            .and_then(|block| block.get("text"))
+            .and_then(Value::as_str),
+        Some("weather in paris")
+    );
+    assert_eq!(
+        messages[1]
+            .get("tool_calls")
+            .and_then(Value::as_array)
+            .and_then(|calls| calls.first())
+            .and_then(|call| call.get("function"))
+            .and_then(|function| function.get("arguments"))
+            .and_then(Value::as_str),
+        Some("{\"city\":\"Paris\"}")
+    );
+    assert_eq!(
+        messages[1].get("thinking").and_then(Value::as_str),
+        Some("need weather first")
+    );
+    assert_eq!(body.get("top_k").and_then(Value::as_u64), Some(7));
+    assert_eq!(
+        body.get("stop").and_then(Value::as_array).map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(
+        messages[2].get("role").and_then(Value::as_str),
+        Some("tool")
+    );
+    assert_eq!(
+        body.get("tool_choice")
+            .and_then(|choice| choice.get("function"))
+            .and_then(|function| function.get("name"))
+            .and_then(Value::as_str),
+        Some("lookup_weather")
+    );
+    assert_eq!(
+        body.get("tools")
+            .and_then(Value::as_array)
+            .and_then(|tools| tools.first())
+            .and_then(|tool| tool.get("type"))
+            .and_then(Value::as_str),
+        Some("function")
+    );
+    assert_eq!(
+        body.get("tools")
+            .and_then(Value::as_array)
+            .and_then(|tools| tools.first())
+            .and_then(|tool| tool.get("function"))
+            .and_then(|function| function.get("parameters"))
+            .and_then(|parameters| parameters.get("required"))
+            .and_then(Value::as_array)
+            .map(Vec::len),
+        Some(1)
+    );
+}
+
+#[test]
+fn build_chat_request_normalizes_string_any_tool_choice() {
+    let request = build_chat_request(
+        &endpoint(),
+        &ProxyChatRequest {
+            model: "alias".to_string(),
+            messages: vec![Message {
+                role: MessageRole::User,
+                content: "hello".to_string(),
+            }],
+            system: None,
+            tools: Some(json!([{ "name": "lookup_weather" }])),
+            tool_choice: Some(json!("any")),
+            raw_messages: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: None,
+            stop_sequences: None,
+            stream: false,
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("chat request");
+
+    let body: Value = serde_json::from_slice(&request.body.expect("body")).expect("json body");
+    assert_eq!(
+        body.get("tool_choice").and_then(Value::as_str),
+        Some("required")
     );
 }
 
@@ -256,9 +426,15 @@ async fn openai_driver_executes_non_streaming_operations() {
                     role: MessageRole::User,
                     content: "hello".to_string(),
                 }],
+                system: None,
+                tools: None,
+                tool_choice: None,
+                raw_messages: None,
                 temperature: None,
                 top_p: None,
+                top_k: None,
                 max_tokens: None,
+                stop_sequences: None,
                 stream: false,
                 metadata: HashMap::new(),
             },
@@ -383,9 +559,15 @@ async fn openai_driver_executes_streaming_chat() {
                     role: MessageRole::User,
                     content: "hello".to_string(),
                 }],
+                system: None,
+                tools: None,
+                tool_choice: None,
+                raw_messages: None,
                 temperature: None,
                 top_p: None,
+                top_k: None,
                 max_tokens: None,
+                stop_sequences: None,
                 stream: true,
                 metadata: HashMap::new(),
             },

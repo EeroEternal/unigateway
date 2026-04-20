@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MessageRole {
@@ -22,8 +23,14 @@ pub struct ProxyChatRequest {
     pub messages: Vec<Message>,
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
+    pub top_k: Option<u32>,
     pub max_tokens: Option<u32>,
+    pub stop_sequences: Option<Value>,
     pub stream: bool,
+    pub system: Option<Value>,
+    pub tools: Option<Value>,
+    pub tool_choice: Option<Value>,
+    pub raw_messages: Option<Value>,
     pub metadata: HashMap<String, String>,
 }
 

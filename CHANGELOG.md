@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.5.2]
+
+UniGateway v1.5.2 is a patch release focused on Anthropic protocol fidelity, especially for tools, thinking, and cross-provider compatibility.
+
+### Fixes
+
+* **Preserved Anthropic request semantics through the core chat model**: chat requests now keep `system`, raw `messages`, `tools`, `tool_choice`, `top_k`, and `stop_sequences` intact so Anthropic-native upstreams no longer lose protocol-specific fields.
+* **Completed Anthropic-to-OpenAI tool translation for OpenAI-compatible upstreams**: Anthropic `tool_use`, `tool_result`, `thinking`, and tool schemas now translate into OpenAI-compatible message, tool-call, and function-tool payloads when the selected upstream is not Anthropic-native.
+* **Completed OpenAI-to-Anthropic response rendering for tools and thinking**: Anthropic-compatible completed bodies and SSE streams now emit `tool_use`, `input_json_delta`, `thinking_delta`, `signature_delta`, Anthropic-style message IDs, and cache token usage fields for clients expecting `/v1/messages` behavior.
+
+### Validation
+
+* **Anthropic compatibility coverage now includes request parsing, native-driver passthrough, cross-protocol tool conversion, and fine-grained streaming regressions**: workspace `fmt`, `test`, and `clippy` all pass on the 1.5.2 release line.
+
 ## [1.5.1]
 
 UniGateway v1.5.1 is a patch release focused on hardening Anthropic-compatible gateway auth expectations for downstream tools like Cherry Studio.

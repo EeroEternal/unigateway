@@ -1,6 +1,6 @@
 [package]
 name = "unigateway-config"
-version = "1.5.1"
+version = "1.5.2"
 edition = "2024"
 rust-version = "1.92"
 description = "Configuration persistence, admin mutation, and core pool projection for UniGateway."
