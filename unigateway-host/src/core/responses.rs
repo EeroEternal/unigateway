@@ -24,7 +24,7 @@ pub(super) async fn execute_openai_responses_via_core(
     let response =
         match execute_openai_responses_with_compat(host, target.clone(), request.clone()).await {
             Ok(response) => response,
-            Err(error) if should_retry_responses_without_tools(&request) => {
+            Err(_) if should_retry_responses_without_tools(&request) => {
                 execute_openai_responses_with_compat(host, target, without_response_tools(request))
                     .await
                     .map_err(HostError::core)?
