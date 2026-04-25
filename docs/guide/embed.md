@@ -115,6 +115,21 @@ impl GatewayHooks for MyHooks {
             println!("request {} finished in {}ms", report.request_id, report.latency_ms);
         })
     }
+
+    // Optional: modify the request before it is sent upstream.
+    fn on_request<'a>(&'a self, _req: &mut ProxyChatRequest) -> BoxFuture<'a, ()> {
+        Box::pin(async {
+            // e.g. inject a custom header via metadata:
+            // _req.metadata.insert("x-custom".to_string(), "value".to_string());
+        })
+    }
+
+    // Optional: called for each chunk in a streaming chat response.
+    fn on_stream_chunk<'a>(&'a self, _chunk: &ChatResponseChunk) -> BoxFuture<'a, ()> {
+        Box::pin(async {
+            // e.g. collect metrics on streaming tokens
+        })
+    }
 }
 
 let engine = UniGatewayEngine::builder()
@@ -464,3 +479,211 @@ async fn handle_chat(body: serde_json::Value) -> anyhow::Result<String> {
 | Request metadata lost in `RequestReport` | Set `request.metadata` before calling `proxy_chat` / `proxy_embeddings` |
 | Using `ProxyChatRequest` directly as HTTP payload | Parse the raw JSON body with `openai_payload_to_chat_request` first |
 | Custom driver not found | Register it in `InMemoryDriverRegistry` before building the engine |
+
+---
+
+## 8. Nebula integration patterns
+
+Nebula is an inference orchestration platform that embeds UniGateway as its protocol
+execution engine. These patterns show how to integrate without modifying UniGateway core.
+
+### 8.1 External state awareness (reactive `PoolHost`)
+
+By default, pools are loaded from TOML at startup. For production clusters where
+endpoint state (weight, circuit-breaker, load) changes frequently, implement
+`PoolHost` to read from a local cache that is refreshed by Nebula's control plane.
+
+```
+Nebula control plane (etcd / API)
+        │  push or periodic poll
+        ▼
+   Local cache (Arc<DashMap>)
+        │  PoolHost::pool_for_service()
+        ▼
+   UniGatewayEngine (in-memory pools)
+```
+
+**Example:** implement `PoolHost` with a local cache:
+
+```rust
+use std::sync::Arc;
+use unigateway_core::{ProviderPool, UniGatewayEngine};
+use unigateway_host::{
+    HostContext, HostFuture, PoolHost, PoolLookupError, PoolLookupOutcome,
+    PoolLookupResult,
+};
+
+/// Local cache refreshed by Nebula control-plane watchers.
+struct PoolCache {
+    inner: Arc<dashmap::DashMap<String, ProviderPool>>,
+}
+
+impl PoolHost for PoolCache {
+    fn pool_for_service<'a>(
+        &'a self,
+        service_id: &'a str,
+    ) -> HostFuture<'a, PoolLookupResult<PoolLookupOutcome>> {
+        Box::pin(async move {
+            match self.inner.get(service_id) {
+                Some(ref_guard) => {
+                    Ok(PoolLookupOutcome::Found(ref_guard.clone()))
+                }
+                None => Ok(PoolLookupOutcome::not_found()),
+            }
+        })
+    }
+}
+
+// Build HostContext with the cache-backed PoolHost:
+let host = HostContext::from_parts(&engine, &pool_cache);
+```
+
+**Cache update strategy:**
+
+| Strategy | When to use | Caveat |
+|----------|--------------|---------|
+| Control-plane push (recommended) | Low-frequency state changes, near-real-time needed | Needs watch/allback from etcd |
+| Periodic poll | No push capability in control plane | Lag between state change and engine update |
+| Per-request pull | Strong consistency requirement | **Not recommended** — adds etcd RTT to every request |
+
+### 8.2 External routing (explicit `HostDispatchTarget`)
+
+When Nebula's scheduler decides which endpoint should serve a request, skip
+UniGateway's built-in routing (`round_robin` / `random` / `fallback`). Instead,
+construct a `HostDispatchTarget::Pool` with exactly the endpoint Nebula selected.
+
+```rust
+use unigateway_core::{Endpoint, ProviderPool, LoadBalancingStrategy, RetryPolicy};
+use unigateway_host::core::dispatch::{HostDispatchTarget, dispatch_request, HostProtocol, HostRequest};
+
+/// Nebula scheduler: returns the endpoint to use for this request.
+fn nebula_select(service_id: &str) -> anyhow::Result<HostDispatchTarget<'static>> {
+    let selected = nebula_client::select_endpoint(service_id)?;
+
+    let pool = ProviderPool {
+        pool_id:        format!("nebula:{service_id}"),
+        load_balancing: LoadBalancingStrategy::RoundRobin,
+        retry_policy:   RetryPolicy::default(),
+        metadata:       std::collections::HashMap::new(),
+        endpoints:       vec![selected],
+    };
+
+    // Nebula's decision is explicit; UniGateway just executes.
+    Ok(HostDispatchTarget::Pool(pool))
+}
+```
+
+When Nebula returns a **ranked list** of endpoints, fill `endpoints` in order and
+keep `load_balancing: RoundRobin` — UniGateway will respect the order you
+provided.
+
+### 8.3 Request/response modification via `GatewayHooks`
+
+`GatewayHooks` now supports pre-execution and streaming-chunk hooks
+(UniGateway ≥ 1.6.0). Implement these to inject headers, rewrite requests,
+or collect audit logs — all without touching core code.
+
+```rust
+use std::sync::Arc;
+use futures_util::future::BoxFuture;
+use unigateway_core::{
+    AttemptFinishedEvent, AttemptStartedEvent, ChatResponseChunk,
+    GatewayHooks, ProxyChatRequest, ProtocolHttpResponse, RequestReport,
+};
+
+struct NebulaHooks;
+
+impl GatewayHooks for NebulaHooks {
+    fn on_attempt_started(&self, event: AttemptStartedEvent) -> BoxFuture<'static, ()> {
+        Box::pin(async move {
+            tracing::info!(%event.request_id, %event.endpoint_id, "attempt started");
+        })
+    }
+
+    fn on_attempt_finished(&self, event: AttemptFinishedEvent) -> BoxFuture<'static, ()> {
+        Box::pin(async move {
+            tracing::info!(%event.endpoint_id, %event.success, "attempt finished");
+        })
+    }
+
+    fn on_request_finished(&self, report: RequestReport) -> BoxFuture<'static, ()> {
+        Box::pin(async move {
+            // Audit log: persist to Nebula audit store
+            nebula_audit::record(report).await;
+        })
+    }
+
+    // called before the request is sent to the upstream driver
+    fn on_request(&self, req: &mut ProxyChatRequest) -> BoxFuture<'static, ()> {
+        Box::pin(async move {
+            // Inject a trace header via metadata (driver will forward it)
+            req.metadata
+                .entry("x-nebula-trace".to_string())
+                .or_insert_with(|| nebula_trace::current_trace_id());
+        })
+    }
+
+    // called for each chunk in a streaming chat response
+    fn on_stream_chunk(&self, chunk: &ChatResponseChunk) -> BoxFuture<'static, ()> {
+        Box::pin(async move {
+            if let Some(ref text) = chunk.delta {
+                nebula_metrics::record_token(chunk, text.len());
+            }
+        })
+    }
+}
+
+let engine = UniGatewayEngine::builder()
+    .with_builtin_http_drivers()
+    .with_hooks(Arc::new(NebulaHooks))
+    .build()?;
+```
+
+### 8.4 Runtime pool/endpoint updates (no restart)
+
+Production changes (disable an endpoint, adjust weight) must not require a
+process restart. Use the fine-grained engine APIs (added in UniGateway 1.6.0):
+
+```rust
+// Disable an endpoint (e.g. circuit-breaker opened):
+engine.update_endpoint_metadata(
+    "my-service",
+    "ep-1",
+    std::collections::HashMap::from([
+        ("enabled".to_string(), "false".to_string()),
+    ]),
+).await?;
+
+// Update an endpoint's weight:
+engine.update_endpoint_metadata(
+    "my-service",
+    "ep-1",
+    std::collections::HashMap::from([
+        ("weight".to_string(), "3".to_string()),
+    ]),
+).await?;
+
+// Change a pool's retry policy at runtime:
+engine.update_pool_config(
+    "my-service",
+    None,  // keep existing load-balancing
+    Some(RetryPolicy {
+        max_attempts: 3,
+        per_attempt_timeout: Some(std::time::Duration::from_secs(30)),
+        ..Default::default()
+    }),
+).await?;
+```
+
+> **Tip:** call these methods from a Nebula control-plane watcher (e.g. etcd watch
+> callback), so pool state stays in sync without manual intervention.
+
+### 8.5 Integration checklist
+
+- [ ] `UniGatewayEngine::with_builtin_http_drivers()` or custom `DriverRegistry` configured
+- [ ] `GatewayHooks` implemented and attached (audit, tracing, header injection)
+- [ ] `PoolHost` implemented with local cache (for dynamic endpoint state)
+- [ ] External routing uses `HostDispatchTarget::Pool(...)` (Nebula decides, UG executes)
+- [ ] Runtime updates use `engine.update_endpoint_metadata()` / `update_pool_config()`
+- [ ] `cargo test --workspace` passes
+- [ ] `cargo clippy --workspace --all-targets -- -D warnings` clean

@@ -19,6 +19,7 @@
 | [`config.md`](guide/config.md) | `unigateway.toml` 字段与同步到 core 的规则 |
 | [`providers.md`](guide/providers.md) | 常见 Provider 的 TOML 与调用示例 |
 | [`embed.md`](guide/embed.md) | 在其它 Rust 应用中嵌入（配合 `dev/embed-sdk.md`） |
+| [`embedder_patterns.md`](guide/embedder_patterns.md) | 生产环境嵌入模式：动态状态感知、外置路由、GatewayHooks 扩展、运行时刷新 |
 
 ## dev
 

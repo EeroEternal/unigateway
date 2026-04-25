@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use futures_util::future::BoxFuture;
 
 use crate::pool::{EndpointId, PoolId, RequestId};
-use crate::response::RequestReport;
+use crate::request::ProxyChatRequest;
+use crate::response::{ChatResponseChunk, RequestReport};
 
 /// Telemetry and lifecycle hooks for the gateway engine.
 ///
@@ -37,6 +38,26 @@ pub trait GatewayHooks: Send + Sync + 'static {
 
     /// Fired when the proxy session completes, successfully or fatally.
     fn on_request_finished(&self, report: RequestReport) -> BoxFuture<'static, ()>;
+
+    /// Called before a chat request is executed.
+    ///
+    /// Allows modifying the request (e.g. injecting headers, rewriting the model name,
+    /// or attaching trace metadata) before it is sent to the upstream driver.
+    ///
+    /// The default implementation is a no-op.
+    fn on_request(&self, _req: &mut ProxyChatRequest) -> BoxFuture<'static, ()> {
+        Box::pin(async {})
+    }
+
+    /// Called for each chunk in a streaming chat response.
+    ///
+    /// Useful for streaming observability, metrics collection, or auditing
+    /// without modifying the chunk itself.
+    ///
+    /// The default implementation is a no-op.
+    fn on_stream_chunk(&self, _chunk: &ChatResponseChunk) -> BoxFuture<'static, ()> {
+        Box::pin(async {})
+    }
 }
 
 /// Snapshot of context when a driver attempt begins.
