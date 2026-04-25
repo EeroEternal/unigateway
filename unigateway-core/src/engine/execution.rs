@@ -4,6 +4,7 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::drivers::{DriverEndpointContext, ProviderDriver};
 use crate::error::GatewayError;
 use crate::hooks::AttemptStartedEvent;
+use futures_util::StreamExt;
 use crate::request::{ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest};
 use crate::response::{
     ChatResponseChunk, ChatResponseFinal, CompletedResponse, EmbeddingsResponse, ProxySession,
@@ -22,9 +23,13 @@ impl UniGatewayEngine {
     /// Returns a session representing the lifecycle of the response stream or monolithic text.
     pub async fn proxy_chat(
         &self,
-        request: ProxyChatRequest,
+        mut request: ProxyChatRequest,
         target: crate::pool::ExecutionTarget,
     ) -> Result<ProxySession<ChatResponseChunk, ChatResponseFinal>, GatewayError> {
+        if let Some(hooks) = &self.inner.hooks {
+            hooks.on_request(&mut request).await;
+        }
+
         let snapshot = self.execution_snapshot(&target).await?;
         let endpoints = self.attempt_endpoints(&snapshot).await?;
         let total_attempts = endpoints.len();
@@ -121,7 +126,21 @@ impl UniGatewayEngine {
                     aimd.on_success();
                     return Ok(ProxySession::Completed(result));
                 }
-                Ok(ProxySession::Streaming(streaming)) => {
+                Ok(ProxySession::Streaming(mut streaming)) => {
+                    // Wrap the stream so on_stream_chunk is called for each chunk.
+                    if let Some(hooks) = &self.inner.hooks {
+                        let hooks = hooks.clone();
+                        streaming.stream = Box::pin(streaming.stream.then(move |result| {
+                            let hooks = hooks.clone();
+                            async move {
+                                if let Ok(ref chunk) = result {
+                                    hooks.on_stream_chunk(chunk).await;
+                                }
+                                result
+                            }
+                        }));
+                    }
+
                     return Ok(ProxySession::Streaming(with_streaming_attempt_reports(
                         streaming,
                         StreamingAttemptContext {

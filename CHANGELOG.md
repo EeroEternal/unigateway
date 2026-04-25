@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.7.0]
+
+UniGateway v1.7.0 is an **embedder-extensibility release**: the `GatewayHooks` trait now supports request modification and streaming-chunk observation, and `UniGatewayEngine` gains fine-grained runtime update APIs.
+
+### Added
+
+* **`GatewayHooks::on_request`** — called before a chat request is executed; accepts `&mut ProxyChatRequest` so embedders can inject headers, rewrite the model name, or attach trace metadata. Default implementation is a no-op, so existing `GatewayHooks` implementors are unaffected (semver-compatible).
+* **`GatewayHooks::on_stream_chunk`** — called for each chunk in a streaming chat response; useful for streaming observability, metrics collection, or auditing without modifying the chunk. Default implementation is a no-op.
+* **`UniGatewayEngine::update_endpoint_metadata`** — partially updates metadata for a specific endpoint within a pool without a full `upsert_pool`. Intended for dynamic state (weight, circuit-breaker) pushed by a control plane (e.g. Nebula).
+* **`UniGatewayEngine::update_pool_config`** — updates the load-balancing strategy and/or retry policy for a pool without requiring a full pool upsert.
+
+### Docs
+
+* `docs/guide/embed.md` — updated `GatewayHooks` example to show `on_request` and `on_stream_chunk`; added section 8 "Nebula integration patterns".
+* `docs/guide/embedder_patterns.md` — new file covering reactive `PoolHost`, explicit external routing, `GatewayHooks` extension, and runtime pool/endpoint updates.
+
+### Validation
+
+* Workspace `fmt`, `clippy -D warnings`, and `test` pass on the 1.7.0 line.
+
 ## [1.6.0]
 
 UniGateway v1.6.0 is a **product-shape release**: the repository is now a **library workspace** only. The supported public dependency for new projects is **`unigateway-sdk`**.

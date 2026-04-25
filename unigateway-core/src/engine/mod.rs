@@ -112,6 +112,55 @@ impl UniGatewayEngine {
         pools
     }
 
+    /// Partially updates metadata for a specific endpoint within a pool.
+    ///
+    /// Merges the provided metadata keys into the endpoint's existing metadata.
+    /// Returns an error if the pool or endpoint is not found.
+    pub async fn update_endpoint_metadata(
+        &self,
+        pool_id: &str,
+        endpoint_id: &str,
+        metadata: std::collections::HashMap<String, String>,
+    ) -> Result<(), GatewayError> {
+        let mut guard = self.inner.pools.write().await;
+        let pool = guard
+            .get_mut(pool_id)
+            .ok_or_else(|| GatewayError::PoolNotFound(pool_id.to_string()))?;
+        let endpoint = pool
+            .endpoints
+            .iter_mut()
+            .find(|ep| ep.endpoint_id == endpoint_id)
+            .ok_or_else(|| {
+                GatewayError::InvalidRequest(format!(
+                    "endpoint {} not found in pool {}",
+                    endpoint_id, pool_id
+                ))
+            })?;
+        endpoint.metadata.extend(metadata);
+        Ok(())
+    }
+
+    /// Updates the load-balancing strategy and/or retry policy for a pool
+    /// without requiring a full pool upsert.
+    pub async fn update_pool_config(
+        &self,
+        pool_id: &str,
+        load_balancing: Option<crate::LoadBalancingStrategy>,
+        retry_policy: Option<RetryPolicy>,
+    ) -> Result<(), GatewayError> {
+        let mut guard = self.inner.pools.write().await;
+        let pool = guard
+            .get_mut(pool_id)
+            .ok_or_else(|| GatewayError::PoolNotFound(pool_id.to_string()))?;
+        if let Some(lb) = load_balancing {
+            pool.load_balancing = lb;
+        }
+        if let Some(rp) = retry_policy {
+            pool.retry_policy = rp;
+        }
+        Ok(())
+    }
+
     pub(crate) async fn execution_snapshot(
         &self,
         target: &ExecutionTarget,
