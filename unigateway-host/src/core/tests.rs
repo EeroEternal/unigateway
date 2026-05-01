@@ -6,7 +6,7 @@ use tokio::sync::oneshot;
 use unigateway_core::{
     ChatResponseChunk, ChatResponseFinal, CompletedResponse, Endpoint, EndpointRef, ExecutionPlan,
     ExecutionTarget, GatewayError, ModelPolicy, ProviderKind, ProxyResponsesRequest, ProxySession,
-    RequestReport, SecretString, StreamingResponse,
+    RequestKind, RequestReport, SecretString, StreamingResponse,
 };
 use unigateway_protocol::testing::{
     OpenAiChatStreamAdapter, anthropic_completed_chat_body, openai_completed_chat_body,
@@ -196,9 +196,11 @@ fn anthropic_completed_body_normalizes_openai_provider_output() {
         },
         report: RequestReport {
             request_id: "req_123".to_string(),
+            correlation_id: "req_123".to_string(),
             pool_id: Some("svc".to_string()),
             selected_endpoint_id: "zhipu-main".to_string(),
             selected_provider: ProviderKind::OpenAiCompatible,
+            kind: RequestKind::Chat,
             attempts: Vec::new(),
             usage: Some(unigateway_core::TokenUsage {
                 input_tokens: Some(10),
@@ -208,6 +210,8 @@ fn anthropic_completed_body_normalizes_openai_provider_output() {
             latency_ms: 12,
             started_at: std::time::SystemTime::UNIX_EPOCH,
             finished_at: std::time::SystemTime::UNIX_EPOCH,
+            error_kind: None,
+            stream: None,
             metadata: HashMap::from([(
                 unigateway_protocol::ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
                 "claude-3-5-sonnet-latest".to_string(),
@@ -269,14 +273,18 @@ fn anthropic_completed_body_converts_openai_tool_calls_to_tool_use() {
         },
         report: RequestReport {
             request_id: "req_tool_1".to_string(),
+            correlation_id: "req_tool_1".to_string(),
             pool_id: Some("svc".to_string()),
             selected_endpoint_id: "zhipu-main".to_string(),
             selected_provider: ProviderKind::OpenAiCompatible,
+            kind: RequestKind::Chat,
             attempts: Vec::new(),
             usage: None,
             latency_ms: 12,
             started_at: std::time::SystemTime::UNIX_EPOCH,
             finished_at: std::time::SystemTime::UNIX_EPOCH,
+            error_kind: None,
+            stream: None,
             metadata: HashMap::from([(
                 ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
                 "claude-3-5-sonnet-latest".to_string(),
@@ -352,14 +360,18 @@ fn anthropic_completed_body_converts_openai_reasoning_to_thinking_block() {
         },
         report: RequestReport {
             request_id: "req_reasoning_1".to_string(),
+            correlation_id: "req_reasoning_1".to_string(),
             pool_id: Some("svc".to_string()),
             selected_endpoint_id: "zhipu-main".to_string(),
             selected_provider: ProviderKind::OpenAiCompatible,
+            kind: RequestKind::Chat,
             attempts: Vec::new(),
             usage: None,
             latency_ms: 12,
             started_at: std::time::SystemTime::UNIX_EPOCH,
             finished_at: std::time::SystemTime::UNIX_EPOCH,
+            error_kind: None,
+            stream: None,
             metadata: HashMap::from([(
                 ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
                 "claude-3-5-sonnet-latest".to_string(),
@@ -401,9 +413,11 @@ fn openai_completed_body_normalizes_anthropic_provider_output() {
         },
         report: RequestReport {
             request_id: "req_456".to_string(),
+            correlation_id: "req_456".to_string(),
             pool_id: Some("svc".to_string()),
             selected_endpoint_id: "anthropic-main".to_string(),
             selected_provider: ProviderKind::Anthropic,
+            kind: RequestKind::Chat,
             attempts: Vec::new(),
             usage: Some(unigateway_core::TokenUsage {
                 input_tokens: Some(10),
@@ -413,6 +427,8 @@ fn openai_completed_body_normalizes_anthropic_provider_output() {
             latency_ms: 10,
             started_at: std::time::SystemTime::UNIX_EPOCH,
             finished_at: std::time::SystemTime::UNIX_EPOCH,
+            error_kind: None,
+            stream: None,
             metadata: HashMap::new(),
         },
     });
@@ -455,9 +471,11 @@ async fn anthropic_stream_renderer_converts_openai_tool_call_deltas() {
                 },
                 report: RequestReport {
                     request_id: "req_stream_1".to_string(),
+                    correlation_id: "req_stream_1".to_string(),
                     pool_id: Some("svc".to_string()),
                     selected_endpoint_id: "zhipu-main".to_string(),
                     selected_provider: ProviderKind::OpenAiCompatible,
+                    kind: RequestKind::Chat,
                     attempts: Vec::new(),
                     usage: Some(unigateway_core::TokenUsage {
                         input_tokens: Some(7),
@@ -467,6 +485,8 @@ async fn anthropic_stream_renderer_converts_openai_tool_call_deltas() {
                     latency_ms: 8,
                     started_at: std::time::SystemTime::UNIX_EPOCH,
                     finished_at: std::time::SystemTime::UNIX_EPOCH,
+                    error_kind: None,
+                    stream: None,
                     metadata: HashMap::new(),
                 },
             }))
@@ -624,9 +644,11 @@ async fn anthropic_stream_renderer_converts_openai_reasoning_deltas_to_thinking_
                 },
                 report: RequestReport {
                     request_id: "req_stream_reasoning_1".to_string(),
+                    correlation_id: "req_stream_reasoning_1".to_string(),
                     pool_id: Some("svc".to_string()),
                     selected_endpoint_id: "zhipu-main".to_string(),
                     selected_provider: ProviderKind::OpenAiCompatible,
+                    kind: RequestKind::Chat,
                     attempts: Vec::new(),
                     usage: Some(unigateway_core::TokenUsage {
                         input_tokens: Some(6),
@@ -636,6 +658,8 @@ async fn anthropic_stream_renderer_converts_openai_reasoning_deltas_to_thinking_
                     latency_ms: 8,
                     started_at: std::time::SystemTime::UNIX_EPOCH,
                     finished_at: std::time::SystemTime::UNIX_EPOCH,
+                    error_kind: None,
+                    stream: None,
                     metadata: HashMap::new(),
                 },
             }))
@@ -744,9 +768,11 @@ async fn anthropic_stream_renderer_flushes_unfinished_tool_calls_with_placeholde
                 },
                 report: RequestReport {
                     request_id: "req_stream_2".to_string(),
+                    correlation_id: "req_stream_2".to_string(),
                     pool_id: Some("svc".to_string()),
                     selected_endpoint_id: "zhipu-main".to_string(),
                     selected_provider: ProviderKind::OpenAiCompatible,
+                    kind: RequestKind::Chat,
                     attempts: Vec::new(),
                     usage: Some(unigateway_core::TokenUsage {
                         input_tokens: Some(5),
@@ -756,6 +782,8 @@ async fn anthropic_stream_renderer_flushes_unfinished_tool_calls_with_placeholde
                     latency_ms: 8,
                     started_at: std::time::SystemTime::UNIX_EPOCH,
                     finished_at: std::time::SystemTime::UNIX_EPOCH,
+                    error_kind: None,
+                    stream: None,
                     metadata: HashMap::new(),
                 },
             }))
@@ -828,9 +856,11 @@ async fn anthropic_stream_renderer_multiplexes_interleaved_tool_calls() {
                 },
                 report: RequestReport {
                     request_id: "req_stream_3".to_string(),
+                    correlation_id: "req_stream_3".to_string(),
                     pool_id: Some("svc".to_string()),
                     selected_endpoint_id: "zhipu-main".to_string(),
                     selected_provider: ProviderKind::OpenAiCompatible,
+                    kind: RequestKind::Chat,
                     attempts: Vec::new(),
                     usage: Some(unigateway_core::TokenUsage {
                         input_tokens: Some(10),
@@ -840,6 +870,8 @@ async fn anthropic_stream_renderer_multiplexes_interleaved_tool_calls() {
                     latency_ms: 8,
                     started_at: std::time::SystemTime::UNIX_EPOCH,
                     finished_at: std::time::SystemTime::UNIX_EPOCH,
+                    error_kind: None,
+                    stream: None,
                     metadata: HashMap::new(),
                 },
             }))

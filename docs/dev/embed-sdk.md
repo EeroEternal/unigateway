@@ -52,7 +52,7 @@
 
 ```toml
 [dependencies]
-unigateway-sdk = "1.6"
+unigateway-sdk = "1.7"
 ```
 
 当需要更细粒度控制时，嵌入方仍然可以直接依赖三层 crate；但那属于显式选择，不再是默认推荐路径。若混用底层 crate，应保持与 `unigateway-sdk` 同一 release line。
@@ -96,7 +96,7 @@ unigateway-sdk = "1.6"
 - 仓库 [`README.md`](../../README.md)：已补充 embedder 入口和版本共升说明。
 - `CHANGELOG.md`：已补充 `unigateway-sdk` 发布条目。
 
-当前版本约定：默认推荐直接依赖 `unigateway-sdk`；若混用 `unigateway-core`、`unigateway-protocol`、`unigateway-host`，应保持同一 release line（例如与 `1.6.x` 对齐）。
+当前版本约定：默认推荐直接依赖 `unigateway-sdk`；若混用 `unigateway-core`、`unigateway-protocol`、`unigateway-host`，应保持同一 release line（例如与 `1.7.x` 对齐）。
 
 ## 7. 与 `refactor-baseline.md` 的分工
 
@@ -126,7 +126,7 @@ unigateway-sdk = "1.6"
 
 从兼容策略角度，需要明确告诉审计方的点有两个：
 
-- **保守兼容的部分**：`embed` feature 没有删除，只是降级为兼容别名；默认依赖路径仍然保持简单的 `unigateway-sdk = "1.6"`（或与你锁定的 minor 对齐）。
+- **保守兼容的部分**：`embed` feature 没有删除，只是降级为兼容别名；默认依赖路径仍然保持简单的 `unigateway-sdk = "1.7"`（或与你锁定的 minor 对齐）。
 - **真实 public API 变化的部分**：`PoolHost` / `EnvPoolHost` 的返回签名从 `Result<Option<ProviderPool>>` 变成了 `Result<PoolLookupOutcome>`。这使 contract 更清晰，但也意味着实现这些 trait 的 embedder 代码需要跟着调整。
 - **semver 处理方式**：公共 contract 的收紧应在 changelog 中单列 `Breaking Changes`，避免 patch 升级 silently 打穿下游实现。
 

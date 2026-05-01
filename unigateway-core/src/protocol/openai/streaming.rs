@@ -4,14 +4,14 @@ use std::time::SystemTime;
 use futures_util::StreamExt;
 use serde_json::Value;
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::drivers::DriverEndpointContext;
 use crate::error::GatewayError;
 use crate::request::{ProxyChatRequest, ProxyResponsesRequest};
 use crate::response::{
-    ChatResponseChunk, ChatResponseFinal, CompletedResponse, ProxySession, ResponsesEvent,
-    ResponsesFinal, StreamingResponse, TokenUsage,
+    ChatResponseChunk, ChatResponseFinal, CompletedResponse, ProxySession, RequestKind,
+    ResponsesEvent, ResponsesFinal, StreamingResponse, TokenUsage,
 };
 use crate::transport::{HttpTransport, TransportByteStream};
 
@@ -25,6 +25,7 @@ struct OpenAiChatStreamState {
     usage: Option<TokenUsage>,
     raw_events: Vec<Value>,
     done: bool,
+    downstream_detached: bool,
 }
 
 #[derive(Default)]
@@ -33,6 +34,7 @@ struct OpenAiResponsesStreamState {
     usage: Option<TokenUsage>,
     raw_events: Vec<Value>,
     done: bool,
+    downstream_detached: bool,
 }
 
 pub(super) async fn start_chat_stream(
@@ -44,7 +46,7 @@ pub(super) async fn start_chat_stream(
     let started_at = SystemTime::now();
     let transport_request = build_chat_request(&endpoint, &request)?;
     let transport_response = transport.send_stream(transport_request).await?;
-    let (chunk_tx, chunk_rx) = mpsc::channel(16);
+    let (chunk_tx, chunk_rx) = mpsc::unbounded_channel();
     let (completion_tx, completion_rx) = tokio::sync::oneshot::channel();
     let completion_request_id = request_id.clone();
 
@@ -61,7 +63,7 @@ pub(super) async fn start_chat_stream(
     });
 
     Ok(ProxySession::Streaming(StreamingResponse {
-        stream: Box::pin(ReceiverStream::new(chunk_rx)),
+        stream: Box::pin(UnboundedReceiverStream::new(chunk_rx)),
         completion: completion_rx,
         request_id,
         request_metadata: request.metadata.clone(),
@@ -77,7 +79,7 @@ pub(super) async fn start_responses_stream(
     let started_at = SystemTime::now();
     let transport_request = build_responses_request(&endpoint, &request)?;
     let transport_response = transport.send_stream(transport_request).await?;
-    let (event_tx, event_rx) = mpsc::channel(16);
+    let (event_tx, event_rx) = mpsc::unbounded_channel();
     let (completion_tx, completion_rx) = tokio::sync::oneshot::channel();
     let completion_request_id = request_id.clone();
 
@@ -94,7 +96,7 @@ pub(super) async fn start_responses_stream(
     });
 
     Ok(ProxySession::Streaming(StreamingResponse {
-        stream: Box::pin(ReceiverStream::new(event_rx)),
+        stream: Box::pin(UnboundedReceiverStream::new(event_rx)),
         completion: completion_rx,
         request_id,
         request_metadata: request.metadata.clone(),
@@ -103,7 +105,7 @@ pub(super) async fn start_responses_stream(
 
 async fn drive_chat_stream(
     mut upstream: TransportByteStream,
-    chunk_tx: mpsc::Sender<Result<ChatResponseChunk, GatewayError>>,
+    chunk_tx: mpsc::UnboundedSender<Result<ChatResponseChunk, GatewayError>>,
     endpoint: DriverEndpointContext,
     started_at: SystemTime,
     request_id: String,
@@ -144,7 +146,7 @@ async fn drive_chat_stream(
 
 async fn drive_responses_stream(
     mut upstream: TransportByteStream,
-    event_tx: mpsc::Sender<Result<ResponsesEvent, GatewayError>>,
+    event_tx: mpsc::UnboundedSender<Result<ResponsesEvent, GatewayError>>,
     endpoint: DriverEndpointContext,
     started_at: SystemTime,
     request_id: String,
@@ -184,7 +186,7 @@ async fn drive_responses_stream(
 }
 
 async fn process_chat_frame(
-    chunk_tx: &mpsc::Sender<Result<ChatResponseChunk, GatewayError>>,
+    chunk_tx: &mpsc::UnboundedSender<Result<ChatResponseChunk, GatewayError>>,
     endpoint: &DriverEndpointContext,
     state: &mut OpenAiChatStreamState,
     frame: super::super::ParsedSseEvent,
@@ -221,14 +223,15 @@ async fn process_chat_frame(
 
     state.raw_events.push(raw.clone());
 
-    chunk_tx
-        .send(Ok(ChatResponseChunk { delta, raw }))
-        .await
-        .map_err(|_| downstream_closed(&endpoint.endpoint_id))
+    if !state.downstream_detached && chunk_tx.send(Ok(ChatResponseChunk { delta, raw })).is_err() {
+        state.downstream_detached = true;
+    }
+
+    Ok(())
 }
 
 async fn process_responses_frame(
-    event_tx: &mpsc::Sender<Result<ResponsesEvent, GatewayError>>,
+    event_tx: &mpsc::UnboundedSender<Result<ResponsesEvent, GatewayError>>,
     endpoint: &DriverEndpointContext,
     state: &mut OpenAiResponsesStreamState,
     frame: super::super::ParsedSseEvent,
@@ -267,13 +270,18 @@ async fn process_responses_frame(
 
     state.raw_events.push(raw.clone());
 
-    event_tx
-        .send(Ok(ResponsesEvent {
-            event_type,
-            data: raw,
-        }))
-        .await
-        .map_err(|_| downstream_closed(&endpoint.endpoint_id))
+    if !state.downstream_detached
+        && event_tx
+            .send(Ok(ResponsesEvent {
+                event_type,
+                data: raw,
+            }))
+            .is_err()
+    {
+        state.downstream_detached = true;
+    }
+
+    Ok(())
 }
 
 fn finalize_chat_stream(
@@ -298,6 +306,7 @@ fn finalize_chat_stream(
             started_at,
             finished_at,
             state.usage,
+            RequestKind::Chat,
             Some(request_id),
         ),
     })
@@ -324,13 +333,14 @@ fn finalize_responses_stream(
             started_at,
             finished_at,
             state.usage,
+            RequestKind::Responses,
             Some(request_id),
         ),
     })
 }
 
 async fn fail_stream<Item, Final>(
-    sender: &mpsc::Sender<Result<Item, GatewayError>>,
+    sender: &mpsc::UnboundedSender<Result<Item, GatewayError>>,
     endpoint_id: &str,
     message: String,
 ) -> Result<CompletedResponse<Final>, GatewayError> {
@@ -338,16 +348,9 @@ async fn fail_stream<Item, Final>(
         message: message.clone(),
         endpoint_id: endpoint_id.to_string(),
     };
-    let _ = sender.send(Err(stream_error)).await;
+    let _ = sender.send(Err(stream_error));
     Err(GatewayError::StreamAborted {
         message,
         endpoint_id: endpoint_id.to_string(),
     })
-}
-
-fn downstream_closed(endpoint_id: &str) -> GatewayError {
-    GatewayError::StreamAborted {
-        message: "downstream stream receiver dropped".to_string(),
-        endpoint_id: endpoint_id.to_string(),
-    }
 }

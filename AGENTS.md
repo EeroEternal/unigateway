@@ -30,6 +30,23 @@ docs/dev/                 # 路线图、贡献者 memory、集成草稿（`dev/`
 - 全文索引：[`docs/README.md`](docs/README.md)
 - 嵌入栈与 SDK 门面规划：[`docs/dev/embed-sdk.md`](docs/dev/embed-sdk.md)
 
+## UniGateway 边界（强约束）
+
+以下边界是本仓库的硬约束；代理与维护者都不应为了某个上层产品的短期需求而突破。
+
+- **UniGateway MUST 保持为可嵌入的库 workspace**，提供执行引擎、协议翻译、host bridge、配置投影与中立扩展点；它不是一个内建完整产品壳的 opinionated gateway framework。
+- **UniGateway MUST 优先下沉中立原语**：例如 request / attempt / stream 生命周期事件、标准 report 类型、错误分类入口、配置模型、可注入策略接口、与 runtime 无关的执行抽象。
+- **UniGateway MUST NOT 吸收宿主产品职责**：包括但不限于 HTTP server、CLI 产品壳、用户与租户管理、认证鉴权、预算与计费、后台管理 API、数据库持久化、审计落库、异步任务编排、运营面板与产品化工作流。
+- **UniGateway MUST NOT 内置业务语义或产品策略**：例如强产品倾向的评分公式、路由权重规则、租户规则、价格规则、配额规则、风控规则、后台聚合逻辑。仓库内只允许中立接口与可替换策略槽，不允许把具体业务决策写死到 core / host / protocol crate。
+- **UniGateway crate 之间 MUST 避免对上层应用语义产生反向耦合**：不要把某个宿主应用、某类产品后台、某个特定业务策略模块、某个特定存储模型或某个特定 Web 框架假设引入到公共 crate 的 API 或依赖中。
+- **当新增能力时，若该能力同时需要“原始事件”和“业务解释”两层含义，UniGateway 只负责前者**；后者必须留在宿主层或额外的集成层实现。
+- **当边界不清楚时，默认做更窄的 UniGateway**：宁可只暴露 hook、report、trait、metadata 和反馈入口，也不要把上层产品逻辑提前沉入本仓库。
+
+一个简单判断标准：
+
+- 如果某能力脱离具体宿主产品后仍然是通用、可复用、运行时无关的库能力，可以考虑进入 UniGateway。
+- 如果某能力依赖产品策略、租户语义、运营规则、存储模型或后台展示，则它不属于 UniGateway，应留在宿主或单独集成层。
+
 ## 构建与测试
 
 ```bash

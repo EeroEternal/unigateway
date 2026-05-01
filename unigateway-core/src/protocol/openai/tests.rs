@@ -607,6 +607,64 @@ async fn openai_driver_executes_streaming_chat() {
 }
 
 #[tokio::test]
+async fn openai_driver_streaming_chat_completion_survives_dropped_stream() {
+    let transport = Arc::new(MockTransport {
+        response: None,
+        stream_chunks: Some(vec![
+            b"data: {\"id\":\"chatcmpl-1\",\"model\":\"gpt-4o-mini\",\"choices\":[{\"delta\":{\"content\":\"hel\"}}]}\n\n".to_vec(),
+            b"data: {\"id\":\"chatcmpl-1\",\"model\":\"gpt-4o-mini\",\"choices\":[{\"delta\":{\"content\":\"lo\"}}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2,\"total_tokens\":7}}\n\n".to_vec(),
+            b"data: [DONE]\n\n".to_vec(),
+        ]),
+        seen: Arc::new(Mutex::new(Vec::new())),
+    });
+    let driver = OpenAiCompatibleDriver::new(transport);
+
+    let session = driver
+        .execute_chat(
+            endpoint(),
+            ProxyChatRequest {
+                model: "alias".to_string(),
+                messages: vec![Message {
+                    role: MessageRole::User,
+                    content: "hello".to_string(),
+                }],
+                system: None,
+                tools: None,
+                tool_choice: None,
+                raw_messages: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                max_tokens: None,
+                stop_sequences: None,
+                stream: true,
+                metadata: HashMap::new(),
+            },
+        )
+        .await
+        .expect("chat stream session");
+
+    match session {
+        ProxySession::Streaming(streaming) => {
+            let completion = streaming
+                .into_completion()
+                .await
+                .expect("completion result after dropped stream");
+            assert_eq!(completion.response.output_text.as_deref(), Some("hello"));
+            assert_eq!(
+                completion
+                    .report
+                    .usage
+                    .as_ref()
+                    .and_then(|usage| usage.total_tokens),
+                Some(7)
+            );
+        }
+        ProxySession::Completed(_) => panic!("expected streaming response"),
+    }
+}
+
+#[tokio::test]
 async fn openai_driver_executes_streaming_responses() {
     let transport = Arc::new(MockTransport {
         response: None,
@@ -662,6 +720,62 @@ async fn openai_driver_executes_streaming_responses() {
                 .await
                 .expect("completion receiver")
                 .expect("completion result");
+            assert_eq!(completion.response.output_text.as_deref(), Some("hello"));
+            assert_eq!(
+                completion
+                    .report
+                    .usage
+                    .as_ref()
+                    .and_then(|usage| usage.total_tokens),
+                Some(7)
+            );
+        }
+        ProxySession::Completed(_) => panic!("expected streaming response"),
+    }
+}
+
+#[tokio::test]
+async fn openai_driver_streaming_responses_completion_survives_dropped_stream() {
+    let transport = Arc::new(MockTransport {
+        response: None,
+        stream_chunks: Some(vec![
+            b"event: response.created\ndata: {\"response\":{\"id\":\"resp_1\"}}\n\n".to_vec(),
+            b"event: response.output_text.delta\ndata: {\"delta\":\"hello\"}\n\n".to_vec(),
+            b"event: response.completed\ndata: {\"response\":{\"usage\":{\"input_tokens\":3,\"output_tokens\":4,\"total_tokens\":7}}}\n\n".to_vec(),
+            b"data: [DONE]\n\n".to_vec(),
+        ]),
+        seen: Arc::new(Mutex::new(Vec::new())),
+    });
+    let driver = OpenAiCompatibleDriver::new(transport);
+
+    let session = driver
+        .execute_responses(
+            endpoint(),
+            ProxyResponsesRequest {
+                model: "gpt-4.1-mini".to_string(),
+                input: Some(json!([{"role": "user", "content": "hello"}])),
+                instructions: None,
+                temperature: None,
+                top_p: None,
+                max_output_tokens: None,
+                stream: true,
+                tools: None,
+                tool_choice: None,
+                previous_response_id: None,
+                request_metadata: None,
+                extra: HashMap::new(),
+                metadata: HashMap::new(),
+            },
+        )
+        .await
+        .expect("responses stream session");
+
+    match session {
+        ProxySession::Streaming(streaming) => {
+            let completion = streaming
+                .into_completion()
+                .await
+                .expect("completion result after dropped stream");
             assert_eq!(completion.response.output_text.as_deref(), Some("hello"));
             assert_eq!(
                 completion

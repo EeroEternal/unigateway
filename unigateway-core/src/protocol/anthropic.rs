@@ -6,7 +6,7 @@ use futures_util::StreamExt;
 use futures_util::future::BoxFuture;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::drivers::{DriverEndpointContext, ProviderDriver};
 use crate::error::GatewayError;
@@ -15,7 +15,7 @@ use crate::request::{
 };
 use crate::response::{
     ChatResponseChunk, ChatResponseFinal, CompletedResponse, EmbeddingsResponse, ProxySession,
-    ResponsesEvent, ResponsesFinal, StreamingResponse, TokenUsage,
+    RequestKind, ResponsesEvent, ResponsesFinal, StreamingResponse, TokenUsage,
 };
 use crate::transport::{HttpTransport, TransportByteStream, TransportRequest};
 
@@ -71,7 +71,14 @@ impl ProviderDriver for AnthropicDriver {
 
             Ok(ProxySession::Completed(CompletedResponse {
                 response: response_body,
-                report: build_request_report(&endpoint, started_at, finished_at, usage, None),
+                report: build_request_report(
+                    &endpoint,
+                    started_at,
+                    finished_at,
+                    usage,
+                    RequestKind::Chat,
+                    None,
+                ),
             }))
         })
     }
@@ -103,7 +110,7 @@ async fn start_chat_stream(
     let started_at = SystemTime::now();
     let transport_request = build_chat_request(&endpoint, &request)?;
     let transport_response = transport.send_stream(transport_request).await?;
-    let (chunk_tx, chunk_rx) = mpsc::channel(16);
+    let (chunk_tx, chunk_rx) = mpsc::unbounded_channel();
     let (completion_tx, completion_rx) = tokio::sync::oneshot::channel();
     let completion_request_id = request_id.clone();
 
@@ -120,7 +127,7 @@ async fn start_chat_stream(
     });
 
     Ok(ProxySession::Streaming(StreamingResponse {
-        stream: Box::pin(ReceiverStream::new(chunk_rx)),
+        stream: Box::pin(UnboundedReceiverStream::new(chunk_rx)),
         completion: completion_rx,
         request_id,
         request_metadata: request.metadata.clone(),
@@ -134,11 +141,12 @@ struct AnthropicChatStreamState {
     usage: Option<TokenUsage>,
     raw_events: Vec<Value>,
     done: bool,
+    downstream_detached: bool,
 }
 
 async fn drive_chat_stream(
     mut upstream: TransportByteStream,
-    chunk_tx: mpsc::Sender<Result<ChatResponseChunk, GatewayError>>,
+    chunk_tx: mpsc::UnboundedSender<Result<ChatResponseChunk, GatewayError>>,
     endpoint: DriverEndpointContext,
     started_at: SystemTime,
     request_id: String,
@@ -178,7 +186,7 @@ async fn drive_chat_stream(
 }
 
 async fn process_chat_frame(
-    chunk_tx: &mpsc::Sender<Result<ChatResponseChunk, GatewayError>>,
+    chunk_tx: &mpsc::UnboundedSender<Result<ChatResponseChunk, GatewayError>>,
     endpoint: &DriverEndpointContext,
     state: &mut AnthropicChatStreamState,
     frame: super::ParsedSseEvent,
@@ -235,10 +243,11 @@ async fn process_chat_frame(
 
     state.raw_events.push(raw.clone());
 
-    chunk_tx
-        .send(Ok(ChatResponseChunk { delta, raw }))
-        .await
-        .map_err(|_| downstream_closed(&endpoint.endpoint_id))
+    if !state.downstream_detached && chunk_tx.send(Ok(ChatResponseChunk { delta, raw })).is_err() {
+        state.downstream_detached = true;
+    }
+
+    Ok(())
 }
 
 fn finalize_chat_stream(
@@ -263,13 +272,14 @@ fn finalize_chat_stream(
             started_at,
             finished_at,
             state.usage,
+            RequestKind::Chat,
             Some(request_id),
         ),
     })
 }
 
 async fn fail_stream<Item, Final>(
-    sender: &mpsc::Sender<Result<Item, GatewayError>>,
+    sender: &mpsc::UnboundedSender<Result<Item, GatewayError>>,
     endpoint_id: &str,
     message: String,
 ) -> Result<CompletedResponse<Final>, GatewayError> {
@@ -277,18 +287,11 @@ async fn fail_stream<Item, Final>(
         message: message.clone(),
         endpoint_id: endpoint_id.to_string(),
     };
-    let _ = sender.send(Err(stream_error)).await;
+    let _ = sender.send(Err(stream_error));
     Err(GatewayError::StreamAborted {
         message,
         endpoint_id: endpoint_id.to_string(),
     })
-}
-
-fn downstream_closed(endpoint_id: &str) -> GatewayError {
-    GatewayError::StreamAborted {
-        message: "downstream stream receiver dropped".to_string(),
-        endpoint_id: endpoint_id.to_string(),
-    }
 }
 
 pub fn build_chat_request(
@@ -688,6 +691,65 @@ mod tests {
                     .expect("completion receiver")
                     .expect("completion result");
                 assert_eq!(completion.report.request_id, streaming.request_id);
+                assert_eq!(completion.response.output_text.as_deref(), Some("hello"));
+                assert_eq!(
+                    completion
+                        .report
+                        .usage
+                        .as_ref()
+                        .and_then(|usage| usage.total_tokens),
+                    Some(15)
+                );
+            }
+            ProxySession::Completed(_) => panic!("expected streaming response"),
+        }
+    }
+
+    #[tokio::test]
+    async fn anthropic_driver_streaming_chat_completion_survives_dropped_stream() {
+        let transport = Arc::new(MockTransport {
+			response: None,
+			stream_chunks: Some(vec![
+				b"event: message_start\ndata: {\"type\":\"message_start\",\"model\":\"claude-3-5-sonnet\"}\n\n".to_vec(),
+				b"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}\n\n".to_vec(),
+				b"event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5}}\n\n".to_vec(),
+				b"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n".to_vec(),
+			]),
+			seen: Arc::new(Mutex::new(Vec::new())),
+		});
+        let driver = AnthropicDriver::new(transport);
+
+        let session = driver
+            .execute_chat(
+                endpoint(),
+                ProxyChatRequest {
+                    model: "claude-3-5-sonnet".to_string(),
+                    messages: vec![Message {
+                        role: MessageRole::User,
+                        content: "hello".to_string(),
+                    }],
+                    system: None,
+                    tools: None,
+                    tool_choice: None,
+                    raw_messages: None,
+                    temperature: None,
+                    top_p: None,
+                    top_k: None,
+                    max_tokens: Some(128),
+                    stop_sequences: None,
+                    stream: true,
+                    metadata: HashMap::new(),
+                },
+            )
+            .await
+            .expect("streaming chat session");
+
+        match session {
+            ProxySession::Streaming(streaming) => {
+                let completion = streaming
+                    .into_completion()
+                    .await
+                    .expect("completion result after dropped stream");
                 assert_eq!(completion.response.output_text.as_deref(), Some("hello"));
                 assert_eq!(
                     completion

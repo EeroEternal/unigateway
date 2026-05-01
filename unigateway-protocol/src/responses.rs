@@ -28,12 +28,18 @@ pub fn render_openai_chat_session(
             ProtocolHttpResponse::ok_json(openai_completed_chat_body(result))
         }
         ProxySession::Streaming(streaming) => {
-            let request_id = streaming.request_id.clone();
+            let StreamingResponse {
+                stream,
+                completion,
+                request_id,
+                request_metadata,
+            } = streaming;
+            let stream_request_id = request_id.clone();
             let adapter_state =
                 std::sync::Arc::new(std::sync::Mutex::new(OpenAiChatStreamAdapter::default()));
 
-            let stream = streaming.stream.flat_map(move |item| {
-                let request_id = request_id.clone();
+            let stream = stream.flat_map(move |item| {
+                let request_id = stream_request_id.clone();
                 let adapter_state = adapter_state.clone();
 
                 let chunks: Vec<Result<Bytes, io::Error>> = match item {
@@ -52,9 +58,16 @@ pub fn render_openai_chat_session(
             let done = futures_util::stream::once(async {
                 Ok::<Bytes, io::Error>(Bytes::from("data: [DONE]\n\n"))
             });
-            let completion = streaming.completion;
+            let completion_streaming = StreamingResponse {
+                stream: Box::pin(futures_util::stream::empty::<
+                    Result<ChatResponseChunk, unigateway_core::GatewayError>,
+                >()),
+                completion,
+                request_id: request_id.clone(),
+                request_metadata,
+            };
             tokio::spawn(async move {
-                let _ = completion.await;
+                let _ = completion_streaming.into_completion().await;
             });
 
             ProtocolHttpResponse::ok_sse(Box::pin(stream.chain(done)))
@@ -111,7 +124,13 @@ pub fn render_openai_responses_session(
             ProtocolHttpResponse::ok_json(body)
         }
         ProxySession::Streaming(streaming) => {
-            let stream = streaming.stream.map(|item| match item {
+            let StreamingResponse {
+                stream,
+                completion,
+                request_id,
+                request_metadata,
+            } = streaming;
+            let stream = stream.map(|item| match item {
                 Ok(event) => {
                     let mut data = event.data;
                     if let Some(object) = data.as_object_mut() {
@@ -130,9 +149,16 @@ pub fn render_openai_responses_session(
             let done = futures_util::stream::once(async {
                 Ok::<Bytes, io::Error>(Bytes::from("data: [DONE]\n\n"))
             });
-            let completion = streaming.completion;
+            let completion_streaming = StreamingResponse {
+                stream: Box::pin(futures_util::stream::empty::<
+                    Result<ResponsesEvent, unigateway_core::GatewayError>,
+                >()),
+                completion,
+                request_id,
+                request_metadata,
+            };
             tokio::spawn(async move {
-                let _ = completion.await;
+                let _ = completion_streaming.into_completion().await;
             });
 
             ProtocolHttpResponse::ok_sse(Box::pin(stream.chain(done)))
@@ -527,12 +553,8 @@ async fn drive_anthropic_chat_stream(
         }
     }
 
-    let completion = match streaming.completion.await {
-        Ok(Ok(completed)) => completed,
-        Ok(Err(error)) => {
-            let _ = sender.send(Err(io::Error::other(error.to_string()))).await;
-            return;
-        }
+    let completion = match streaming.into_completion().await {
+        Ok(completed) => completed,
         Err(error) => {
             let _ = sender.send(Err(io::Error::other(error.to_string()))).await;
             return;

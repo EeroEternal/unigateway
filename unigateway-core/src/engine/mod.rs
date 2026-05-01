@@ -5,11 +5,12 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::drivers::{DriverEndpointContext, DriverRegistry, ProviderDriver};
 use crate::error::GatewayError;
-use crate::hooks::{AttemptFinishedEvent, AttemptStartedEvent, GatewayHooks};
+use crate::feedback::RoutingFeedbackProvider;
+use crate::hooks::{AttemptFinishedEvent, AttemptStartedEvent, GatewayHooks, RequestStartedEvent};
 use crate::pool::{
     Endpoint, ExecutionTarget, PoolId, PoolSummary, ProviderKind, ProviderPool, RequestId,
 };
-use crate::response::{AttemptReport, RequestReport};
+use crate::response::{AttemptReport, RequestKind, RequestReport};
 use crate::retry::RetryPolicy;
 use crate::routing::ExecutionSnapshot;
 
@@ -30,6 +31,7 @@ struct EngineState {
     pools: RwLock<std::collections::HashMap<PoolId, ProviderPool>>,
     rr_counters: Mutex<std::collections::HashMap<String, usize>>,
     hooks: Option<Arc<dyn GatewayHooks>>,
+    routing_feedback_provider: Option<Arc<dyn RoutingFeedbackProvider>>,
     driver_registry: Option<Arc<dyn DriverRegistry>>,
     default_retry_policy: RetryPolicy,
     default_timeout: Option<Duration>,
@@ -58,6 +60,8 @@ struct FailedRequestContext {
 pub struct UniGatewayEngineBuilder {
     /// Registered global hooks for the builder
     pub hooks: Option<Arc<dyn GatewayHooks>>,
+    /// Optional provider for neutral endpoint routing feedback.
+    pub routing_feedback_provider: Option<Arc<dyn RoutingFeedbackProvider>>,
     /// Pluggable driver registry defining supported transports and providers
     pub driver_registry: Option<Arc<dyn DriverRegistry>>,
     /// Global backoff/retry algorithm for any stateless execution
@@ -171,6 +175,7 @@ impl UniGatewayEngine {
             target,
             &self.inner.default_retry_policy,
             self.inner.default_timeout,
+            self.inner.routing_feedback_provider.as_ref(),
         )
     }
 
@@ -207,6 +212,10 @@ impl UniGatewayEngine {
         emit_attempt_started_hook(self.inner.hooks.clone(), event).await;
     }
 
+    async fn emit_request_started(&self, event: RequestStartedEvent) {
+        reporting::emit_request_started_hook(self.inner.hooks.clone(), event).await;
+    }
+
     async fn emit_attempt_finished(&self, event: AttemptFinishedEvent) {
         emit_attempt_finished_hook(self.inner.hooks.clone(), event).await;
     }
@@ -220,12 +229,20 @@ impl UniGatewayEngine {
         context: FailedRequestContext,
         attempts: Vec<AttemptReport>,
         error: GatewayError,
+        kind: RequestKind,
     ) -> GatewayError {
         if attempts.is_empty() {
             return error;
         }
 
-        let report = build_failed_request_report(&context, attempts.clone(), SystemTime::now());
+        let report = build_failed_request_report(
+            &context,
+            attempts.clone(),
+            SystemTime::now(),
+            kind,
+            None,
+            Some(error.kind()),
+        );
         self.emit_request_finished(report).await;
 
         GatewayError::AllAttemptsFailed {
@@ -291,6 +308,16 @@ impl UniGatewayEngineBuilder {
         self
     }
 
+    /// Installs a neutral routing feedback provider that can suppress endpoints and provide a
+    /// baseline candidate ordering before the pool's load-balancing strategy is applied.
+    pub fn with_routing_feedback_provider(
+        mut self,
+        provider: Arc<dyn RoutingFeedbackProvider>,
+    ) -> Self {
+        self.routing_feedback_provider = Some(provider);
+        self
+    }
+
     /// Installs a specific driver repository for locating the concrete driver logic at runtime.
     pub fn with_driver_registry(mut self, registry: Arc<dyn DriverRegistry>) -> Self {
         self.driver_registry = Some(registry);
@@ -348,6 +375,7 @@ impl UniGatewayEngineBuilder {
                 pools: RwLock::new(std::collections::HashMap::new()),
                 rr_counters: Mutex::new(std::collections::HashMap::new()),
                 hooks: self.hooks,
+                routing_feedback_provider: self.routing_feedback_provider,
                 driver_registry: self.driver_registry,
                 default_retry_policy: self.default_retry_policy,
                 default_timeout: self.default_timeout,

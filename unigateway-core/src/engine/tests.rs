@@ -1,20 +1,27 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
-use futures_util::future::BoxFuture;
+use futures_util::{StreamExt, future::BoxFuture};
 use serde_json::json;
+use tokio::sync::{mpsc, oneshot};
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::InMemoryDriverRegistry;
 use crate::drivers::{DriverEndpointContext, ProviderDriver};
-use crate::hooks::{AttemptFinishedEvent, AttemptStartedEvent, GatewayHooks};
+use crate::feedback::{EndpointSignal, RoutingFeedback, RoutingFeedbackProvider};
+use crate::hooks::{
+    AttemptFinishedEvent, AttemptStartedEvent, GatewayHooks, RequestStartedEvent, StreamChunkEvent,
+    StreamStartedEvent,
+};
 use crate::pool::{
     Endpoint, ExecutionPlan, ExecutionTarget, ProviderKind, ProviderPool, SecretString,
 };
 use crate::request::{ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest};
 use crate::response::{
     ChatResponseChunk, ChatResponseFinal, CompletedResponse, EmbeddingsResponse, ProxySession,
-    RequestReport, ResponsesEvent, ResponsesFinal,
+    RequestKind, RequestReport, ResponsesEvent, ResponsesFinal, StreamOutcome, StreamReport,
+    StreamingResponse,
 };
 use crate::retry::{BackoffPolicy, LoadBalancingStrategy, RetryCondition, RetryPolicy};
 
@@ -229,14 +236,18 @@ impl ProviderDriver for TestDriver {
                 },
                 report: RequestReport {
                     request_id: "req-1".to_string(),
+                    correlation_id: "req-1".to_string(),
                     pool_id: endpoint.metadata.get("pool_id").cloned(),
                     selected_endpoint_id: endpoint.endpoint_id,
                     selected_provider: endpoint.provider_kind,
+                    kind: RequestKind::Chat,
                     attempts: Vec::new(),
                     usage: None,
                     latency_ms: 1,
                     started_at: SystemTime::UNIX_EPOCH,
                     finished_at: SystemTime::UNIX_EPOCH,
+                    error_kind: None,
+                    stream: None,
                     metadata: endpoint.metadata,
                 },
             }))
@@ -259,14 +270,18 @@ impl ProviderDriver for TestDriver {
                 },
                 report: RequestReport {
                     request_id: "req-2".to_string(),
+                    correlation_id: "req-2".to_string(),
                     pool_id: endpoint.metadata.get("pool_id").cloned(),
                     selected_endpoint_id: endpoint.endpoint_id,
                     selected_provider: endpoint.provider_kind,
+                    kind: RequestKind::Responses,
                     attempts: Vec::new(),
                     usage: None,
                     latency_ms: 1,
                     started_at: SystemTime::UNIX_EPOCH,
                     finished_at: SystemTime::UNIX_EPOCH,
+                    error_kind: None,
+                    stream: None,
                     metadata: endpoint.metadata,
                 },
             }))
@@ -286,14 +301,18 @@ impl ProviderDriver for TestDriver {
                 },
                 report: RequestReport {
                     request_id: "req-3".to_string(),
+                    correlation_id: "req-3".to_string(),
                     pool_id: endpoint.metadata.get("pool_id").cloned(),
                     selected_endpoint_id: endpoint.endpoint_id,
                     selected_provider: endpoint.provider_kind,
+                    kind: RequestKind::Embeddings,
                     attempts: Vec::new(),
                     usage: None,
                     latency_ms: 1,
                     started_at: SystemTime::UNIX_EPOCH,
                     finished_at: SystemTime::UNIX_EPOCH,
+                    error_kind: None,
+                    stream: None,
                     metadata: endpoint.metadata,
                 },
             })
@@ -308,8 +327,13 @@ struct BehaviorDriver {
 
 #[derive(Default)]
 struct HookState {
+    request_started: std::sync::Mutex<Vec<RequestStartedEvent>>,
     started: std::sync::Mutex<Vec<AttemptStartedEvent>>,
     finished: std::sync::Mutex<Vec<AttemptFinishedEvent>>,
+    stream_started: std::sync::Mutex<Vec<StreamStartedEvent>>,
+    stream_chunks: std::sync::Mutex<Vec<StreamChunkEvent>>,
+    stream_completed: std::sync::Mutex<Vec<StreamReport>>,
+    stream_aborted: std::sync::Mutex<Vec<StreamReport>>,
     requests: std::sync::Mutex<Vec<RequestReport>>,
 }
 
@@ -319,6 +343,17 @@ struct HookRecorder {
 }
 
 impl GatewayHooks for HookRecorder {
+    fn on_request_started(&self, event: RequestStartedEvent) -> BoxFuture<'static, ()> {
+        let state = self.state.clone();
+        Box::pin(async move {
+            state
+                .request_started
+                .lock()
+                .expect("request_started lock")
+                .push(event);
+        })
+    }
+
     fn on_attempt_started(&self, event: AttemptStartedEvent) -> BoxFuture<'static, ()> {
         let state = self.state.clone();
         Box::pin(async move {
@@ -333,11 +368,176 @@ impl GatewayHooks for HookRecorder {
         })
     }
 
+    fn on_stream_started(&self, event: StreamStartedEvent) -> BoxFuture<'static, ()> {
+        let state = self.state.clone();
+        Box::pin(async move {
+            state
+                .stream_started
+                .lock()
+                .expect("stream_started lock")
+                .push(event);
+        })
+    }
+
+    fn on_stream_chunk_event(&self, event: StreamChunkEvent) -> BoxFuture<'static, ()> {
+        let state = self.state.clone();
+        Box::pin(async move {
+            state
+                .stream_chunks
+                .lock()
+                .expect("stream_chunks lock")
+                .push(event);
+        })
+    }
+
+    fn on_stream_completed(&self, report: StreamReport) -> BoxFuture<'static, ()> {
+        let state = self.state.clone();
+        Box::pin(async move {
+            state
+                .stream_completed
+                .lock()
+                .expect("stream_completed lock")
+                .push(report);
+        })
+    }
+
+    fn on_stream_aborted(&self, report: StreamReport) -> BoxFuture<'static, ()> {
+        let state = self.state.clone();
+        Box::pin(async move {
+            state
+                .stream_aborted
+                .lock()
+                .expect("stream_aborted lock")
+                .push(report);
+        })
+    }
+
     fn on_request_finished(&self, report: RequestReport) -> BoxFuture<'static, ()> {
         let state = self.state.clone();
         Box::pin(async move {
             state.requests.lock().expect("requests lock").push(report);
         })
+    }
+}
+
+struct StreamingDriver;
+
+impl ProviderDriver for StreamingDriver {
+    fn driver_id(&self) -> &str {
+        "openai-compatible"
+    }
+
+    fn provider_kind(&self) -> ProviderKind {
+        ProviderKind::OpenAiCompatible
+    }
+
+    fn execute_chat(
+        &self,
+        endpoint: DriverEndpointContext,
+        request: ProxyChatRequest,
+    ) -> BoxFuture<
+        'static,
+        Result<ProxySession<ChatResponseChunk, ChatResponseFinal>, crate::error::GatewayError>,
+    > {
+        Box::pin(async move {
+            if !request.stream {
+                return Err(crate::error::GatewayError::InvalidRequest(
+                    "streaming driver expects stream=true".to_string(),
+                ));
+            }
+
+            let request_metadata = endpoint.metadata.clone();
+            let endpoint_id = endpoint.endpoint_id.clone();
+            let provider_kind = endpoint.provider_kind;
+            let pool_id = request_metadata.get("pool_id").cloned();
+            let (chunk_tx, chunk_rx) = mpsc::unbounded_channel();
+            let (completion_tx, completion_rx) = oneshot::channel();
+
+            tokio::spawn(async move {
+                chunk_tx
+                    .send(Ok(ChatResponseChunk {
+                        delta: Some("hel".to_string()),
+                        raw: json!({"chunk": 1}),
+                    }))
+                    .expect("first chunk send");
+                chunk_tx
+                    .send(Ok(ChatResponseChunk {
+                        delta: Some("lo".to_string()),
+                        raw: json!({"chunk": 2}),
+                    }))
+                    .expect("second chunk send");
+
+                let _ = completion_tx.send(Ok(CompletedResponse {
+                    response: ChatResponseFinal {
+                        model: Some("gpt-4o-mini".to_string()),
+                        output_text: Some("hello".to_string()),
+                        raw: json!({"endpoint_id": endpoint_id}),
+                    },
+                    report: RequestReport {
+                        request_id: "driver-stream".to_string(),
+                        correlation_id: "driver-stream".to_string(),
+                        pool_id,
+                        selected_endpoint_id: endpoint_id,
+                        selected_provider: provider_kind,
+                        kind: RequestKind::Chat,
+                        attempts: Vec::new(),
+                        usage: None,
+                        latency_ms: 1,
+                        started_at: SystemTime::UNIX_EPOCH,
+                        finished_at: SystemTime::UNIX_EPOCH,
+                        error_kind: None,
+                        stream: None,
+                        metadata: request_metadata,
+                    },
+                }));
+            });
+
+            Ok(ProxySession::Streaming(StreamingResponse {
+                stream: Box::pin(UnboundedReceiverStream::new(chunk_rx)),
+                completion: completion_rx,
+                request_id: "driver-stream".to_string(),
+                request_metadata: request.metadata,
+            }))
+        })
+    }
+
+    fn execute_responses(
+        &self,
+        _endpoint: DriverEndpointContext,
+        _request: ProxyResponsesRequest,
+    ) -> BoxFuture<
+        'static,
+        Result<ProxySession<ResponsesEvent, ResponsesFinal>, crate::error::GatewayError>,
+    > {
+        Box::pin(async {
+            Err(crate::error::GatewayError::not_implemented(
+                "streaming driver responses",
+            ))
+        })
+    }
+
+    fn execute_embeddings(
+        &self,
+        _endpoint: DriverEndpointContext,
+        _request: ProxyEmbeddingsRequest,
+    ) -> BoxFuture<'static, Result<CompletedResponse<EmbeddingsResponse>, crate::error::GatewayError>>
+    {
+        Box::pin(async {
+            Err(crate::error::GatewayError::not_implemented(
+                "streaming driver embeddings",
+            ))
+        })
+    }
+}
+
+#[derive(Default)]
+struct StaticFeedbackProvider {
+    by_pool: HashMap<String, RoutingFeedback>,
+}
+
+impl RoutingFeedbackProvider for StaticFeedbackProvider {
+    fn feedback(&self, pool_id: &str) -> RoutingFeedback {
+        self.by_pool.get(pool_id).cloned().unwrap_or_default()
     }
 }
 
@@ -373,14 +573,18 @@ impl ProviderDriver for BehaviorDriver {
                     },
                     report: RequestReport {
                         request_id: "req-test".to_string(),
+                        correlation_id: "req-test".to_string(),
                         pool_id: endpoint.metadata.get("pool_id").cloned(),
                         selected_endpoint_id: endpoint.endpoint_id,
                         selected_provider: endpoint.provider_kind,
+                        kind: RequestKind::Chat,
                         attempts: Vec::new(),
                         usage: None,
                         latency_ms: 1,
                         started_at: SystemTime::UNIX_EPOCH,
                         finished_at: SystemTime::UNIX_EPOCH,
+                        error_kind: None,
+                        stream: None,
                         metadata: endpoint.metadata,
                     },
                 })),
@@ -420,14 +624,18 @@ impl ProviderDriver for BehaviorDriver {
                     },
                     report: RequestReport {
                         request_id: "req-resp".to_string(),
+                        correlation_id: "req-resp".to_string(),
                         pool_id: endpoint.metadata.get("pool_id").cloned(),
                         selected_endpoint_id: endpoint.endpoint_id,
                         selected_provider: endpoint.provider_kind,
+                        kind: RequestKind::Responses,
                         attempts: Vec::new(),
                         usage: None,
                         latency_ms: 1,
                         started_at: SystemTime::UNIX_EPOCH,
                         finished_at: SystemTime::UNIX_EPOCH,
+                        error_kind: None,
+                        stream: None,
                         metadata: endpoint.metadata,
                     },
                 })),
@@ -458,14 +666,18 @@ impl ProviderDriver for BehaviorDriver {
                 },
                 report: RequestReport {
                     request_id: "req-embed".to_string(),
+                    correlation_id: "req-embed".to_string(),
                     pool_id: endpoint.metadata.get("pool_id").cloned(),
                     selected_endpoint_id: endpoint.endpoint_id,
                     selected_provider: endpoint.provider_kind,
+                    kind: RequestKind::Embeddings,
                     attempts: Vec::new(),
                     usage: None,
                     latency_ms: 1,
                     started_at: SystemTime::UNIX_EPOCH,
                     finished_at: SystemTime::UNIX_EPOCH,
+                    error_kind: None,
+                    stream: None,
                     metadata: endpoint.metadata,
                 },
             })
@@ -1028,4 +1240,219 @@ async fn aimd_saturation_yields_all_endpoints_saturated() {
     assert!(hook_recorder.state.started.lock().unwrap().is_empty());
     assert!(hook_recorder.state.finished.lock().unwrap().is_empty());
     assert!(hook_recorder.state.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn hooks_receive_stream_lifecycle_events_for_streaming_chat() {
+    let registry = Arc::new(InMemoryDriverRegistry::new());
+    registry.register(Arc::new(StreamingDriver));
+
+    let hooks = HookRecorder::default();
+    let engine = UniGatewayEngine::builder()
+        .with_driver_registry(registry)
+        .with_hooks(Arc::new(hooks.clone()))
+        .build()
+        .unwrap();
+    engine
+        .upsert_pool(pool(
+            "alpha",
+            LoadBalancingStrategy::RoundRobin,
+            vec![endpoint("streamer")],
+        ))
+        .await
+        .expect("upsert pool");
+
+    let session = engine
+        .proxy_chat(
+            ProxyChatRequest {
+                model: "gpt-4o-mini".to_string(),
+                messages: Vec::new(),
+                system: None,
+                tools: None,
+                tool_choice: None,
+                raw_messages: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                max_tokens: None,
+                stop_sequences: None,
+                stream: true,
+                metadata: HashMap::new(),
+            },
+            ExecutionTarget::Pool {
+                pool_id: "alpha".to_string(),
+            },
+        )
+        .await
+        .expect("proxy chat stream");
+
+    let ProxySession::Streaming(mut streaming) = session else {
+        panic!("expected streaming response");
+    };
+
+    let mut deltas = Vec::new();
+    while let Some(chunk) = streaming.stream.next().await {
+        deltas.push(chunk.expect("chunk ok").delta.expect("delta"));
+    }
+    let completed = streaming
+        .completion
+        .await
+        .expect("completion channel")
+        .expect("completed stream");
+
+    assert_eq!(deltas, vec!["hel".to_string(), "lo".to_string()]);
+    assert_eq!(completed.response.output_text.as_deref(), Some("hello"));
+    assert_eq!(
+        completed
+            .report
+            .stream
+            .as_ref()
+            .map(|report| report.chunk_count),
+        Some(2)
+    );
+    assert_eq!(
+        completed
+            .report
+            .stream
+            .as_ref()
+            .map(|report| report.outcome),
+        Some(StreamOutcome::Completed)
+    );
+
+    assert_eq!(hooks.state.request_started.lock().unwrap().len(), 1);
+    assert_eq!(hooks.state.started.lock().unwrap().len(), 1);
+    assert_eq!(hooks.state.stream_started.lock().unwrap().len(), 1);
+    assert_eq!(hooks.state.stream_chunks.lock().unwrap().len(), 2);
+    assert_eq!(hooks.state.stream_completed.lock().unwrap().len(), 1);
+    assert!(hooks.state.stream_aborted.lock().unwrap().is_empty());
+    assert_eq!(hooks.state.requests.lock().unwrap().len(), 1);
+
+    let stream_chunks = hooks.state.stream_chunks.lock().unwrap();
+    assert!(stream_chunks[0].first_chunk);
+    assert!(!stream_chunks[1].first_chunk);
+    assert!(stream_chunks[0].ttft_ms.is_some());
+}
+
+#[tokio::test]
+async fn streaming_completion_resolves_without_draining_output_stream() {
+    let registry = Arc::new(InMemoryDriverRegistry::new());
+    registry.register(Arc::new(StreamingDriver));
+
+    let engine = UniGatewayEngine::builder()
+        .with_driver_registry(registry)
+        .build()
+        .unwrap();
+    engine
+        .upsert_pool(pool(
+            "alpha",
+            LoadBalancingStrategy::RoundRobin,
+            vec![endpoint("streamer")],
+        ))
+        .await
+        .expect("upsert pool");
+
+    let session = engine
+        .proxy_chat(
+            ProxyChatRequest {
+                model: "gpt-4o-mini".to_string(),
+                messages: Vec::new(),
+                system: None,
+                tools: None,
+                tool_choice: None,
+                raw_messages: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                max_tokens: None,
+                stop_sequences: None,
+                stream: true,
+                metadata: HashMap::new(),
+            },
+            ExecutionTarget::Pool {
+                pool_id: "alpha".to_string(),
+            },
+        )
+        .await
+        .expect("proxy chat stream");
+
+    let ProxySession::Streaming(streaming) = session else {
+        panic!("expected streaming response");
+    };
+    let completed = tokio::time::timeout(Duration::from_millis(200), streaming.into_completion())
+        .await
+        .expect("completion should not depend on stream draining")
+        .expect("completed stream");
+
+    assert_eq!(completed.response.output_text.as_deref(), Some("hello"));
+    assert_eq!(
+        completed
+            .report
+            .stream
+            .as_ref()
+            .map(|report| report.chunk_count),
+        Some(2)
+    );
+}
+
+#[tokio::test]
+async fn routing_feedback_prioritizes_scored_endpoints() {
+    let feedback_provider = StaticFeedbackProvider {
+        by_pool: HashMap::from([(
+            "alpha".to_string(),
+            RoutingFeedback {
+                endpoint_signals: HashMap::from([
+                    (
+                        "a".to_string(),
+                        EndpointSignal {
+                            score: Some(10.0),
+                            excluded: true,
+                            cooldown_until: None,
+                            recent_error_rate: Some(1.0),
+                        },
+                    ),
+                    (
+                        "b".to_string(),
+                        EndpointSignal {
+                            score: Some(65.0),
+                            excluded: false,
+                            cooldown_until: None,
+                            recent_error_rate: Some(0.2),
+                        },
+                    ),
+                    (
+                        "c".to_string(),
+                        EndpointSignal {
+                            score: Some(95.0),
+                            excluded: false,
+                            cooldown_until: None,
+                            recent_error_rate: Some(0.0),
+                        },
+                    ),
+                ]),
+            },
+        )]),
+    };
+
+    let engine = UniGatewayEngine::builder()
+        .with_driver_registry(Arc::new(InMemoryDriverRegistry::new()))
+        .with_routing_feedback_provider(Arc::new(feedback_provider))
+        .build()
+        .unwrap();
+    engine
+        .upsert_pool(pool(
+            "alpha",
+            LoadBalancingStrategy::Fallback,
+            vec![endpoint("a"), endpoint("b"), endpoint("c")],
+        ))
+        .await
+        .expect("upsert pool");
+
+    let (_snapshot, selected) = engine
+        .select_endpoint_for_target(&ExecutionTarget::Pool {
+            pool_id: "alpha".to_string(),
+        })
+        .await
+        .expect("select endpoint");
+
+    assert_eq!(selected.endpoint_id, "c");
 }

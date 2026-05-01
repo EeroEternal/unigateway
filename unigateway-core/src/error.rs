@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::pool::EndpointId;
@@ -82,6 +83,21 @@ pub enum GatewayError {
     NotImplemented(&'static str),
 }
 
+/// Stable error buckets that hosts can map into neutral observability or scoring systems.
+#[allow(missing_docs)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GatewayErrorKind {
+    Timeout,
+    RateLimited,
+    Upstream5xx,
+    Upstream4xx,
+    ConnectionFailure,
+    InvalidResponse,
+    CancelledByClient,
+    StreamAborted,
+    Other,
+}
+
 impl GatewayError {
     /// Convenience constructor for NotImplemented errors.
     pub fn not_implemented(feature: &'static str) -> Self {
@@ -109,6 +125,50 @@ impl GatewayError {
         match self.terminal_error() {
             Self::UpstreamHttp { status, .. } => Some(*status),
             _ => None,
+        }
+    }
+
+    /// Classifies the terminal error into a stable, host-consumable bucket.
+    pub fn kind(&self) -> GatewayErrorKind {
+        match self.terminal_error() {
+            Self::UpstreamHttp { status, .. } if *status == 429 => GatewayErrorKind::RateLimited,
+            Self::UpstreamHttp { status, .. } if (500..=599).contains(status) => {
+                GatewayErrorKind::Upstream5xx
+            }
+            Self::UpstreamHttp { status, .. } if (400..=499).contains(status) => {
+                GatewayErrorKind::Upstream4xx
+            }
+            Self::UpstreamHttp { .. } => GatewayErrorKind::Other,
+            Self::Transport { message, .. } => {
+                let normalized = message.to_ascii_lowercase();
+                if normalized.contains("timed out") {
+                    GatewayErrorKind::Timeout
+                } else if normalized.contains("cancelled by client")
+                    || normalized.contains("canceled by client")
+                {
+                    GatewayErrorKind::CancelledByClient
+                } else {
+                    GatewayErrorKind::ConnectionFailure
+                }
+            }
+            Self::StreamAborted { message, .. } => {
+                let normalized = message.to_ascii_lowercase();
+                if normalized.contains("cancelled by client")
+                    || normalized.contains("canceled by client")
+                {
+                    GatewayErrorKind::CancelledByClient
+                } else {
+                    GatewayErrorKind::StreamAborted
+                }
+            }
+            Self::InvalidRequest(_) => GatewayErrorKind::InvalidResponse,
+            Self::BuildError(_) | Self::PoolNotFound(_) | Self::EndpointNotFound(_) => {
+                GatewayErrorKind::Other
+            }
+            Self::AllEndpointsSaturated { .. }
+            | Self::NoAvailableEndpoint { .. }
+            | Self::AllAttemptsFailed { .. }
+            | Self::NotImplemented(_) => GatewayErrorKind::Other,
         }
     }
 }

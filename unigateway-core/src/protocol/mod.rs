@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 
 use crate::pool::RequestId;
-use crate::response::{AttemptReport, AttemptStatus, RequestReport, TokenUsage};
+use crate::response::{AttemptReport, AttemptStatus, RequestKind, RequestReport, TokenUsage};
 use crate::transport::HttpTransport;
 
 pub use anthropic::AnthropicDriver;
@@ -39,6 +39,7 @@ pub(crate) fn build_single_attempt_report(
         },
         latency_ms,
         error,
+        error_kind: None,
     }
 }
 
@@ -47,6 +48,7 @@ pub(crate) fn build_request_report(
     started_at: SystemTime,
     finished_at: SystemTime,
     usage: Option<TokenUsage>,
+    kind: RequestKind,
     request_id: Option<RequestId>,
 ) -> RequestReport {
     let latency_ms = finished_at
@@ -54,11 +56,15 @@ pub(crate) fn build_request_report(
         .unwrap_or_default()
         .as_millis() as u64;
 
+    let request_id = request_id.unwrap_or_else(next_request_id);
+
     RequestReport {
-        request_id: request_id.unwrap_or_else(next_request_id),
+        request_id: request_id.clone(),
+        correlation_id: request_id,
         pool_id: endpoint.metadata.get("pool_id").cloned(),
         selected_endpoint_id: endpoint.endpoint_id.clone(),
         selected_provider: endpoint.provider_kind,
+        kind,
         attempts: vec![build_single_attempt_report(
             &endpoint.endpoint_id,
             latency_ms,
@@ -68,6 +74,8 @@ pub(crate) fn build_request_report(
         latency_ms,
         started_at,
         finished_at,
+        error_kind: None,
+        stream: None,
         metadata: endpoint.metadata.clone(),
     }
 }

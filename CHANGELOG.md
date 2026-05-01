@@ -4,6 +4,33 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.7.1]
+
+UniGateway v1.7.1 is a patch release focused on neutral observability additions and streaming completion correctness.
+
+### Added
+
+* **Request / stream lifecycle observability primitives**: `RequestStartedEvent`, `StreamStartedEvent`, `StreamChunkEvent`, `StreamReport`, `RequestKind`, `StreamKind`, and `StreamOutcome` are now available through `GatewayHooks` and `RequestReport` so embedders can consume stable request- and stream-level telemetry without binding UniGateway to product policy.
+* **Stable error classification**: `GatewayErrorKind` and `AttemptReport.error_kind` / `RequestReport.error_kind` provide neutral buckets for host-side observability and external scoring systems.
+* **Neutral routing feedback hook**: `RoutingFeedbackProvider` can suppress endpoints and provide pre-strategy candidate ordering before the pool's configured load-balancing strategy runs.
+
+### Fixes
+
+* **Dropped downstream streams no longer poison real protocol completions**: OpenAI chat, OpenAI responses, and Anthropic chat streaming drivers now treat downstream detach as non-fatal and continue consuming upstream until they can produce the terminal completion.
+* **Streaming completion contract is explicit and end-to-end consistent**: `StreamingResponse::into_completion()` now matches the real driver behavior, and protocol renderers use it consistently when they stop consuming the underlying stream.
+* **Streaming completion no longer depends on draining the consumer side first**: engine-side stream observation and forwarding now avoid deadlock between completion finalization and unread output chunks.
+
+### Docs
+
+* **Release-line docs updated to 1.7**: the root README, `unigateway-sdk` README, and embedder docs now recommend `unigateway-sdk = "1.7"`.
+* **Streaming usage guidance clarified**: embedder docs now explicitly recommend `streaming.into_completion().await` when callers stop reading a stream early.
+
+### Validation
+
+* `cargo fmt --all`
+* `cargo test -p unigateway-core`
+* `cargo clippy -p unigateway-core --all-targets -- -D warnings`
+
 ## [1.7.0]
 
 UniGateway v1.7.0 is an **embedder-extensibility release**: the `GatewayHooks` trait now supports request modification and streaming-chunk observation, and `UniGatewayEngine` gains fine-grained runtime update APIs.

@@ -22,7 +22,7 @@ directly.
 
 ```toml
 [dependencies]
-unigateway-sdk = "1.6"
+unigateway-sdk = "1.7"
 
 # Or depend on individual crates directly:
 # unigateway-core = { path = "../unigateway-core" }
@@ -250,9 +250,13 @@ match engine.proxy_chat(request, target).await? {
         let text = resp.response.output_text.unwrap_or_default();
         let report = resp.report;   // usage, latency, metadata
     }
-    ProxySession::Streaming(streaming) => {
-        // consume streaming.stream (Stream<ChatResponseChunk>)
-        // await streaming.completion for the final RequestReport
+    ProxySession::Streaming(mut streaming) => {
+        // Normal path: consume streaming.stream and then await streaming.completion.
+
+        // If you stop reading early, prefer dropping the stream explicitly via
+        // into_completion() instead of leaving the receiver alive and unread.
+        let final_result = streaming.into_completion().await?;
+        let report = final_result.report;
     }
 }
 ```
@@ -260,6 +264,10 @@ match engine.proxy_chat(request, target).await? {
 The `metadata` map on the request is merged into `RequestReport.metadata` with the
 highest priority — useful for attaching per-call tags (user id, tenant id, trace id)
 that flow through to hooks without any pool-level configuration.
+
+For streaming sessions, use `streaming.into_completion().await` when the caller no longer
+wants additional chunks but still needs the terminal response/report. Avoid keeping an unread
+stream receiver alive: the driver may continue buffering upstream events until completion.
 
 ### 4b. Embeddings
 
@@ -477,6 +485,7 @@ async fn handle_chat(body: serde_json::Value) -> anyhow::Result<String> {
 | `GatewayError::PoolNotFound` at runtime | Call `engine.upsert_pool()` for every pool before handling requests |
 | `pool_for_service` hits DB per request | Return `engine.get_pool()` instead; sync pools at startup |
 | Request metadata lost in `RequestReport` | Set `request.metadata` before calling `proxy_chat` / `proxy_embeddings` |
+| Stop reading a streaming response early | Call `streaming.into_completion().await` instead of leaving the unread stream alive |
 | Using `ProxyChatRequest` directly as HTTP payload | Parse the raw JSON body with `openai_payload_to_chat_request` first |
 | Custom driver not found | Register it in `InMemoryDriverRegistry` before building the engine |
 

@@ -9,6 +9,8 @@ pub mod drivers;
 pub mod engine;
 /// Error types specific to the gateway's execution and network layer.
 pub mod error;
+/// Neutral runtime feedback abstractions for endpoint ordering.
+pub mod feedback;
 /// Hooks and telemetry definitions for capturing application lifecycle events.
 pub mod hooks;
 #[allow(missing_docs)]
@@ -30,8 +32,12 @@ pub mod transport;
 
 pub use drivers::{DriverEndpointContext, DriverRegistry, ProviderDriver};
 pub use engine::{UniGatewayEngine, UniGatewayEngineBuilder};
-pub use error::GatewayError;
-pub use hooks::{AttemptFinishedEvent, AttemptStartedEvent, GatewayHooks};
+pub use error::{GatewayError, GatewayErrorKind};
+pub use feedback::{EndpointSignal, RoutingFeedback, RoutingFeedbackProvider};
+pub use hooks::{
+    AttemptFinishedEvent, AttemptStartedEvent, GatewayHooks, RequestStartedEvent, StreamChunkEvent,
+    StreamStartedEvent,
+};
 pub use pool::{
     DriverId, Endpoint, EndpointId, EndpointRef, ExecutionPlan, ExecutionTarget, ModelPolicy,
     PoolId, PoolSummary, ProviderKind, ProviderPool, RequestId, SecretString,
@@ -42,7 +48,8 @@ pub use request::{
 };
 pub use response::{
     AttemptReport, AttemptStatus, ChatResponseChunk, ChatResponseFinal, CompletedResponse,
-    CompletionHandle, EmbeddingsResponse, ProxySession, RequestReport, ResponseStream,
-    ResponsesEvent, ResponsesFinal, StreamingResponse, TokenUsage,
+    CompletionHandle, EmbeddingsResponse, ProxySession, RequestKind, RequestReport, ResponseStream,
+    ResponsesEvent, ResponsesFinal, StreamKind, StreamOutcome, StreamReport, StreamingResponse,
+    TokenUsage,
 };
 pub use retry::{BackoffPolicy, LoadBalancingStrategy, RetryCondition, RetryPolicy};

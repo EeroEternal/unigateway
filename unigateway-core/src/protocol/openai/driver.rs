@@ -8,7 +8,7 @@ use crate::error::GatewayError;
 use crate::request::{ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest};
 use crate::response::{
     ChatResponseChunk, ChatResponseFinal, CompletedResponse, EmbeddingsResponse, ProxySession,
-    ResponsesEvent, ResponsesFinal,
+    RequestKind, ResponsesEvent, ResponsesFinal,
 };
 use crate::transport::HttpTransport;
 
@@ -70,6 +70,7 @@ impl ProviderDriver for OpenAiCompatibleDriver {
                     started_at,
                     finished_at,
                     usage,
+                    RequestKind::Chat,
                     None,
                 ),
             }))
@@ -110,6 +111,7 @@ impl ProviderDriver for OpenAiCompatibleDriver {
                     started_at,
                     finished_at,
                     usage,
+                    RequestKind::Responses,
                     None,
                 ),
             }))
@@ -145,6 +147,7 @@ impl ProviderDriver for OpenAiCompatibleDriver {
                     started_at,
                     finished_at,
                     usage,
+                    RequestKind::Embeddings,
                     None,
                 ),
             })
