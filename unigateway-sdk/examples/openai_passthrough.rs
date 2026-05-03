@@ -4,29 +4,29 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::{
+    Router,
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Json},
     routing::post,
-    Router,
 };
 use serde_json::Value;
 use tokio::net::TcpListener;
-use tracing_subscriber;
 
-use unigateway_sdk::core::{
-    pool::{ExecutionTarget, ProviderPool},
-    Endpoint, ModelPolicy, ProviderKind, SecretString, UniGatewayEngine,
-};
 use unigateway_sdk::core::retry::LoadBalancingStrategy;
+use unigateway_sdk::core::{
+    Endpoint, ModelPolicy, ProviderKind, SecretString, UniGatewayEngine,
+    pool::{ExecutionTarget, ProviderPool},
+};
 use unigateway_sdk::protocol::openai_payload_to_chat_request;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing::subscriber::set_global_default(tracing_subscriber::FmtSubscriber::default())
+        .unwrap();
 
-    let base_url = env::var("UPSTREAM_BASE_URL")
-        .unwrap_or_else(|_| "https://api.openai.com".to_string());
+    let base_url =
+        env::var("UPSTREAM_BASE_URL").unwrap_or_else(|_| "https://api.openai.com".to_string());
     let api_key = env::var("UPSTREAM_API_KEY").unwrap_or_else(|_| "sk-".to_string());
     let model = env::var("UPSTREAM_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
     let bind_addr: SocketAddr = env::var("BIND_ADDR")
@@ -93,7 +93,10 @@ async fn chat_completions(
     };
     let session = engine.proxy_chat(request, target).await?;
 
-    let is_streaming = matches!(session, unigateway_sdk::core::response::ProxySession::Streaming(_));
+    let is_streaming = matches!(
+        session,
+        unigateway_sdk::core::response::ProxySession::Streaming(_)
+    );
 
     Ok(Json(serde_json::json!({
         "status": "success",

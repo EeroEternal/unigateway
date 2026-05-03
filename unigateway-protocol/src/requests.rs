@@ -9,12 +9,21 @@ use unigateway_core::{
 };
 
 pub const ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY: &str = "unigateway.requested_model_alias";
+pub const OPENAI_RAW_MESSAGES_KEY: &str = "unigateway.openai_raw_messages";
 
 /// Translates an OpenAI-compatible JSON payload into a core `ProxyChatRequest`.
 pub fn openai_payload_to_chat_request(
     payload: &Value,
     default_model: &str,
 ) -> Result<ProxyChatRequest> {
+    let raw_messages = payload.get("messages").cloned();
+    let mut metadata = HashMap::new();
+
+    // Mark that raw_messages are in OpenAI format
+    if raw_messages.is_some() {
+        metadata.insert(OPENAI_RAW_MESSAGES_KEY.to_string(), "true".to_string());
+    }
+
     Ok(ProxyChatRequest {
         model: payload
             .get("model")
@@ -43,9 +52,9 @@ pub fn openai_payload_to_chat_request(
         system: None,
         tools: payload.get("tools").cloned(),
         tool_choice: payload.get("tool_choice").cloned(),
-        raw_messages: None,
+        raw_messages,
         extra: openai_chat_extra(payload),
-        metadata: HashMap::new(),
+        metadata,
     })
 }
 
@@ -288,12 +297,13 @@ struct IncomingResponsesRequest {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::Value;
     use serde_json::json;
 
     use super::{
-        ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, anthropic_payload_to_chat_request,
-        openai_payload_to_chat_request, openai_payload_to_embed_request,
-        openai_payload_to_responses_request,
+        ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, OPENAI_RAW_MESSAGES_KEY,
+        anthropic_payload_to_chat_request, openai_payload_to_chat_request,
+        openai_payload_to_embed_request, openai_payload_to_responses_request,
     };
 
     #[test]
@@ -417,5 +427,74 @@ mod tests {
         .expect("request");
 
         assert_eq!(converted.encoding_format.as_deref(), Some("float"));
+    }
+
+    #[test]
+    fn openai_request_preserves_raw_messages_for_tool_loop() {
+        let tool_call = json!({
+            "id": "call_123",
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "arguments": "{\"location\": \"San Francisco\"}"
+            }
+        });
+
+        let messages = json!([
+            {
+                "role": "user",
+                "content": "What's the weather in San Francisco?"
+            },
+            {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [tool_call]
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_123",
+                "content": "The weather is sunny and 75°F"
+            }
+        ]);
+
+        let req = openai_payload_to_chat_request(
+            &json!({
+                "model": "gpt-5.5",
+                "messages": messages
+            }),
+            "gpt-4o-mini",
+        )
+        .expect("request");
+
+        // Verify raw_messages are preserved
+        assert!(req.raw_messages.is_some());
+        let raw = req.raw_messages.unwrap();
+        assert!(raw.is_array());
+        let raw_array = raw.as_array().unwrap();
+        assert_eq!(raw_array.len(), 3);
+
+        // Verify metadata marks this as OpenAI format
+        assert_eq!(
+            req.metadata
+                .get(OPENAI_RAW_MESSAGES_KEY)
+                .map(String::as_str),
+            Some("true")
+        );
+
+        // Verify the assistant message has tool_calls preserved
+        let assistant_msg = &raw_array[1];
+        assert_eq!(
+            assistant_msg.get("role").and_then(Value::as_str),
+            Some("assistant")
+        );
+        assert!(assistant_msg.get("tool_calls").is_some());
+
+        // Verify the tool message has tool_call_id preserved
+        let tool_msg = &raw_array[2];
+        assert_eq!(tool_msg.get("role").and_then(Value::as_str), Some("tool"));
+        assert_eq!(
+            tool_msg.get("tool_call_id").and_then(Value::as_str),
+            Some("call_123")
+        );
     }
 }

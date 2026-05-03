@@ -61,6 +61,19 @@ pub fn build_chat_request(
 
 fn openai_chat_messages(request: &ProxyChatRequest) -> Result<Vec<Value>, GatewayError> {
     if let Some(raw_messages) = request.raw_messages.as_ref() {
+        // Check if raw_messages are in OpenAI format (preserved from client)
+        if request
+            .metadata
+            .contains_key("unigateway.openai_raw_messages")
+        {
+            if let Some(messages_array) = raw_messages.as_array() {
+                return Ok(messages_array.clone());
+            }
+            return Err(GatewayError::InvalidRequest(
+                "openai raw_messages must be an array".to_string(),
+            ));
+        }
+        // Otherwise, treat as Anthropic format and convert
         return anthropic_messages_to_openai_messages(raw_messages);
     }
 
@@ -423,4 +436,129 @@ fn openai_role(role: MessageRole) -> &'static str {
 
 fn join_url(base_url: &str, path: &str) -> String {
     format!("{}/{}", base_url.trim_end_matches('/'), path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::request::{Message, MessageRole, ProxyChatRequest};
+    use std::collections::HashMap;
+
+    #[test]
+    fn openai_chat_messages_preserves_tool_call_structure() {
+        let tool_call = json!({
+            "id": "call_123",
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "arguments": "{\"location\": \"San Francisco\"}"
+            }
+        });
+
+        let raw_messages = json!([
+            {
+                "role": "user",
+                "content": "What's the weather?"
+            },
+            {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [tool_call]
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_123",
+                "content": "Sunny and 75°F"
+            }
+        ]);
+
+        let mut metadata = HashMap::new();
+        metadata.insert(
+            "unigateway.openai_raw_messages".to_string(),
+            "true".to_string(),
+        );
+
+        let request = ProxyChatRequest {
+            model: "gpt-5.5".to_string(),
+            messages: vec![
+                Message {
+                    role: MessageRole::User,
+                    content: "What's the weather?".to_string(),
+                },
+                Message {
+                    role: MessageRole::Assistant,
+                    content: String::new(),
+                },
+                Message {
+                    role: MessageRole::Tool,
+                    content: "Sunny and 75°F".to_string(),
+                },
+            ],
+            raw_messages: Some(raw_messages),
+            metadata,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: None,
+            stop_sequences: None,
+            stream: false,
+            system: None,
+            tools: None,
+            tool_choice: None,
+            extra: HashMap::new(),
+        };
+
+        let messages = openai_chat_messages(&request).expect("messages");
+        assert_eq!(messages.len(), 3);
+
+        // Verify tool_calls are preserved
+        let assistant_msg = &messages[1];
+        assert_eq!(
+            assistant_msg.get("role").and_then(Value::as_str),
+            Some("assistant")
+        );
+        assert!(assistant_msg.get("tool_calls").is_some());
+
+        // Verify tool_call_id is preserved
+        let tool_msg = &messages[2];
+        assert_eq!(tool_msg.get("role").and_then(Value::as_str), Some("tool"));
+        assert_eq!(
+            tool_msg.get("tool_call_id").and_then(Value::as_str),
+            Some("call_123")
+        );
+    }
+
+    #[test]
+    fn openai_chat_messages_falls_back_to_flattened_when_no_raw() {
+        let request = ProxyChatRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![Message {
+                role: MessageRole::User,
+                content: "Hello".to_string(),
+            }],
+            raw_messages: None,
+            metadata: HashMap::new(),
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: None,
+            stop_sequences: None,
+            stream: false,
+            system: None,
+            tools: None,
+            tool_choice: None,
+            extra: HashMap::new(),
+        };
+
+        let messages = openai_chat_messages(&request).expect("messages");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(
+            messages[0].get("role").and_then(Value::as_str),
+            Some("user")
+        );
+        assert_eq!(
+            messages[0].get("content").and_then(Value::as_str),
+            Some("Hello")
+        );
+    }
 }

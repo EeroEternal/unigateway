@@ -4,9 +4,10 @@ mod responses;
 
 pub use http_response::{ProtocolByteStream, ProtocolHttpResponse, ProtocolResponseBody};
 pub use requests::{
-    ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, anthropic_payload_to_chat_request,
-    anthropic_requested_model_alias, openai_payload_to_chat_request,
-    openai_payload_to_embed_request, openai_payload_to_responses_request,
+    ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, OPENAI_RAW_MESSAGES_KEY,
+    anthropic_payload_to_chat_request, anthropic_requested_model_alias,
+    openai_payload_to_chat_request, openai_payload_to_embed_request,
+    openai_payload_to_responses_request,
 };
 pub use responses::{
     render_anthropic_chat_session, render_openai_chat_session, render_openai_embeddings_response,
