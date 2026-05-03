@@ -1,13 +1,13 @@
-use std::collections::HashMap;
-
 use serde_json::{Value, json};
 
 use crate::drivers::DriverEndpointContext;
 use crate::error::GatewayError;
 use crate::request::{
-    MessageRole, ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest,
+    MessageRole, OPENAI_RAW_MESSAGES_KEY, ProxyChatRequest, ProxyEmbeddingsRequest,
+    ProxyResponsesRequest,
 };
 use crate::transport::TransportRequest;
+use std::collections::HashMap;
 
 pub fn build_chat_request(
     endpoint: &DriverEndpointContext,
@@ -62,10 +62,7 @@ pub fn build_chat_request(
 fn openai_chat_messages(request: &ProxyChatRequest) -> Result<Vec<Value>, GatewayError> {
     if let Some(raw_messages) = request.raw_messages.as_ref() {
         // Check if raw_messages are in OpenAI format (preserved from client)
-        if request
-            .metadata
-            .contains_key("unigateway.openai_raw_messages")
-        {
+        if request.metadata.contains_key(OPENAI_RAW_MESSAGES_KEY) {
             if let Some(messages_array) = raw_messages.as_array() {
                 return Ok(messages_array.clone());
             }
@@ -473,10 +470,7 @@ mod tests {
         ]);
 
         let mut metadata = HashMap::new();
-        metadata.insert(
-            "unigateway.openai_raw_messages".to_string(),
-            "true".to_string(),
-        );
+        metadata.insert(OPENAI_RAW_MESSAGES_KEY.to_string(), "true".to_string());
 
         let request = ProxyChatRequest {
             model: "gpt-5.5".to_string(),

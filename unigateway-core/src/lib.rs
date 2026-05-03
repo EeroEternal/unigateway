@@ -44,7 +44,8 @@ pub use pool::{
 };
 pub use registry::InMemoryDriverRegistry;
 pub use request::{
-    Message, MessageRole, ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest,
+    Message, MessageRole, OPENAI_RAW_MESSAGES_KEY, ProxyChatRequest, ProxyEmbeddingsRequest,
+    ProxyResponsesRequest,
 };
 pub use response::{
     AttemptReport, AttemptStatus, ChatResponseChunk, ChatResponseFinal, CompletedResponse,

@@ -3,6 +3,10 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Metadata key for marking OpenAI raw messages in ProxyChatRequest.
+pub const OPENAI_RAW_MESSAGES_KEY: &str = "unigateway.openai_raw_messages";
+
+/// Message role in a chat completion request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MessageRole {
     System,
