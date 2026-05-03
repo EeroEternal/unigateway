@@ -1,6 +1,6 @@
 [package]
 name = "unigateway-sdk"
-version = "1.7.1"
+version = "1.8.0"
 edition = "2024"
 rust-version = "1.92"
 description = "Thin facade crate for embedders using UniGateway core, protocol, and host libraries."
@@ -22,3 +22,12 @@ testing = ["host", "unigateway-host/testing"]
 unigateway-core = { workspace = true, optional = true }
 unigateway-protocol = { workspace = true, optional = true }
 unigateway-host = { workspace = true, optional = true }
+
+[dev-dependencies]
+axum = { version = "0.7", features = ["macros"] }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3" }

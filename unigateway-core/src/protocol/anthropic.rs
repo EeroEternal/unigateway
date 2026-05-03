@@ -537,6 +537,7 @@ mod tests {
                 max_tokens: None,
                 stop_sequences: Some(json!(["DONE", "HALT"])),
                 stream: false,
+                extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
         )
@@ -608,6 +609,7 @@ mod tests {
                     max_tokens: Some(256),
                     stop_sequences: None,
                     stream: false,
+                    extra: HashMap::new(),
                     metadata: HashMap::new(),
                 },
             )
@@ -669,6 +671,7 @@ mod tests {
                     max_tokens: Some(128),
                     stop_sequences: None,
                     stream: true,
+                    extra: HashMap::new(),
                     metadata: HashMap::new(),
                 },
             )
@@ -738,6 +741,7 @@ mod tests {
                     max_tokens: Some(128),
                     stop_sequences: None,
                     stream: true,
+                    extra: HashMap::new(),
                     metadata: HashMap::new(),
                 },
             )

@@ -93,6 +93,7 @@ fn build_chat_request_maps_model_and_url() {
             max_tokens: Some(32),
             stop_sequences: None,
             stream: false,
+            extra: HashMap::new(),
             metadata: HashMap::new(),
         },
     )
@@ -108,6 +109,53 @@ fn build_chat_request_maps_model_and_url() {
         serde_json::from_slice(&request.body.expect("body")).expect("json body");
     assert_eq!(
         body.get("model").and_then(serde_json::Value::as_str),
+        Some("mapped-model")
+    );
+}
+
+#[test]
+fn build_chat_request_merges_extra_without_overriding_core_fields() {
+    let request = build_chat_request(
+        &endpoint(),
+        &ProxyChatRequest {
+            model: "alias".to_string(),
+            messages: vec![Message {
+                role: MessageRole::User,
+                content: "hello".to_string(),
+            }],
+            system: None,
+            tools: None,
+            tool_choice: None,
+            raw_messages: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: Some(32),
+            stop_sequences: None,
+            stream: false,
+            extra: HashMap::from([
+                ("reasoning_effort".to_string(), json!("high")),
+                ("max_completion_tokens".to_string(), json!(1024)),
+                ("max_tokens".to_string(), json!(999)),
+                ("model".to_string(), json!("wrong-model")),
+            ]),
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("chat request");
+
+    let body: Value = serde_json::from_slice(&request.body.expect("body")).expect("json body");
+    assert_eq!(
+        body.get("reasoning_effort").and_then(Value::as_str),
+        Some("high")
+    );
+    assert_eq!(
+        body.get("max_completion_tokens").and_then(Value::as_u64),
+        Some(1024)
+    );
+    assert_eq!(body.get("max_tokens").and_then(Value::as_u64), Some(32));
+    assert_eq!(
+        body.get("model").and_then(Value::as_str),
         Some("mapped-model")
     );
 }
@@ -172,6 +220,7 @@ fn build_chat_request_translates_anthropic_raw_messages_and_tool_choice() {
             max_tokens: Some(64),
             stop_sequences: Some(json!(["DONE", "HALT"])),
             stream: false,
+            extra: HashMap::new(),
             metadata: HashMap::new(),
         },
     )
@@ -264,6 +313,7 @@ fn build_chat_request_normalizes_string_any_tool_choice() {
             max_tokens: None,
             stop_sequences: None,
             stream: false,
+            extra: HashMap::new(),
             metadata: HashMap::new(),
         },
     )
@@ -436,6 +486,7 @@ async fn openai_driver_executes_non_streaming_operations() {
                 max_tokens: None,
                 stop_sequences: None,
                 stream: false,
+                extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
         )
@@ -569,6 +620,7 @@ async fn openai_driver_executes_streaming_chat() {
                 max_tokens: None,
                 stop_sequences: None,
                 stream: true,
+                extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
         )
@@ -638,6 +690,7 @@ async fn openai_driver_streaming_chat_completion_survives_dropped_stream() {
                 max_tokens: None,
                 stop_sequences: None,
                 stream: true,
+                extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
         )

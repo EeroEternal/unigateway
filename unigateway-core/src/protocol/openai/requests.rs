@@ -46,6 +46,9 @@ pub fn build_chat_request(
     if let Some(tool_choice) = openai_tool_choice(request.tool_choice.clone())? {
         payload.insert("tool_choice".to_string(), tool_choice);
     }
+    for (key, value) in request.extra.clone() {
+        payload.entry(key).or_insert(value);
+    }
 
     TransportRequest::post_json(
         Some(endpoint.endpoint_id.clone()),

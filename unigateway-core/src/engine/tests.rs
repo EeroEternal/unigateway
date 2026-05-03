@@ -718,6 +718,7 @@ async fn proxy_chat_delegates_to_registered_driver() {
                 max_tokens: None,
                 stop_sequences: None,
                 stream: false,
+                extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
             ExecutionTarget::Pool {
@@ -764,6 +765,7 @@ async fn proxy_chat_fails_when_driver_missing() {
                 max_tokens: None,
                 stop_sequences: None,
                 stream: false,
+                extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
             ExecutionTarget::Pool {
@@ -822,6 +824,7 @@ async fn fallback_strategy_tries_next_endpoint_on_failure() {
                 max_tokens: None,
                 stop_sequences: None,
                 stream: false,
+                extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
             ExecutionTarget::Pool {
@@ -888,6 +891,7 @@ async fn round_robin_retries_only_for_configured_conditions() {
                 max_tokens: None,
                 stop_sequences: None,
                 stream: false,
+                extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
             ExecutionTarget::Pool {
@@ -953,6 +957,7 @@ async fn chat_failure_returns_aggregated_attempt_reports() {
                 max_tokens: None,
                 stop_sequences: None,
                 stream: false,
+                extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
             ExecutionTarget::Pool {
@@ -1091,6 +1096,7 @@ async fn hooks_receive_failed_attempts_and_failed_request_report() {
                 max_tokens: None,
                 stop_sequences: None,
                 stream: false,
+                extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
             ExecutionTarget::Pool {
@@ -1160,6 +1166,7 @@ async fn aimd_on_saturation_reduces_limit_for_429() {
                 max_tokens: None,
                 stop_sequences: None,
                 stream: false,
+                extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
             ExecutionTarget::Pool {
@@ -1221,6 +1228,7 @@ async fn aimd_saturation_yields_all_endpoints_saturated() {
                 max_tokens: None,
                 stop_sequences: None,
                 stream: false,
+                extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
             ExecutionTarget::Pool {
@@ -1277,6 +1285,7 @@ async fn hooks_receive_stream_lifecycle_events_for_streaming_chat() {
                 max_tokens: None,
                 stop_sequences: None,
                 stream: true,
+                extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
             ExecutionTarget::Pool {
@@ -1366,6 +1375,7 @@ async fn streaming_completion_resolves_without_draining_output_stream() {
                 max_tokens: None,
                 stop_sequences: None,
                 stream: true,
+                extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
             ExecutionTarget::Pool {

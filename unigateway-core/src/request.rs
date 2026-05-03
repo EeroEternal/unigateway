@@ -31,6 +31,7 @@ pub struct ProxyChatRequest {
     pub tools: Option<Value>,
     pub tool_choice: Option<Value>,
     pub raw_messages: Option<Value>,
+    pub extra: HashMap<String, Value>,
     pub metadata: HashMap<String, String>,
 }
 

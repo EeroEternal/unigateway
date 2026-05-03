@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.0]
+
+UniGateway v1.8.0 adds OpenAI chat extra passthrough for provider-specific fields.
+
+### Added
+
+* **OpenAI chat extra passthrough**: `ProxyChatRequest` now includes an `extra: HashMap<String, Value>` field that preserves provider-specific top-level fields (e.g., `reasoning_effort`, `max_completion_tokens`) during OpenAI-compatible chat request translation. Unknown fields are collected in `extra` and merged into the upstream request payload, with explicit UniGateway fields taking precedence on collision.
+* **OpenAI chat extra filtering**: `openai_chat_extra` helper filters out known OpenAI fields and gateway routing hints (`target_vendor`, `target_provider`, `provider`) before collecting extra fields, ensuring internal metadata is not leaked to upstream providers.
+* **Anthropic chat extra placeholder**: `anthropic_payload_to_chat_request` now includes `extra: HashMap::new()` for consistency with the OpenAI path.
+
+### Fixes
+
+* **Provider-specific fields no longer dropped during translation**: OpenAI-compatible requests can now forward provider-specific parameters to upstream providers without being filtered out by the gateway.
+
+### Docs
+
+* **Example added**: `unigateway-sdk/examples/openai_passthrough.rs` demonstrates how to use the extra passthrough feature with a minimal HTTP server.
+
+### Validation
+
+* `cargo fmt --all`
+* `cargo test --workspace`
+* `cargo clippy --workspace --all-targets -- -D warnings`
+
 ## [1.7.1]
 
 UniGateway v1.7.1 is a patch release focused on neutral observability additions and streaming completion correctness.

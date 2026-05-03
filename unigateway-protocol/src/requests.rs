@@ -44,6 +44,7 @@ pub fn openai_payload_to_chat_request(
         tools: payload.get("tools").cloned(),
         tool_choice: payload.get("tool_choice").cloned(),
         raw_messages: None,
+        extra: openai_chat_extra(payload),
         metadata: HashMap::new(),
     })
 }
@@ -117,6 +118,7 @@ pub fn anthropic_payload_to_chat_request(
         tools: payload.get("tools").cloned(),
         tool_choice: payload.get("tool_choice").cloned(),
         raw_messages: payload.get("messages").cloned(),
+        extra: HashMap::new(),
         metadata: anthropic_requested_model_alias(model),
     })
 }
@@ -214,6 +216,35 @@ fn extract_text_content(value: &Value) -> String {
     String::new()
 }
 
+fn openai_chat_extra(payload: &Value) -> HashMap<String, Value> {
+    let Some(object) = payload.as_object() else {
+        return HashMap::new();
+    };
+
+    object
+        .iter()
+        .filter(|(key, _)| {
+            !matches!(
+                key.as_str(),
+                "model"
+                    | "messages"
+                    | "temperature"
+                    | "top_p"
+                    | "top_k"
+                    | "max_tokens"
+                    | "stop"
+                    | "stream"
+                    | "tools"
+                    | "tool_choice"
+                    | "target_vendor"
+                    | "target_provider"
+                    | "provider"
+            )
+        })
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
+}
+
 fn filtered_response_extra(extra: HashMap<String, Value>) -> HashMap<String, Value> {
     extra
         .iter()
@@ -292,6 +323,29 @@ mod tests {
         .expect("request");
 
         assert!(!req.stream);
+    }
+
+    #[test]
+    fn openai_chat_extra_preserves_unknown_fields_only() {
+        let req = openai_payload_to_chat_request(
+            &json!({
+                "model": "gpt-5.5",
+                "messages": [{"role": "user", "content": "hello"}],
+                "reasoning_effort": "high",
+                "max_completion_tokens": 1024,
+                "target_provider": "internal",
+                "provider": "internal"
+            }),
+            "gpt-4o-mini",
+        )
+        .expect("request");
+
+        assert_eq!(req.extra.get("reasoning_effort"), Some(&json!("high")));
+        assert_eq!(req.extra.get("max_completion_tokens"), Some(&json!(1024)));
+        assert!(!req.extra.contains_key("model"));
+        assert!(!req.extra.contains_key("messages"));
+        assert!(!req.extra.contains_key("target_provider"));
+        assert!(!req.extra.contains_key("provider"));
     }
 
     #[test]
