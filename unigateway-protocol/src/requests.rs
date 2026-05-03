@@ -4,12 +4,11 @@ use anyhow::{Result, anyhow};
 use serde::Deserialize;
 use serde_json::Value;
 use unigateway_core::{
-    Message as CoreMessage, MessageRole, ProxyChatRequest, ProxyEmbeddingsRequest,
-    ProxyResponsesRequest,
+    Message as CoreMessage, MessageRole, OPENAI_RAW_MESSAGES_KEY, ProxyChatRequest,
+    ProxyEmbeddingsRequest, ProxyResponsesRequest,
 };
 
 pub const ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY: &str = "unigateway.requested_model_alias";
-pub const OPENAI_RAW_MESSAGES_KEY: &str = "unigateway.openai_raw_messages";
 
 /// Translates an OpenAI-compatible JSON payload into a core `ProxyChatRequest`.
 pub fn openai_payload_to_chat_request(

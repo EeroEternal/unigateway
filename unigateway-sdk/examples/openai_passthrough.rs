@@ -22,8 +22,7 @@ use unigateway_sdk::protocol::openai_payload_to_chat_request;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing::subscriber::set_global_default(tracing_subscriber::FmtSubscriber::default())
-        .unwrap();
+    tracing::subscriber::set_global_default(tracing_subscriber::FmtSubscriber::default()).unwrap();
 
     let base_url =
         env::var("UPSTREAM_BASE_URL").unwrap_or_else(|_| "https://api.openai.com".to_string());
