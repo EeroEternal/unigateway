@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.10.1]
+
+### Changed
+
+* **Split oversized modules into focused submodules**: `unigateway-core::conversion`, core engine tests, host core tests, and protocol response rendering are now organized into smaller sibling modules to reduce file length and make targeted maintenance easier without changing the public release line.
+
+### Validation
+
+* `cargo fmt --all -- --check`
+* `cargo clippy --workspace --all-targets -- -D warnings`
+* `cargo test --workspace`
+
 ## [1.10.0]
 
 ### Breaking Changes

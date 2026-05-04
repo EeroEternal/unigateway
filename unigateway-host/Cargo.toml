@@ -1,6 +1,6 @@
 [package]
 name = "unigateway-host"
-version = "1.10.0"
+version = "1.10.1"
 edition = "2024"
 rust-version = "1.92"
 description = "Reusable host contracts and compatibility surface for UniGateway embedders."
