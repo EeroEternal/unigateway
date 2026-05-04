@@ -4,8 +4,8 @@ use anyhow::{Result, anyhow};
 use serde::Deserialize;
 use serde_json::Value;
 use unigateway_core::{
-    Message as CoreMessage, MessageRole, OPENAI_RAW_MESSAGES_KEY, ProxyChatRequest,
-    ProxyEmbeddingsRequest, ProxyResponsesRequest,
+    CLIENT_PROTOCOL_KEY, Message as CoreMessage, MessageRole, OPENAI_RAW_MESSAGES_KEY,
+    ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest,
 };
 
 pub const ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY: &str = "unigateway.requested_model_alias";
@@ -22,6 +22,7 @@ pub fn openai_payload_to_chat_request(
     if raw_messages.is_some() {
         metadata.insert(OPENAI_RAW_MESSAGES_KEY.to_string(), "true".to_string());
     }
+    metadata.insert(CLIENT_PROTOCOL_KEY.to_string(), "openai_chat".to_string());
 
     Ok(ProxyChatRequest {
         model: payload
@@ -126,7 +127,7 @@ pub fn anthropic_payload_to_chat_request(
         tools: payload.get("tools").cloned(),
         tool_choice: payload.get("tool_choice").cloned(),
         raw_messages: payload.get("messages").cloned(),
-        extra: HashMap::new(),
+        extra: anthropic_chat_extra(payload),
         metadata: anthropic_requested_model_alias(model),
     })
 }
@@ -170,7 +171,13 @@ fn stream_flag(payload: &Value, default: bool) -> bool {
 }
 
 pub fn anthropic_requested_model_alias(model: String) -> HashMap<String, String> {
-    HashMap::from([(ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(), model)])
+    HashMap::from([
+        (ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(), model),
+        (
+            CLIENT_PROTOCOL_KEY.to_string(),
+            "anthropic_messages".to_string(),
+        ),
+    ])
 }
 
 fn chat_messages(payload: &Value) -> Result<Vec<CoreMessage>> {
@@ -253,6 +260,33 @@ fn openai_chat_extra(payload: &Value) -> HashMap<String, Value> {
         .collect()
 }
 
+fn anthropic_chat_extra(payload: &Value) -> HashMap<String, Value> {
+    let Some(object) = payload.as_object() else {
+        return HashMap::new();
+    };
+
+    object
+        .iter()
+        .filter(|(key, _)| {
+            !matches!(
+                key.as_str(),
+                "model"
+                    | "messages"
+                    | "temperature"
+                    | "top_p"
+                    | "top_k"
+                    | "max_tokens"
+                    | "stop_sequences"
+                    | "stream"
+                    | "system"
+                    | "tools"
+                    | "tool_choice"
+            )
+        })
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
+}
+
 fn filtered_response_extra(extra: HashMap<String, Value>) -> HashMap<String, Value> {
     extra
         .iter()
@@ -300,7 +334,7 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, OPENAI_RAW_MESSAGES_KEY,
+        ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, CLIENT_PROTOCOL_KEY, OPENAI_RAW_MESSAGES_KEY,
         anthropic_payload_to_chat_request, openai_payload_to_chat_request,
         openai_payload_to_embed_request, openai_payload_to_responses_request,
     };
@@ -392,6 +426,47 @@ mod tests {
         .expect("request");
 
         assert!(!req.stream);
+    }
+
+    #[test]
+    fn anthropic_chat_extra_preserves_unknown_fields_only() {
+        let req = anthropic_payload_to_chat_request(
+            &json!({
+                "model": "claude-opus-4-6",
+                "messages": [{"role": "user", "content": "hello"}],
+                "max_tokens": 1400,
+                "thinking": {
+                    "type": "enabled",
+                    "budget_tokens": 1024,
+                    "display": "omitted"
+                },
+                "output_config": {
+                    "effort": "medium"
+                },
+                "metadata": {
+                    "trace_id": "abc"
+                }
+            }),
+            "claude-opus-4-6",
+        )
+        .expect("request");
+
+        assert_eq!(req.max_tokens, Some(1400));
+        assert_eq!(
+            req.extra.get("thinking"),
+            Some(&json!({
+                "type": "enabled",
+                "budget_tokens": 1024,
+                "display": "omitted"
+            }))
+        );
+        assert_eq!(
+            req.extra.get("output_config"),
+            Some(&json!({"effort": "medium"}))
+        );
+        assert_eq!(req.extra.get("metadata"), Some(&json!({"trace_id": "abc"})));
+        assert!(!req.extra.contains_key("messages"));
+        assert!(!req.extra.contains_key("max_tokens"));
     }
 
     #[test]
@@ -494,6 +569,40 @@ mod tests {
         assert_eq!(
             tool_msg.get("tool_call_id").and_then(Value::as_str),
             Some("call_123")
+        );
+    }
+
+    #[test]
+    fn openai_chat_request_marks_client_protocol() {
+        let req = openai_payload_to_chat_request(
+            &json!({
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "user", "content": "hello"}]
+            }),
+            "gpt-4o-mini",
+        )
+        .expect("request");
+
+        assert_eq!(
+            req.metadata.get(CLIENT_PROTOCOL_KEY).map(String::as_str),
+            Some("openai_chat")
+        );
+    }
+
+    #[test]
+    fn anthropic_chat_request_marks_client_protocol() {
+        let req = anthropic_payload_to_chat_request(
+            &json!({
+                "model": "claude-3-5-sonnet-latest",
+                "messages": [{"role": "user", "content": "hello"}]
+            }),
+            "claude-3-5-sonnet-latest",
+        )
+        .expect("request");
+
+        assert_eq!(
+            req.metadata.get(CLIENT_PROTOCOL_KEY).map(String::as_str),
+            Some("anthropic_messages")
         );
     }
 }

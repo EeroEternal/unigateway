@@ -10,8 +10,11 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::drivers::{DriverEndpointContext, ProviderDriver};
 use crate::error::GatewayError;
+use crate::request::openai_messages_to_anthropic_messages;
 use crate::request::{
-    MessageRole, ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest,
+    CLIENT_PROTOCOL_KEY, MessageRole, OPENAI_RAW_MESSAGES_KEY, ProxyChatRequest,
+    ProxyEmbeddingsRequest, ProxyResponsesRequest, openai_tool_choice_to_anthropic_tool_choice,
+    openai_tools_to_anthropic_tools, validate_anthropic_request_messages,
 };
 use crate::response::{
     ChatResponseChunk, ChatResponseFinal, CompletedResponse, EmbeddingsResponse, ProxySession,
@@ -319,17 +322,14 @@ pub fn build_chat_request(
         })
         .collect::<Vec<_>>();
 
-    let system = request.system.clone().or_else(|| {
+    let fallback_system = request.system.clone().or_else(|| {
         if system_parts.is_empty() {
             None
         } else {
             Some(Value::String(system_parts.join("\n")))
         }
     });
-    let messages = request
-        .raw_messages
-        .clone()
-        .unwrap_or(Value::Array(fallback_messages));
+    let (system, messages) = anthropic_chat_messages(request, fallback_system, fallback_messages)?;
 
     let mut payload = serde_json::Map::from_iter([
         (
@@ -359,11 +359,14 @@ pub fn build_chat_request(
     if let Some(stop_sequences) = request.stop_sequences.clone() {
         payload.insert("stop_sequences".to_string(), stop_sequences);
     }
-    if let Some(toools) = request.tools.clone() {
-        payload.insert("tools".to_string(), toools);
+    if let Some(tools) = anthropic_tools(request)? {
+        payload.insert("tools".to_string(), tools);
     }
-    if let Some(tool_choice) = request.tool_choice.clone() {
+    if let Some(tool_choice) = anthropic_tool_choice(request)? {
         payload.insert("tool_choice".to_string(), tool_choice);
+    }
+    for (key, value) in request.extra.clone() {
+        payload.entry(key).or_insert(value);
     }
 
     TransportRequest::post_json(
@@ -373,6 +376,48 @@ pub fn build_chat_request(
         &Value::Object(payload),
         None,
     )
+}
+
+fn anthropic_chat_messages(
+    request: &ProxyChatRequest,
+    fallback_system: Option<Value>,
+    fallback_messages: Vec<Value>,
+) -> Result<(Option<Value>, Value), GatewayError> {
+    let Some(raw_messages) = request.raw_messages.as_ref() else {
+        return Ok((fallback_system, Value::Array(fallback_messages)));
+    };
+
+    if is_openai_chat_request(request) {
+        return openai_messages_to_anthropic_messages(raw_messages, fallback_system);
+    }
+
+    validate_anthropic_request_messages(raw_messages)?;
+    Ok((fallback_system, raw_messages.clone()))
+}
+
+fn anthropic_tools(request: &ProxyChatRequest) -> Result<Option<Value>, GatewayError> {
+    if is_openai_chat_request(request) {
+        return openai_tools_to_anthropic_tools(request.tools.clone());
+    }
+
+    Ok(request.tools.clone())
+}
+
+fn anthropic_tool_choice(request: &ProxyChatRequest) -> Result<Option<Value>, GatewayError> {
+    if !is_openai_chat_request(request) {
+        return Ok(request.tool_choice.clone());
+    }
+
+    openai_tool_choice_to_anthropic_tool_choice(request.tool_choice.clone())
+}
+
+fn is_openai_chat_request(request: &ProxyChatRequest) -> bool {
+    request
+        .metadata
+        .get(CLIENT_PROTOCOL_KEY)
+        .map(String::as_str)
+        == Some("openai_chat")
+        || request.metadata.contains_key(OPENAI_RAW_MESSAGES_KEY)
 }
 
 pub fn parse_chat_response(
@@ -449,13 +494,16 @@ mod tests {
 
     use futures_util::StreamExt;
     use futures_util::future::BoxFuture;
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     use super::{AnthropicDriver, build_chat_request};
     use crate::GatewayError;
     use crate::drivers::{DriverEndpointContext, ProviderDriver};
     use crate::pool::{ModelPolicy, ProviderKind, SecretString};
-    use crate::request::{Message, MessageRole, ProxyChatRequest};
+    use crate::request::{
+        CLIENT_PROTOCOL_KEY, Message, MessageRole, OPENAI_RAW_MESSAGES_KEY, ProxyChatRequest,
+        THINKING_SIGNATURE_PLACEHOLDER_VALUE,
+    };
     use crate::response::ProxySession;
     use crate::transport::{
         HttpTransport, StreamingTransportResponse, TransportRequest, TransportResponse,
@@ -569,6 +617,300 @@ mod tests {
                 .map(Vec::len),
             Some(2)
         );
+    }
+
+    #[test]
+    fn build_chat_request_converts_openai_raw_messages_to_anthropic_messages() {
+        let mut metadata = HashMap::new();
+        metadata.insert(CLIENT_PROTOCOL_KEY.to_string(), "openai_chat".to_string());
+        metadata.insert(OPENAI_RAW_MESSAGES_KEY.to_string(), "true".to_string());
+
+        let request = build_chat_request(
+            &endpoint(),
+            &ProxyChatRequest {
+                model: "claude-3-5-sonnet".to_string(),
+                messages: Vec::new(),
+                system: None,
+                tools: Some(json!([{
+                    "type": "function",
+                    "function": {
+                        "name": "search",
+                        "description": "Search documents",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {"type": "string"}
+                            }
+                        }
+                    }
+                }])),
+                tool_choice: Some(json!({
+                    "type": "function",
+                    "function": {"name": "search"}
+                })),
+                raw_messages: Some(json!([
+                    {"role": "system", "content": "be precise"},
+                    {"role": "user", "content": "find rust examples"},
+                    {
+                        "role": "assistant",
+                        "content": null,
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "search",
+                                "arguments": "{\"query\":\"rust examples\"}"
+                            }
+                        }]
+                    },
+                    {
+                        "role": "tool",
+                        "tool_call_id": "call_1",
+                        "content": "result text"
+                    }
+                ])),
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                max_tokens: Some(256),
+                stop_sequences: None,
+                stream: false,
+                extra: HashMap::new(),
+                metadata,
+            },
+        )
+        .expect("anthropic request");
+
+        let body: serde_json::Value =
+            serde_json::from_slice(&request.body.expect("body")).expect("json body");
+        assert_eq!(
+            body.get("system").and_then(serde_json::Value::as_str),
+            Some("be precise")
+        );
+
+        let messages = body
+            .get("messages")
+            .and_then(serde_json::Value::as_array)
+            .expect("messages");
+        assert_eq!(messages.len(), 3);
+        assert_eq!(
+            messages[0].get("role").and_then(Value::as_str),
+            Some("user")
+        );
+        assert_eq!(
+            messages[0]
+                .get("content")
+                .and_then(Value::as_array)
+                .and_then(|blocks| blocks.first())
+                .and_then(|block| block.get("text"))
+                .and_then(Value::as_str),
+            Some("find rust examples")
+        );
+
+        let tool_use = messages[1]
+            .get("content")
+            .and_then(Value::as_array)
+            .and_then(|blocks| blocks.first())
+            .expect("tool use block");
+        assert_eq!(
+            tool_use.get("type").and_then(Value::as_str),
+            Some("tool_use")
+        );
+        assert_eq!(tool_use.get("id").and_then(Value::as_str), Some("call_1"));
+        assert_eq!(tool_use.get("name").and_then(Value::as_str), Some("search"));
+        assert_eq!(
+            tool_use
+                .get("input")
+                .and_then(|input| input.get("query"))
+                .and_then(Value::as_str),
+            Some("rust examples")
+        );
+
+        let tool_result = messages[2]
+            .get("content")
+            .and_then(Value::as_array)
+            .and_then(|blocks| blocks.first())
+            .expect("tool result block");
+        assert_eq!(
+            tool_result.get("type").and_then(Value::as_str),
+            Some("tool_result")
+        );
+        assert_eq!(
+            tool_result.get("tool_use_id").and_then(Value::as_str),
+            Some("call_1")
+        );
+
+        let tool = body
+            .get("tools")
+            .and_then(Value::as_array)
+            .and_then(|tools| tools.first())
+            .expect("converted tool");
+        assert_eq!(tool.get("name").and_then(Value::as_str), Some("search"));
+        assert!(tool.get("input_schema").is_some());
+
+        assert_eq!(
+            body.get("tool_choice")
+                .and_then(|choice| choice.get("type"))
+                .and_then(Value::as_str),
+            Some("tool")
+        );
+    }
+
+    #[test]
+    fn build_chat_request_preserves_anthropic_raw_messages() {
+        let raw_messages = json!([{
+            "role": "assistant",
+            "content": [{
+                "type": "thinking",
+                "thinking": "original reasoning",
+                "signature": "real-signature"
+            }, {
+                "type": "text",
+                "text": "answer"
+            }]
+        }]);
+
+        let request = build_chat_request(
+            &endpoint(),
+            &ProxyChatRequest {
+                model: "claude-3-5-sonnet".to_string(),
+                messages: Vec::new(),
+                system: Some(json!("native system")),
+                tools: Some(json!([{
+                    "name": "native_tool",
+                    "input_schema": {"type": "object", "properties": {}}
+                }])),
+                tool_choice: Some(json!({"type": "auto"})),
+                raw_messages: Some(raw_messages.clone()),
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                max_tokens: Some(256),
+                stop_sequences: None,
+                stream: false,
+                extra: HashMap::new(),
+                metadata: HashMap::from([(
+                    CLIENT_PROTOCOL_KEY.to_string(),
+                    "anthropic_messages".to_string(),
+                )]),
+            },
+        )
+        .expect("anthropic request");
+
+        let body: serde_json::Value =
+            serde_json::from_slice(&request.body.expect("body")).expect("json body");
+        assert_eq!(body.get("messages"), Some(&raw_messages));
+        assert_eq!(
+            body.pointer("/messages/0/content/0/signature")
+                .and_then(Value::as_str),
+            Some("real-signature")
+        );
+        assert_eq!(
+            body.pointer("/tools/0/name").and_then(Value::as_str),
+            Some("native_tool")
+        );
+        assert_eq!(
+            body.pointer("/tool_choice/type").and_then(Value::as_str),
+            Some("auto")
+        );
+    }
+
+    #[test]
+    fn build_chat_request_rejects_placeholder_signature_in_anthropic_raw_messages() {
+        let error = build_chat_request(
+            &endpoint(),
+            &ProxyChatRequest {
+                model: "claude-3-5-sonnet".to_string(),
+                messages: Vec::new(),
+                system: None,
+                tools: None,
+                tool_choice: None,
+                raw_messages: Some(json!([{
+                    "role": "assistant",
+                    "content": [{
+                        "type": "thinking",
+                        "thinking": "renderer-only reasoning",
+                        "signature": THINKING_SIGNATURE_PLACEHOLDER_VALUE
+                    }]
+                }])),
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                max_tokens: Some(256),
+                stop_sequences: None,
+                stream: false,
+                extra: HashMap::new(),
+                metadata: HashMap::from([(
+                    CLIENT_PROTOCOL_KEY.to_string(),
+                    "anthropic_messages".to_string(),
+                )]),
+            },
+        )
+        .expect_err("placeholder signature should be rejected");
+
+        assert!(matches!(error, GatewayError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn build_chat_request_merges_anthropic_extra_without_overriding_core_fields() {
+        let request = build_chat_request(
+            &endpoint(),
+            &ProxyChatRequest {
+                model: "claude-opus-4-6".to_string(),
+                messages: vec![crate::request::Message {
+                    role: MessageRole::User,
+                    content: "hello".to_string(),
+                }],
+                system: None,
+                tools: None,
+                tool_choice: None,
+                raw_messages: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                max_tokens: Some(1400),
+                stop_sequences: None,
+                stream: false,
+                extra: HashMap::from([
+                    (
+                        "thinking".to_string(),
+                        json!({
+                            "type": "enabled",
+                            "budget_tokens": 1024,
+                            "display": "omitted"
+                        }),
+                    ),
+                    (
+                        "output_config".to_string(),
+                        json!({
+                            "effort": "medium"
+                        }),
+                    ),
+                    ("max_tokens".to_string(), json!(999)),
+                ]),
+                metadata: HashMap::from([(
+                    CLIENT_PROTOCOL_KEY.to_string(),
+                    "anthropic_messages".to_string(),
+                )]),
+            },
+        )
+        .expect("anthropic request");
+
+        let body: serde_json::Value =
+            serde_json::from_slice(&request.body.expect("body")).expect("json body");
+        assert_eq!(
+            body.get("thinking"),
+            Some(&json!({
+                "type": "enabled",
+                "budget_tokens": 1024,
+                "display": "omitted"
+            }))
+        );
+        assert_eq!(
+            body.get("output_config"),
+            Some(&json!({"effort": "medium"}))
+        );
+        assert_eq!(body.get("max_tokens").and_then(Value::as_u64), Some(1400));
     }
 
     #[tokio::test]

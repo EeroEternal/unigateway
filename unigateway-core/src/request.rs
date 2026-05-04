@@ -5,6 +5,45 @@ use serde_json::Value;
 
 /// Metadata key for marking OpenAI raw messages in ProxyChatRequest.
 pub const OPENAI_RAW_MESSAGES_KEY: &str = "unigateway.openai_raw_messages";
+/// Metadata key for recording the source client protocol.
+pub const CLIENT_PROTOCOL_KEY: &str = "unigateway.client_protocol";
+/// Metadata key for recording whether thinking signatures are real placeholders or absent.
+pub const THINKING_SIGNATURE_STATUS_KEY: &str = "unigateway.thinking_signature_status";
+/// Placeholder thinking signature used only for downstream protocol-shape compatibility.
+pub const THINKING_SIGNATURE_PLACEHOLDER_VALUE: &str = "EXTENDED_THINKING_PLACEHOLDER_SIG";
+
+pub use crate::conversion::{
+    anthropic_content_to_blocks, anthropic_messages_to_openai_messages,
+    anthropic_tool_choice_to_openai_tool_choice, anthropic_tools_to_openai_tools,
+    content_blocks_to_anthropic, content_blocks_to_anthropic_request,
+    is_placeholder_thinking_signature, openai_message_to_content_blocks,
+    openai_messages_to_anthropic_messages, openai_tool_choice_to_anthropic_tool_choice,
+    openai_tools_to_anthropic_tools, validate_anthropic_request_messages,
+};
+
+/// Structured content block for protocol-preserving chat messages.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ContentBlock {
+    /// Plain text content.
+    Text { text: String },
+    /// Anthropic thinking content with an optional continuation signature.
+    Thinking {
+        thinking: String,
+        signature: Option<String>,
+    },
+    /// Tool use content block.
+    ToolUse {
+        id: String,
+        name: String,
+        input: Value,
+    },
+    /// Tool result content block.
+    ToolResult {
+        tool_use_id: String,
+        content: String,
+    },
+}
 
 /// Message role in a chat completion request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

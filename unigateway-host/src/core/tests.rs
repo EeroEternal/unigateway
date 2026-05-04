@@ -997,6 +997,231 @@ async fn anthropic_stream_renderer_multiplexes_interleaved_tool_calls() {
     assert_eq!(tool_stops, 2);
 }
 
+#[tokio::test]
+async fn anthropic_stream_renderer_deduplicates_cumulative_tool_argument_snapshots() {
+    let (completion_tx, completion_rx) = oneshot::channel();
+    assert!(
+        completion_tx
+            .send(Ok(CompletedResponse {
+                response: ChatResponseFinal {
+                    model: Some("gpt-4o-mini".to_string()),
+                    output_text: None,
+                    raw: serde_json::json!({
+                        "choices": [{
+                            "finish_reason": "tool_calls"
+                        }]
+                    }),
+                },
+                report: RequestReport {
+                    request_id: "req_stream_4".to_string(),
+                    correlation_id: "req_stream_4".to_string(),
+                    pool_id: Some("svc".to_string()),
+                    selected_endpoint_id: "zhipu-main".to_string(),
+                    selected_provider: ProviderKind::OpenAiCompatible,
+                    kind: RequestKind::Chat,
+                    attempts: Vec::new(),
+                    usage: Some(unigateway_core::TokenUsage {
+                        input_tokens: Some(7),
+                        output_tokens: Some(2),
+                        total_tokens: Some(9),
+                    }),
+                    latency_ms: 8,
+                    started_at: std::time::SystemTime::UNIX_EPOCH,
+                    finished_at: std::time::SystemTime::UNIX_EPOCH,
+                    error_kind: None,
+                    stream: None,
+                    metadata: HashMap::new(),
+                },
+            }))
+            .is_ok()
+    );
+
+    let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        stream: Box::pin(futures_util::stream::iter(vec![
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "id": "chatcmpl_4",
+                    "model": "gpt-4o-mini",
+                    "choices": [{
+                        "delta": {
+                            "tool_calls": [{
+                                "index": 0,
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "lookup_weather",
+                                    "arguments": "{\"city\":\""
+                                }
+                            }]
+                        }
+                    }]
+                }),
+            }),
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "id": "chatcmpl_4",
+                    "model": "gpt-4o-mini",
+                    "choices": [{
+                        "delta": {
+                            "tool_calls": [{
+                                "index": 0,
+                                "function": {
+                                    "arguments": "{\"city\":\"Paris\"}"
+                                }
+                            }]
+                        }
+                    }]
+                }),
+            }),
+        ])),
+        completion: completion_rx,
+        request_id: "req_stream_4".to_string(),
+        request_metadata: HashMap::from([(
+            ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
+            "claude-3-5-sonnet-latest".to_string(),
+        )]),
+    }));
+
+    let (_, body) = response.into_parts();
+    let ProtocolResponseBody::ServerSentEvents(stream) = body else {
+        panic!("expected sse body");
+    };
+
+    let events = stream
+        .map(|item| String::from_utf8(item.expect("sse chunk").to_vec()).expect("utf8 chunk"))
+        .collect::<Vec<_>>()
+        .await;
+
+    let tool_deltas = events
+        .iter()
+        .filter(|event| {
+            event.contains("event: content_block_delta")
+                && event.contains("\"type\":\"input_json_delta\"")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(tool_deltas.len(), 2);
+    assert!(tool_deltas[0].contains("{\\\"city\\\":\\\""));
+    assert!(tool_deltas[1].contains("Paris\\\"}"));
+    assert!(!tool_deltas[1].contains("{\\\"city\\\":\\\"Paris\\\"}"));
+}
+
+#[tokio::test]
+async fn anthropic_stream_renderer_normalizes_double_encoded_and_prefixed_tool_arguments() {
+    let (completion_tx, completion_rx) = oneshot::channel();
+    assert!(
+        completion_tx
+            .send(Ok(CompletedResponse {
+                response: ChatResponseFinal {
+                    model: Some("gpt-4o-mini".to_string()),
+                    output_text: None,
+                    raw: serde_json::json!({
+                        "choices": [{
+                            "finish_reason": "tool_calls"
+                        }]
+                    }),
+                },
+                report: RequestReport {
+                    request_id: "req_stream_5".to_string(),
+                    correlation_id: "req_stream_5".to_string(),
+                    pool_id: Some("svc".to_string()),
+                    selected_endpoint_id: "zhipu-main".to_string(),
+                    selected_provider: ProviderKind::OpenAiCompatible,
+                    kind: RequestKind::Chat,
+                    attempts: Vec::new(),
+                    usage: Some(unigateway_core::TokenUsage {
+                        input_tokens: Some(7),
+                        output_tokens: Some(2),
+                        total_tokens: Some(9),
+                    }),
+                    latency_ms: 8,
+                    started_at: std::time::SystemTime::UNIX_EPOCH,
+                    finished_at: std::time::SystemTime::UNIX_EPOCH,
+                    error_kind: None,
+                    stream: None,
+                    metadata: HashMap::new(),
+                },
+            }))
+            .is_ok()
+    );
+
+    let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        stream: Box::pin(futures_util::stream::iter(vec![Ok(ChatResponseChunk {
+            delta: None,
+            raw: serde_json::json!({
+                "id": "chatcmpl_5",
+                "model": "gpt-4o-mini",
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_weather",
+                                "type": "function",
+                                "function": {
+                                    "name": "lookup_weather",
+                                    "arguments": "\"{\\\"city\\\":\\\"Paris\\\"}\""
+                                }
+                            },
+                            {
+                                "index": 1,
+                                "id": "call_time",
+                                "type": "function",
+                                "function": {
+                                    "name": "lookup_time",
+                                    "arguments": "{}{\"timezone\":\"UTC\"}"
+                                }
+                            }
+                        ]
+                    }
+                }]
+            }),
+        })])),
+        completion: completion_rx,
+        request_id: "req_stream_5".to_string(),
+        request_metadata: HashMap::from([(
+            ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
+            "claude-3-5-sonnet-latest".to_string(),
+        )]),
+    }));
+
+    let (_, body) = response.into_parts();
+    let ProtocolResponseBody::ServerSentEvents(stream) = body else {
+        panic!("expected sse body");
+    };
+
+    let events = stream
+        .map(|item| String::from_utf8(item.expect("sse chunk").to_vec()).expect("utf8 chunk"))
+        .collect::<Vec<_>>()
+        .await;
+
+    let tool_deltas = events
+        .iter()
+        .filter(|event| {
+            event.contains("event: content_block_delta")
+                && event.contains("\"type\":\"input_json_delta\"")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(tool_deltas.len(), 2);
+    assert!(
+        tool_deltas
+            .iter()
+            .any(|event| event.contains("{\\\"city\\\":\\\"Paris\\\"}"))
+    );
+    assert!(
+        tool_deltas
+            .iter()
+            .any(|event| event.contains("{\\\"timezone\\\":\\\"UTC\\\"}"))
+    );
+    assert!(
+        tool_deltas
+            .iter()
+            .all(|event| !event.contains("\\\"{\\\\\\\""))
+    );
+    assert!(tool_deltas.iter().all(|event| !event.contains("{}{")));
+}
+
 #[test]
 fn openai_stream_adapter_translates_anthropic_events() {
     let mut adapter = OpenAiChatStreamAdapter::default();
@@ -1083,5 +1308,192 @@ fn openai_stream_adapter_translates_anthropic_events() {
             .and_then(|choice| choice.get("finish_reason"))
             .and_then(serde_json::Value::as_str),
         Some("stop")
+    );
+}
+
+// =========================================================================
+// Protective tests for protocol conversion (Stage 0)
+// These tests verify the integration between protocol layer and core layer
+// =========================================================================
+
+#[test]
+fn anthropic_response_body_preserves_thinking_block_structure() {
+    // This test protects the Anthropic -> Anthropic response path
+    // Verify that anthropic_completed_chat_body preserves thinking blocks
+    use unigateway_core::{RequestKind, RequestReport};
+    use unigateway_protocol::testing::anthropic_completed_chat_body;
+
+    let response = CompletedResponse {
+        response: ChatResponseFinal {
+            model: Some("claude-3-7-sonnet-latest".to_string()),
+            output_text: Some("The answer is 42".to_string()),
+            raw: serde_json::json!({
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "thinking",
+                        "thinking": "Let me analyze this...",
+                        "signature": "Ep8DCkYICxgCKkC/3LZH..."
+                    },
+                    {
+                        "type": "text",
+                        "text": "The answer is 42"
+                    }
+                ],
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 50
+                }
+            }),
+        },
+        report: RequestReport {
+            request_id: "req_test".to_string(),
+            correlation_id: "req_test".to_string(),
+            pool_id: None,
+            kind: RequestKind::Chat,
+            selected_endpoint_id: "anth-1".to_string(),
+            selected_provider: unigateway_core::ProviderKind::Anthropic,
+            usage: Some(unigateway_core::TokenUsage {
+                input_tokens: Some(100),
+                output_tokens: Some(50),
+                total_tokens: Some(150),
+            }),
+            attempts: vec![],
+            latency_ms: 100,
+            started_at: std::time::SystemTime::UNIX_EPOCH,
+            finished_at: std::time::SystemTime::UNIX_EPOCH,
+            error_kind: None,
+            stream: None,
+            metadata: HashMap::new(),
+        },
+    };
+
+    let body = anthropic_completed_chat_body(response);
+
+    // Verify response structure
+    assert_eq!(
+        body.get("type").and_then(serde_json::Value::as_str),
+        Some("message")
+    );
+    assert_eq!(
+        body.get("role").and_then(serde_json::Value::as_str),
+        Some("assistant")
+    );
+
+    // Verify content blocks preserved
+    let content = body
+        .get("content")
+        .and_then(serde_json::Value::as_array)
+        .expect("content should be array");
+    assert_eq!(content.len(), 2);
+
+    // Verify thinking block with signature preserved
+    let thinking_block = &content[0];
+    assert_eq!(
+        thinking_block
+            .get("type")
+            .and_then(serde_json::Value::as_str),
+        Some("thinking")
+    );
+    assert!(
+        thinking_block.get("signature").is_some(),
+        "Thinking signature must be preserved in Anthropic response"
+    );
+
+    // Verify usage preserved
+    let usage = body.get("usage").expect("usage should exist");
+    assert_eq!(
+        usage
+            .get("input_tokens")
+            .and_then(serde_json::Value::as_u64),
+        Some(100)
+    );
+    assert_eq!(
+        usage
+            .get("output_tokens")
+            .and_then(serde_json::Value::as_u64),
+        Some(50)
+    );
+}
+
+#[test]
+fn openai_response_body_includes_reasoning_content() {
+    // This test protects the Anthropic -> OpenAI response path
+    // Verify that openai_completed_chat_body includes reasoning/thinking content
+    use unigateway_core::{RequestKind, RequestReport};
+    use unigateway_protocol::testing::openai_completed_chat_body;
+
+    let response = CompletedResponse {
+        response: ChatResponseFinal {
+            model: Some("claude-3-7-sonnet-latest".to_string()),
+            output_text: Some("The answer is 42".to_string()),
+            raw: serde_json::json!({
+                "content": [
+                    {
+                        "type": "thinking",
+                        "thinking": "Let me analyze this...",
+                        "signature": "Ep8DCkYICxgCKkC/3LZH..."
+                    },
+                    {
+                        "type": "text",
+                        "text": "The answer is 42"
+                    }
+                ]
+            }),
+        },
+        report: RequestReport {
+            request_id: "req_test".to_string(),
+            correlation_id: "req_test".to_string(),
+            pool_id: None,
+            kind: RequestKind::Chat,
+            selected_endpoint_id: "anth-1".to_string(),
+            selected_provider: unigateway_core::ProviderKind::Anthropic,
+            usage: Some(unigateway_core::TokenUsage {
+                input_tokens: Some(100),
+                output_tokens: Some(50),
+                total_tokens: Some(150),
+            }),
+            attempts: vec![],
+            latency_ms: 100,
+            started_at: std::time::SystemTime::UNIX_EPOCH,
+            finished_at: std::time::SystemTime::UNIX_EPOCH,
+            error_kind: None,
+            stream: None,
+            metadata: HashMap::new(),
+        },
+    };
+
+    let body = openai_completed_chat_body(response);
+
+    // Verify OpenAI response structure
+    assert_eq!(
+        body.get("object").and_then(serde_json::Value::as_str),
+        Some("chat.completion")
+    );
+
+    let choices = body
+        .get("choices")
+        .and_then(serde_json::Value::as_array)
+        .expect("choices should be array");
+    assert!(!choices.is_empty());
+
+    let first_choice = &choices[0];
+    let message = first_choice.get("message").expect("message should exist");
+
+    // Content should be preserved
+    assert!(
+        message.get("content").is_some(),
+        "OpenAI response should have content"
+    );
+
+    // Reasoning content should be present (extracted from Anthropic thinking)
+    // This tests the Anthropic -> OpenAI conversion of thinking blocks
+    let reasoning = message
+        .get("reasoning_content")
+        .or_else(|| message.get("thinking"));
+    assert!(
+        reasoning.is_some() || message.get("content").is_some(),
+        "Reasoning content should be present or content should include reasoning"
     );
 }

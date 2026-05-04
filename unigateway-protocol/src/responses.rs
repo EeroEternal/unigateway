@@ -7,12 +7,15 @@ use futures_util::StreamExt;
 use tokio::sync::mpsc;
 use unigateway_core::{
     ChatResponseChunk, ChatResponseFinal, CompletedResponse, EmbeddingsResponse, ProviderKind,
-    ProxySession, ResponsesEvent, ResponsesFinal, StreamingResponse, TokenUsage,
+    ProxySession, ResponsesEvent, ResponsesFinal, StreamingResponse,
+    THINKING_SIGNATURE_PLACEHOLDER_VALUE, TokenUsage,
+    conversion::{
+        PendingOpenAiToolCall, apply_openai_tool_call_delta_update,
+        flush_openai_tool_call_stop_update, openai_message_to_anthropic_content_blocks,
+    },
 };
 
 use crate::{ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, ProtocolHttpResponse};
-
-const EXTENDED_THINKING_PLACEHOLDER_SIG: &str = "EXTENDED_THINKING_PLACEHOLDER_SIG";
 
 #[derive(Default)]
 pub struct OpenAiChatStreamAdapter {
@@ -641,24 +644,13 @@ fn anthropic_usage_payload(usage: Option<&TokenUsage>) -> serde_json::Value {
 }
 
 #[derive(Default)]
-struct PendingToolCall {
-    id: String,
-    name: String,
-    arguments: String,
-    emitted_argument_len: usize,
-    anthropic_index: Option<usize>,
-    started: bool,
-    stopped: bool,
-}
-
-#[derive(Default)]
 struct AnthropicOpenAiStreamState {
     prelude_sent: bool,
     next_content_index: usize,
     active_content_block_index: Option<usize>,
     active_content_block_type: Option<&'static str>,
     stop_reason: Option<String>,
-    pending_tool_calls: BTreeMap<usize, PendingToolCall>,
+    pending_tool_calls: BTreeMap<usize, PendingOpenAiToolCall>,
     saw_native_anthropic: bool,
 }
 
@@ -846,7 +838,7 @@ async fn close_active_content_block(
                 "index": index,
                 "delta": {
                     "type": "signature_delta",
-                    "signature": EXTENDED_THINKING_PLACEHOLDER_SIG,
+                    "signature": THINKING_SIGNATURE_PLACEHOLDER_VALUE,
                 }
             }),
         )
@@ -930,76 +922,28 @@ async fn apply_openai_tool_call_delta(
     tool_index: usize,
     tool_call: &serde_json::Value,
 ) -> Result<(), io::Error> {
-    state.pending_tool_calls.entry(tool_index).or_default();
+    let update = apply_openai_tool_call_delta_update(
+        &mut state.pending_tool_calls,
+        &mut state.next_content_index,
+        tool_index,
+        tool_call,
+    );
 
-    if state
-        .pending_tool_calls
-        .get(&tool_index)
-        .and_then(|pending| pending.anthropic_index)
-        .is_none()
-    {
-        let anthropic_index = state.next_content_index;
-        state.next_content_index += 1;
-        if let Some(pending) = state.pending_tool_calls.get_mut(&tool_index) {
-            pending.anthropic_index = Some(anthropic_index);
-        }
-    }
-
-    if let Some(pending) = state.pending_tool_calls.get_mut(&tool_index) {
-        if let Some(id) = tool_call.get("id").and_then(serde_json::Value::as_str) {
-            pending.id = id.to_string();
-        }
-        if let Some(name) = tool_call
-            .get("function")
-            .and_then(|value| value.get("name"))
-            .and_then(serde_json::Value::as_str)
-        {
-            pending.name = name.to_string();
-        }
-        if let Some(arguments) = tool_call
-            .get("function")
-            .and_then(|value| value.get("arguments"))
-            .and_then(serde_json::Value::as_str)
-        {
-            pending.arguments.push_str(arguments);
-        }
-    }
-
-    let mut start_payload = None;
-    let mut delta_payload = None;
-    if let Some(pending) = state.pending_tool_calls.get_mut(&tool_index) {
-        let can_start = !pending.started && !pending.id.is_empty() && !pending.name.is_empty();
-        if can_start {
-            pending.started = true;
-            start_payload = Some((
-                pending.anthropic_index.unwrap_or(tool_index),
-                pending.id.clone(),
-                pending.name.clone(),
-            ));
-        }
-
-        if pending.started && pending.emitted_argument_len < pending.arguments.len() {
-            let fragment = pending.arguments[pending.emitted_argument_len..].to_string();
-            pending.emitted_argument_len = pending.arguments.len();
-            delta_payload = Some((pending.anthropic_index.unwrap_or(tool_index), fragment));
-        }
-    }
-
-    if start_payload.is_some() {
+    if update.start.is_some() {
         close_active_content_block(sender, state).await?;
     }
 
-    if let Some((anthropic_index, id, name)) = start_payload {
+    if let Some(start) = update.start {
         emit_sse_json(
             sender,
             "content_block_start",
             serde_json::json!({
                 "type": "content_block_start",
-                "index": anthropic_index,
+                "index": start.anthropic_index,
                 "content_block": {
                     "type": "tool_use",
-                    "id": id,
-                    "name": name,
+                    "id": start.id,
+                    "name": start.name,
                     "input": {}
                 }
             }),
@@ -1008,16 +952,16 @@ async fn apply_openai_tool_call_delta(
         .map_err(io::Error::other)?;
     }
 
-    if let Some((anthropic_index, fragment)) = delta_payload {
+    if let Some(delta) = update.delta {
         emit_sse_json(
             sender,
             "content_block_delta",
             serde_json::json!({
                 "type": "content_block_delta",
-                "index": anthropic_index,
+                "index": delta.anthropic_index,
                 "delta": {
                     "type": "input_json_delta",
-                    "partial_json": fragment,
+                    "partial_json": delta.partial_json,
                 }
             }),
         )
@@ -1036,53 +980,23 @@ async fn flush_pending_tool_call_stops(
     for tool_index in tool_indexes {
         apply_openai_tool_call_delta(sender, state, tool_index, &serde_json::json!({})).await?;
 
-        let stop_index = {
-            let Some(pending) = state.pending_tool_calls.get_mut(&tool_index) else {
-                continue;
-            };
-            if !pending.started {
-                pending.started = true;
-                if pending.id.is_empty() && pending.name.is_empty() && pending.arguments.is_empty()
-                {
-                    None
-                } else {
-                    Some((
-                        pending.anthropic_index.unwrap_or(tool_index),
-                        pending.id.clone(),
-                        pending.name.clone(),
-                        pending.emitted_argument_len < pending.arguments.len(),
-                        pending.arguments[pending.emitted_argument_len..].to_string(),
-                    ))
-                }
-            } else if pending.stopped {
-                None
-            } else {
-                Some((
-                    pending.anthropic_index.unwrap_or(tool_index),
-                    String::new(),
-                    String::new(),
-                    false,
-                    String::new(),
-                ))
-            }
-        };
+        let update = flush_openai_tool_call_stop_update(&mut state.pending_tool_calls, tool_index);
 
-        let Some((anthropic_index, id, name, emit_buffered_delta, buffered_delta)) = stop_index
-        else {
+        let Some(anthropic_index) = update.stop_index else {
             continue;
         };
 
-        if !id.is_empty() || !name.is_empty() || emit_buffered_delta {
+        if let Some(start) = update.start {
             emit_sse_json(
                 sender,
                 "content_block_start",
                 serde_json::json!({
                     "type": "content_block_start",
-                    "index": anthropic_index,
+                    "index": start.anthropic_index,
                     "content_block": {
                         "type": "tool_use",
-                        "id": if id.is_empty() { "toolu_unknown" } else { id.as_str() },
-                        "name": if name.is_empty() { "tool" } else { name.as_str() },
+                        "id": start.id,
+                        "name": start.name,
                         "input": {}
                     }
                 }),
@@ -1091,32 +1005,21 @@ async fn flush_pending_tool_call_stops(
             .map_err(io::Error::other)?;
         }
 
-        if emit_buffered_delta {
+        if let Some(delta) = update.delta {
             emit_sse_json(
                 sender,
                 "content_block_delta",
                 serde_json::json!({
                     "type": "content_block_delta",
-                    "index": anthropic_index,
+                    "index": delta.anthropic_index,
                     "delta": {
                         "type": "input_json_delta",
-                        "partial_json": buffered_delta,
+                        "partial_json": delta.partial_json,
                     }
                 }),
             )
             .await
             .map_err(io::Error::other)?;
-
-            if let Some(pending) = state.pending_tool_calls.get_mut(&tool_index) {
-                pending.emitted_argument_len = pending.arguments.len();
-            }
-        }
-
-        if let Some(pending) = state.pending_tool_calls.get_mut(&tool_index) {
-            if pending.stopped {
-                continue;
-            }
-            pending.stopped = true;
         }
 
         emit_sse_json(
@@ -1132,79 +1035,6 @@ async fn flush_pending_tool_call_stops(
     }
 
     Ok(())
-}
-
-fn openai_message_to_anthropic_content_blocks(
-    message: &serde_json::Value,
-) -> Vec<serde_json::Value> {
-    let mut content_blocks = Vec::new();
-
-    if let Some(thinking) = message
-        .get("reasoning_content")
-        .or_else(|| message.get("thinking"))
-        .and_then(serde_json::Value::as_str)
-    {
-        content_blocks.push(serde_json::json!({
-            "type": "thinking",
-            "thinking": thinking,
-            "signature": EXTENDED_THINKING_PLACEHOLDER_SIG,
-        }));
-    }
-
-    match message.get("content") {
-        Some(serde_json::Value::String(text)) if !text.is_empty() => {
-            content_blocks.push(serde_json::json!({
-                "type": "text",
-                "text": text,
-            }));
-        }
-        Some(serde_json::Value::Array(blocks)) => {
-            content_blocks.extend(blocks.iter().filter_map(|block| {
-                if block.get("type").and_then(serde_json::Value::as_str) == Some("text") {
-                    Some(block.clone())
-                } else {
-                    None
-                }
-            }));
-        }
-        _ => {}
-    }
-
-    if let Some(tool_calls) = message
-        .get("tool_calls")
-        .and_then(serde_json::Value::as_array)
-    {
-        content_blocks.extend(
-            tool_calls
-                .iter()
-                .filter_map(openai_tool_call_to_anthropic_block),
-        );
-    }
-
-    content_blocks
-}
-
-fn openai_tool_call_to_anthropic_block(tool_call: &serde_json::Value) -> Option<serde_json::Value> {
-    let function = tool_call.get("function")?;
-    let arguments = function
-        .get("arguments")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("{}");
-    let parsed_input = serde_json::from_str::<serde_json::Value>(arguments)
-        .unwrap_or_else(|_| serde_json::json!({}));
-
-    Some(serde_json::json!({
-        "type": "tool_use",
-        "id": tool_call
-            .get("id")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("toolu_unknown"),
-        "name": function
-            .get("name")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("tool"),
-        "input": parsed_input,
-    }))
 }
 
 fn openai_usage_to_anthropic(usage: Option<&serde_json::Value>) -> Option<serde_json::Value> {
