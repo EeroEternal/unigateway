@@ -5,7 +5,8 @@ use crate::request::ContentBlock;
 
 use super::blocks::{
     anthropic_block_to_content_block, anthropic_blocks, content_blocks_to_anthropic_request,
-    is_placeholder_thinking_signature, openai_message_to_content_blocks,
+    is_placeholder_thinking_signature, openai_message_to_anthropic_request_content_blocks,
+    openai_message_to_content_blocks,
 };
 
 pub fn openai_messages_to_anthropic_messages(
@@ -18,7 +19,7 @@ pub fn openai_messages_to_anthropic_messages(
         ));
     };
 
-    let mut system_parts = Vec::new();
+    let mut system_blocks = Vec::new();
     let mut anthropic_messages = Vec::new();
 
     for message in messages {
@@ -29,7 +30,7 @@ pub fn openai_messages_to_anthropic_messages(
 
         match role {
             "system" => {
-                system_parts.extend(openai_system_content_parts(message.get("content"))?);
+                system_blocks.extend(openai_system_content_blocks(message.get("content"))?);
             }
             "user" | "assistant" => {
                 anthropic_messages.push(openai_chat_message_to_anthropic_message(message, role)?);
@@ -45,10 +46,10 @@ pub fn openai_messages_to_anthropic_messages(
         }
     }
 
-    let system = if system_parts.is_empty() {
+    let system = if system_blocks.is_empty() {
         fallback_system
     } else {
-        Some(Value::String(system_parts.join("\n")))
+        Some(collapse_openai_system_blocks(system_blocks))
     };
 
     Ok((system, Value::Array(anthropic_messages)))
@@ -166,8 +167,7 @@ fn openai_chat_message_to_anthropic_message(
     message: &Value,
     role: &str,
 ) -> Result<Value, GatewayError> {
-    let blocks = openai_message_to_content_blocks(message)?;
-    let content = content_blocks_to_anthropic_request(&blocks)?;
+    let content = openai_message_to_anthropic_request_content_blocks(message)?;
 
     Ok(json!({
         "role": role,
@@ -185,17 +185,26 @@ fn openai_tool_message_to_anthropic_message(message: &Value) -> Result<Value, Ga
     }))
 }
 
-fn openai_system_content_parts(content: Option<&Value>) -> Result<Vec<String>, GatewayError> {
+fn openai_system_content_blocks(content: Option<&Value>) -> Result<Vec<Value>, GatewayError> {
     match content {
-        Some(Value::String(text)) => Ok(vec![text.clone()]),
+        Some(Value::String(text)) => Ok(vec![json!({
+            "type": "text",
+            "text": text,
+        })]),
         Some(Value::Array(blocks)) => {
             let parts = blocks
                 .iter()
                 .filter_map(|block| {
-                    block
-                        .get("text")
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
+                    let block_type = block.get("type").and_then(Value::as_str);
+                    let text = block.get("text").and_then(Value::as_str)?;
+
+                    match block_type {
+                        Some("text" | "input_text") => Some(json!({
+                            "type": "text",
+                            "text": text,
+                        })),
+                        _ => None,
+                    }
                 })
                 .collect::<Vec<_>>();
             Ok(parts)
@@ -204,6 +213,24 @@ fn openai_system_content_parts(content: Option<&Value>) -> Result<Vec<String>, G
         Some(other) => Err(GatewayError::InvalidRequest(format!(
             "unsupported openai system content for anthropic request: {other}",
         ))),
+    }
+}
+
+fn collapse_openai_system_blocks(blocks: Vec<Value>) -> Value {
+    match blocks.as_slice() {
+        [block]
+            if block.get("type").and_then(Value::as_str) == Some("text")
+                && block.get("text").and_then(Value::as_str).is_some() =>
+        {
+            Value::String(
+                block
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+            )
+        }
+        _ => Value::Array(blocks),
     }
 }
 

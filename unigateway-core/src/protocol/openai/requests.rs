@@ -109,12 +109,11 @@ fn openai_chat_message(message: &Message) -> Result<Value, GatewayError> {
             "tool_call_id".to_string(),
             Value::String(tool_use_id.clone()),
         );
-        object.insert("content".to_string(), Value::String(content.clone()));
+        object.insert("content".to_string(), content.clone());
         return Ok(Value::Object(object));
     }
 
-    let text = message.text_content();
-    object.insert("content".to_string(), Value::String(text));
+    object.insert("content".to_string(), openai_message_content(message));
 
     let thinking = message
         .content
@@ -155,6 +154,89 @@ fn openai_chat_message(message: &Message) -> Result<Value, GatewayError> {
 
     Ok(Value::Object(object))
 }
+
+fn openai_message_content(message: &Message) -> Value {
+    let content_blocks = message
+        .content
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::Text { text } => Some(json!({
+                "type": "text",
+                "text": text,
+            })),
+            ContentBlock::Image { source, detail } => {
+                let mut image_block = openai_image_content_block(source, detail.as_deref());
+                if image_block.is_null() {
+                    None
+                } else {
+                    Some(std::mem::take(&mut image_block))
+                }
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    match content_blocks.as_slice() {
+        [] => Value::String(String::new()),
+        [single] if single.get("type").and_then(Value::as_str) == Some("text") => single
+            .get("text")
+            .cloned()
+            .unwrap_or_else(|| Value::String(String::new())),
+        _ => Value::Array(content_blocks),
+    }
+}
+
+fn openai_image_content_block(source: &Value, detail: Option<&str>) -> Value {
+    match source.get("type").and_then(Value::as_str) {
+        Some("url") => {
+            let Some(url) = source.get("url").and_then(Value::as_str) else {
+                return Value::Null;
+            };
+            let mut image_url =
+                serde_json::Map::from_iter([("url".to_string(), Value::String(url.to_string()))]);
+            if let Some(detail) = detail {
+                image_url.insert("detail".to_string(), Value::String(detail.to_string()));
+            }
+            Value::Object(serde_json::Map::from_iter([
+                ("type".to_string(), Value::String("image_url".to_string())),
+                ("image_url".to_string(), Value::Object(image_url)),
+            ]))
+        }
+        Some("base64") => {
+            let Some(media_type) = source.get("media_type").and_then(Value::as_str) else {
+                return Value::Null;
+            };
+            let Some(data) = source.get("data").and_then(Value::as_str) else {
+                return Value::Null;
+            };
+            let data_url = format!("data:{media_type};base64,{data}");
+            let mut image_url =
+                serde_json::Map::from_iter([("url".to_string(), Value::String(data_url))]);
+            if let Some(detail) = detail {
+                image_url.insert("detail".to_string(), Value::String(detail.to_string()));
+            }
+            Value::Object(serde_json::Map::from_iter([
+                ("type".to_string(), Value::String("image_url".to_string())),
+                ("image_url".to_string(), Value::Object(image_url)),
+            ]))
+        }
+        Some("file") => {
+            let Some(file_id) = source.get("file_id").and_then(Value::as_str) else {
+                return Value::Null;
+            };
+            let mut object = serde_json::Map::from_iter([
+                ("type".to_string(), Value::String("input_image".to_string())),
+                ("file_id".to_string(), Value::String(file_id.to_string())),
+            ]);
+            if let Some(detail) = detail {
+                object.insert("detail".to_string(), Value::String(detail.to_string()));
+            }
+            Value::Object(object)
+        }
+        _ => Value::Null,
+    }
+}
+
 pub fn build_responses_request(
     endpoint: &DriverEndpointContext,
     request: &ProxyResponsesRequest,
@@ -380,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_chat_messages_serializes_structured_blocks() {
+    fn openai_chat_messages_preserves_structured_text_blocks() {
         let request = ProxyChatRequest {
             model: "gpt-4".to_string(),
             messages: vec![Message::from_blocks(
@@ -389,6 +471,9 @@ mod tests {
                     ContentBlock::Thinking {
                         thinking: "reasoning".to_string(),
                         signature: Some("real-signature".to_string()),
+                    },
+                    ContentBlock::Text {
+                        text: "answer".to_string(),
                     },
                     ContentBlock::Text {
                         text: "answer".to_string(),
@@ -416,7 +501,22 @@ mod tests {
 
         let messages = openai_chat_messages(&request).expect("messages");
         assert_eq!(
-            messages[0].get("content").and_then(Value::as_str),
+            messages[0]
+                .get("content")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(2)
+        );
+        assert_eq!(
+            messages[0]
+                .pointer("/content/0/text")
+                .and_then(Value::as_str),
+            Some("answer")
+        );
+        assert_eq!(
+            messages[0]
+                .pointer("/content/1/text")
+                .and_then(Value::as_str),
             Some("answer")
         );
         assert_eq!(

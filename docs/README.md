@@ -1,36 +1,41 @@
-# UniGateway 文档索引
+# UniGateway Documentation Index
 
-本仓库为 **Rust 库 workspace**（无内置 HTTP/CLI 二进制）。文档按目录拆分：`design`（协议与架构）、`guide`（配置与嵌入）、`dev`（贡献者与路线图）。
+This repository is a Rust library workspace. It does not ship an in-tree HTTP server or CLI binary. Documentation is organized by audience and purpose:
 
-## design
+- `design`: architecture, protocol conversion, and library-level design notes.
+- `guide`: configuration and embedder-facing usage guides.
+- `dev`: contributor notes, roadmap documents, and historical refactor context.
 
-| 文件 | 说明 |
+## Design
+
+| File | Description |
 | --- | --- |
-| [`arch.md`](design/arch.md) | 当前库分层、config → core 投影、host 请求链（无 `src/` 产品壳） |
-| [`cli.md`](design/cli.md) | **已弃用**：原 CLI 产品草案；管理面由宿主应用实现 |
-| [`admin.md`](design/admin.md) | `/api/admin/*` JSON 约定（供自建管理网关或 UI 参考） |
-| [`queue.md`](design/queue.md) | 并发排队与背压（实现位于 `unigateway-config::runtime`；HTTP 层由宿主接入） |
-| [`scheduling.md`](design/scheduling.md) | 调度与队列能力的中长期设想 |
+| [`arch.md`](design/arch.md) | Current library layering, config-to-core projection, and host request flow. |
+| [`protocol-conversion.md`](design/protocol-conversion.md) | Protocol conversion architecture, neutral chat model, OpenAI/Anthropic request and response mapping, and loss rules. |
+| [`admin.md`](design/admin.md) | `/api/admin/*` JSON contracts for embedders that build their own management gateway or UI. |
+| [`queue.md`](design/queue.md) | Concurrency queueing and backpressure design. Runtime helpers live in `unigateway-config::runtime`; HTTP integration belongs to embedders. |
+| [`scheduling.md`](design/scheduling.md) | Longer-term scheduling and queueing direction. |
+| [`cli.md`](design/cli.md) | Deprecated historical CLI product draft; management surfaces now belong to embedder applications. |
 
-## guide
+## Guide
 
-| 文件 | 说明 |
+| File | Description |
 | --- | --- |
-| [`config.md`](guide/config.md) | `unigateway.toml` 字段与同步到 core 的规则 |
-| [`providers.md`](guide/providers.md) | 常见 Provider 的 TOML 与调用示例 |
-| [`embed.md`](guide/embed.md) | 在其它 Rust 应用中嵌入（配合 `dev/embed-sdk.md`） |
-| [`embedder_patterns.md`](guide/embedder_patterns.md) | 生产环境嵌入模式：动态状态感知、外置路由、GatewayHooks 扩展、运行时刷新 |
+| [`config.md`](guide/config.md) | `unigateway.toml` fields and rules for syncing config state into core pools. |
+| [`providers.md`](guide/providers.md) | TOML and call examples for common providers. |
+| [`embed.md`](guide/embed.md) | Embedding UniGateway in another Rust application. |
+| [`embedder_patterns.md`](guide/embedder_patterns.md) | Production embedding patterns: dynamic state awareness, external routing, `GatewayHooks` extension, and runtime refresh. |
 
-## dev
+## Dev
 
-| 文件 | 说明 |
+| File | Description |
 | --- | --- |
-| [`memory.md`](dev/memory.md) | 贡献者与 AI 代理用的心智模型与代码入口 |
-| [`embed-sdk.md`](dev/embed-sdk.md) | `unigateway-sdk` 门面与对外 API 演进 |
-| [`public-api-typing.md`](dev/public-api-typing.md) | public request API 强类型化的小步路线：先抽离 protocol semantics，再评估是否升级 `Message` |
-| [`roadmap.md`](dev/roadmap.md) | 产品/库阶段与优先级（随迭代更新） |
-| [`refactor-baseline.md`](dev/refactor-baseline.md) | **历史**：拆分过程与结构债记录；根 `src/` 已删除，阅读时以 `arch.md` 为准 |
-| [`local-gateway.md`](dev/local-gateway.md) | **历史/设想**：本地网关 CLI 与观测增强（需由宿主应用实现） |
-| [`openclaw.md`](dev/openclaw.md) | 与 OpenClaw 联动的示例流程（假设存在兼容的 HTTP 网关） |
+| [`memory.md`](dev/memory.md) | Fast mental model and code entry points for contributors and AI agents. |
+| [`embed-sdk.md`](dev/embed-sdk.md) | `unigateway-sdk` facade positioning and public API evolution. |
+| [`public-api-typing.md`](dev/public-api-typing.md) | Stepwise plan for stronger public request API typing. |
+| [`roadmap.md`](dev/roadmap.md) | Project phases and priorities. |
+| [`refactor-baseline.md`](dev/refactor-baseline.md) | Historical split notes and structure debt; the root `src/` product shell has been removed. |
+| [`local-gateway.md`](dev/local-gateway.md) | Historical and exploratory local gateway notes; implementation belongs to embedders. |
+| [`openclaw.md`](dev/openclaw.md) | Example flow for OpenClaw integration against a compatible HTTP gateway. |
 
-更通用的代理协作约定见仓库根目录 [`AGENTS.md`](../AGENTS.md)。
+Repository-wide agent collaboration conventions live in [`../AGENTS.md`](../AGENTS.md).

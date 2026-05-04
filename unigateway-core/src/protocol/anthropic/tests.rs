@@ -10,7 +10,8 @@ use crate::GatewayError;
 use crate::drivers::{DriverEndpointContext, ProviderDriver};
 use crate::pool::{ModelPolicy, ProviderKind, SecretString};
 use crate::request::{
-    ClientProtocol, Message, MessageRole, ProxyChatRequest, THINKING_SIGNATURE_PLACEHOLDER_VALUE,
+    ClientProtocol, ContentBlock, Message, MessageRole, ProxyChatRequest,
+    THINKING_SIGNATURE_PLACEHOLDER_VALUE,
 };
 use crate::response::ProxySession;
 use crate::transport::{
@@ -118,6 +119,66 @@ fn build_chat_request_moves_system_messages_to_top_level_field() {
             .and_then(serde_json::Value::as_array)
             .map(Vec::len),
         Some(2)
+    );
+}
+
+#[test]
+fn build_chat_request_preserves_structured_image_blocks_without_raw_messages() {
+    let request = build_chat_request(
+        &endpoint(),
+        &ProxyChatRequest {
+            model: "claude-3-5-sonnet".to_string(),
+            messages: vec![Message::from_blocks(
+                MessageRole::User,
+                vec![
+                    ContentBlock::Text {
+                        text: "describe this".to_string(),
+                    },
+                    ContentBlock::Image {
+                        source: json!({
+                            "type": "url",
+                            "url": "https://example.com/a.png"
+                        }),
+                        detail: Some("high".to_string()),
+                    },
+                ],
+            )],
+            system: None,
+            tools: None,
+            tool_choice: None,
+            raw_messages: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: Some(128),
+            stop_sequences: None,
+            stream: false,
+            extra: HashMap::new(),
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("anthropic request");
+
+    let body: Value = serde_json::from_slice(&request.body.expect("body")).expect("json body");
+    assert_eq!(
+        body.pointer("/messages/0/content/0/type")
+            .and_then(Value::as_str),
+        Some("text")
+    );
+    assert_eq!(
+        body.pointer("/messages/0/content/1/type")
+            .and_then(Value::as_str),
+        Some("image")
+    );
+    assert_eq!(
+        body.pointer("/messages/0/content/1/source/type")
+            .and_then(Value::as_str),
+        Some("url")
+    );
+    assert_eq!(
+        body.pointer("/messages/0/content/1/source/url")
+            .and_then(Value::as_str),
+        Some("https://example.com/a.png")
     );
 }
 

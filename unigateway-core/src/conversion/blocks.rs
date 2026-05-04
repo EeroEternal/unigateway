@@ -10,6 +10,10 @@ impl ContentBlock {
                 "type": "text",
                 "text": text,
             }),
+            Self::Image { source, .. } => json!({
+                "type": "image",
+                "source": source,
+            }),
             Self::Thinking {
                 thinking,
                 signature,
@@ -127,7 +131,10 @@ pub fn openai_message_to_content_blocks(
             })?;
         return Ok(vec![ContentBlock::ToolResult {
             tool_use_id: tool_use_id.to_string(),
-            content: json_content_to_string(message.get("content")),
+            content: message
+                .get("content")
+                .cloned()
+                .unwrap_or_else(|| Value::String(String::new())),
         }]);
     }
 
@@ -167,6 +174,25 @@ pub fn anthropic_content_to_blocks(content: &Value) -> Result<Vec<ContentBlock>,
 }
 
 pub fn openai_message_to_anthropic_content_blocks(message: &Value) -> Vec<Value> {
+    openai_message_to_anthropic_content_blocks_with_signature(
+        message,
+        Some(THINKING_SIGNATURE_PLACEHOLDER_VALUE),
+        false,
+    )
+    .unwrap_or_default()
+}
+
+pub(crate) fn openai_message_to_anthropic_request_content_blocks(
+    message: &Value,
+) -> Result<Vec<Value>, GatewayError> {
+    openai_message_to_anthropic_content_blocks_with_signature(message, None, true)
+}
+
+fn openai_message_to_anthropic_content_blocks_with_signature(
+    message: &Value,
+    thinking_signature: Option<&str>,
+    strict: bool,
+) -> Result<Vec<Value>, GatewayError> {
     let mut content_blocks = Vec::new();
 
     if let Some(thinking) = message
@@ -174,11 +200,17 @@ pub fn openai_message_to_anthropic_content_blocks(message: &Value) -> Vec<Value>
         .or_else(|| message.get("thinking"))
         .and_then(Value::as_str)
     {
-        content_blocks.push(json!({
-            "type": "thinking",
-            "thinking": thinking,
-            "signature": THINKING_SIGNATURE_PLACEHOLDER_VALUE,
-        }));
+        let mut block = serde_json::Map::from_iter([
+            ("type".to_string(), Value::String("thinking".to_string())),
+            ("thinking".to_string(), Value::String(thinking.to_string())),
+        ]);
+        if let Some(signature) = thinking_signature {
+            block.insert(
+                "signature".to_string(),
+                Value::String(signature.to_string()),
+            );
+        }
+        content_blocks.push(Value::Object(block));
     }
 
     match message.get("content") {
@@ -189,13 +221,12 @@ pub fn openai_message_to_anthropic_content_blocks(message: &Value) -> Vec<Value>
             }));
         }
         Some(Value::Array(blocks)) => {
-            content_blocks.extend(blocks.iter().filter_map(|block| {
-                if block.get("type").and_then(Value::as_str) == Some("text") {
-                    Some(block.clone())
-                } else {
-                    None
+            for block in blocks {
+                if let Some(mapped_block) = openai_content_block_to_anthropic_block(block, strict)?
+                {
+                    content_blocks.push(mapped_block);
                 }
-            }));
+            }
         }
         _ => {}
     }
@@ -208,7 +239,7 @@ pub fn openai_message_to_anthropic_content_blocks(message: &Value) -> Vec<Value>
         );
     }
 
-    content_blocks
+    Ok(content_blocks)
 }
 
 pub fn is_placeholder_thinking_signature(signature: &str) -> bool {
@@ -225,6 +256,12 @@ pub(crate) fn anthropic_block_to_content_block(
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string(),
+        }),
+        Some("image") => Ok(ContentBlock::Image {
+            source: block.get("source").cloned().ok_or_else(|| {
+                GatewayError::InvalidRequest("anthropic image requires source".to_string())
+            })?,
+            detail: None,
         }),
         Some("thinking") => Ok(ContentBlock::Thinking {
             thinking: block
@@ -264,7 +301,10 @@ pub(crate) fn anthropic_block_to_content_block(
                     )
                 })?
                 .to_string(),
-            content: anthropic_tool_result_content_to_string(block.get("content")),
+            content: block
+                .get("content")
+                .cloned()
+                .unwrap_or_else(|| Value::String(String::new())),
         }),
         Some(other) => Err(GatewayError::InvalidRequest(format!(
             "unsupported anthropic content block type: {other}",
@@ -308,6 +348,10 @@ fn openai_content_block_to_content_block(block: &Value) -> Result<ContentBlock, 
                 .unwrap_or_default()
                 .to_string(),
         }),
+        Some("image_url" | "input_image") => {
+            let (source, detail) = openai_image_block_to_source(block)?;
+            Ok(ContentBlock::Image { source, detail })
+        }
         Some(other) => Err(GatewayError::InvalidRequest(format!(
             "unsupported openai content block type: {other}",
         ))),
@@ -315,6 +359,117 @@ fn openai_content_block_to_content_block(block: &Value) -> Result<ContentBlock, 
             "openai content block is missing type".to_string(),
         )),
     }
+}
+
+fn openai_content_block_to_anthropic_block(
+    block: &Value,
+    strict: bool,
+) -> Result<Option<Value>, GatewayError> {
+    match block.get("type").and_then(Value::as_str) {
+        Some("text" | "input_text") => {
+            let text = block
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if text.is_empty() {
+                return Ok(None);
+            }
+
+            Ok(Some(json!({
+                "type": "text",
+                "text": text,
+            })))
+        }
+        Some("image_url" | "input_image") => match openai_image_block_to_source(block) {
+            Ok((source, _)) => Ok(Some(json!({
+                "type": "image",
+                "source": source,
+            }))),
+            Err(error) if strict => Err(error),
+            Err(_) => Ok(None),
+        },
+        Some(other) if strict => Err(GatewayError::InvalidRequest(format!(
+            "unsupported openai content block type: {other}",
+        ))),
+        Some(_) => Ok(None),
+        None if strict => Err(GatewayError::InvalidRequest(
+            "openai content block is missing type".to_string(),
+        )),
+        None => Ok(None),
+    }
+}
+
+fn openai_image_block_to_source(block: &Value) -> Result<(Value, Option<String>), GatewayError> {
+    let detail = block
+        .get("detail")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            block
+                .get("image_url")
+                .and_then(Value::as_object)
+                .and_then(|image| image.get("detail"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        });
+
+    if let Some(file_id) = block.get("file_id").and_then(Value::as_str) {
+        return Ok((
+            json!({
+                "type": "file",
+                "file_id": file_id,
+            }),
+            detail,
+        ));
+    }
+
+    let image_value = block.get("image_url").ok_or_else(|| {
+        GatewayError::InvalidRequest("openai image block requires image_url".to_string())
+    })?;
+
+    let image_reference = match image_value {
+        Value::String(url) => Some(url.as_str()),
+        Value::Object(object) => object.get("url").and_then(Value::as_str),
+        _ => None,
+    }
+    .ok_or_else(|| {
+        GatewayError::InvalidRequest(
+            "openai image block requires image_url.url or image_url string".to_string(),
+        )
+    })?;
+
+    Ok((
+        openai_image_reference_to_anthropic_source(image_reference)?,
+        detail,
+    ))
+}
+
+fn openai_image_reference_to_anthropic_source(
+    image_reference: &str,
+) -> Result<Value, GatewayError> {
+    if let Some((media_type, data)) = parse_base64_data_url(image_reference) {
+        return Ok(json!({
+            "type": "base64",
+            "media_type": media_type,
+            "data": data,
+        }));
+    }
+
+    Ok(json!({
+        "type": "url",
+        "url": image_reference,
+    }))
+}
+
+fn parse_base64_data_url(value: &str) -> Option<(&str, &str)> {
+    let payload = value.strip_prefix("data:")?;
+    let (metadata, data) = payload.split_once(",")?;
+    let media_type = metadata.strip_suffix(";base64")?;
+    if media_type.is_empty() || data.is_empty() {
+        return None;
+    }
+
+    Some((media_type, data))
 }
 
 fn is_empty_openai_text_block(block: &Value) -> bool {
@@ -371,37 +526,4 @@ fn openai_tool_call_to_anthropic_block(tool_call: &Value) -> Option<Value> {
             .unwrap_or("tool"),
         "input": parsed_input,
     }))
-}
-
-fn anthropic_tool_result_content_to_string(content: Option<&Value>) -> String {
-    match content {
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Array(blocks)) => {
-            let text_parts = blocks
-                .iter()
-                .filter_map(|block| {
-                    block
-                        .get("text")
-                        .and_then(Value::as_str)
-                        .or_else(|| block.as_str())
-                })
-                .collect::<Vec<_>>();
-
-            if text_parts.is_empty() {
-                serde_json::to_string(&Value::Array(blocks.clone())).unwrap_or_default()
-            } else {
-                text_parts.join("\n")
-            }
-        }
-        Some(Value::Null) | None => String::new(),
-        Some(other) => serde_json::to_string(other).unwrap_or_default(),
-    }
-}
-
-fn json_content_to_string(content: Option<&Value>) -> String {
-    match content {
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Null) | None => String::new(),
-        Some(other) => serde_json::to_string(other).unwrap_or_default(),
-    }
 }

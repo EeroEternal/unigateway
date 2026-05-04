@@ -1,6 +1,6 @@
 [package]
 name = "unigateway-sdk"
-version = "1.10.1"
+version = "2.0.1"
 edition = "2024"
 rust-version = "1.92"
 description = "Thin facade crate for embedders using UniGateway core, protocol, and host libraries."
@@ -26,6 +26,7 @@ unigateway-host = { workspace = true, optional = true }
 [dev-dependencies]
 axum = { version = "0.7", features = ["macros"] }
 tokio = { workspace = true }
+futures-util = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
@@ -35,3 +36,7 @@ tracing-subscriber = { version = "0.3" }
 [[example]]
 name = "openai_passthrough"
 required-features = ["protocol"]
+
+[[example]]
+name = "anthropic_tools_probe"
+required-features = ["host"]

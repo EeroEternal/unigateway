@@ -79,6 +79,55 @@ fn openai_assistant_tool_calls_parse_to_content_blocks() {
 }
 
 #[test]
+fn openai_image_blocks_parse_to_content_blocks() {
+    let blocks = openai_message_to_content_blocks(&json!({
+        "role": "user",
+        "content": [{
+            "type": "image_url",
+            "image_url": {
+                "url": "https://example.com/a.png",
+                "detail": "high"
+            }
+        }]
+    }))
+    .expect("content blocks");
+
+    assert_eq!(
+        blocks,
+        vec![ContentBlock::Image {
+            source: json!({
+                "type": "url",
+                "url": "https://example.com/a.png"
+            }),
+            detail: Some("high".to_string()),
+        }]
+    );
+}
+
+#[test]
+fn anthropic_image_blocks_parse_to_content_blocks() {
+    let blocks = anthropic_content_to_blocks(&json!([{
+        "type": "image",
+        "source": {
+            "type": "url",
+            "url": "https://example.com/a.png"
+        }
+    }]))
+    .expect("content blocks");
+
+    assert_eq!(
+        blocks,
+        vec![ContentBlock::Image {
+            source: json!({
+                "type": "url",
+                "url": "https://example.com/a.png"
+            }),
+            detail: None,
+        }]
+    );
+}
+
+#[test]
 fn openai_assistant_tool_calls_ignore_empty_string_content() {
     let (system, messages) = openai_messages_to_anthropic_messages(
         &json!([
@@ -125,7 +174,7 @@ fn openai_tool_message_parses_to_tool_result_block() {
         blocks,
         vec![ContentBlock::ToolResult {
             tool_use_id: "call_1".to_string(),
-            content: "search result".to_string(),
+            content: json!("search result"),
         }]
     );
 }
@@ -157,7 +206,7 @@ fn anthropic_tool_use_serializes_to_openai_tool_call() {
 }
 
 #[test]
-fn anthropic_tool_result_text_blocks_parse_to_openai_content() {
+fn anthropic_tool_result_multiple_blocks_preserve_json_content() {
     let blocks = anthropic_content_to_blocks(&json!([{
         "type": "tool_result",
         "tool_use_id": "toolu_1",
@@ -166,18 +215,57 @@ fn anthropic_tool_result_text_blocks_parse_to_openai_content() {
     .expect("content blocks");
 
     assert_eq!(
-        blocks,
-        vec![ContentBlock::ToolResult {
-            tool_use_id: "toolu_1".to_string(),
-            content: "first\nsecond".to_string(),
-        }]
+        blocks
+            .first()
+            .and_then(|block| match block {
+                ContentBlock::ToolResult {
+                    tool_use_id,
+                    content,
+                } => Some((tool_use_id, content)),
+                _ => None,
+            })
+            .map(|(tool_use_id, _)| tool_use_id.as_str()),
+        Some("toolu_1")
     );
     assert_eq!(
         blocks[0]
             .to_openai_tool_message()
-            .and_then(|message| message.get("content").cloned())
-            .and_then(|content| content.as_str().map(str::to_string)),
-        Some("first\nsecond".to_string())
+            .and_then(|message| message.get("content").cloned()),
+        blocks.first().and_then(|block| match block {
+            ContentBlock::ToolResult { content, .. } => Some(content.clone()),
+            _ => None,
+        })
+    );
+
+    let parsed_content = blocks
+        .first()
+        .and_then(|block| match block {
+            ContentBlock::ToolResult { content, .. } => Some(content),
+            _ => None,
+        })
+        .cloned()
+        .expect("json tool_result content");
+    assert_eq!(
+        parsed_content,
+        json!([{"type": "text", "text": "first"}, {"text": "second"}])
+    );
+}
+
+#[test]
+fn anthropic_tool_result_single_text_block_preserves_structured_content() {
+    let blocks = anthropic_content_to_blocks(&json!([{
+        "type": "tool_result",
+        "tool_use_id": "toolu_1",
+        "content": [{"type": "text", "text": "first"}]
+    }]))
+    .expect("content blocks");
+
+    assert_eq!(
+        blocks,
+        vec![ContentBlock::ToolResult {
+            tool_use_id: "toolu_1".to_string(),
+            content: json!([{"type": "text", "text": "first"}]),
+        }]
     );
 }
 
@@ -428,6 +516,59 @@ fn openai_messages_convert_to_anthropic_messages() {
 }
 
 #[test]
+fn openai_system_text_blocks_preserve_anthropic_block_array() {
+    let (system, messages) = openai_messages_to_anthropic_messages(
+        &json!([
+            {
+                "role": "system",
+                "content": [
+                    {"type": "text", "text": "be precise"},
+                    {"type": "input_text", "text": "cite sources"}
+                ]
+            },
+            {"role": "user", "content": "find rust examples"}
+        ]),
+        None,
+    )
+    .expect("anthropic messages");
+
+    assert_eq!(
+        system,
+        Some(json!([
+            {"type": "text", "text": "be precise"},
+            {"type": "text", "text": "cite sources"}
+        ]))
+    );
+    assert_eq!(
+        messages
+            .pointer("/0/content/0/text")
+            .and_then(Value::as_str),
+        Some("find rust examples")
+    );
+}
+
+#[test]
+fn openai_multiple_system_messages_preserve_order_without_joining() {
+    let (system, _) = openai_messages_to_anthropic_messages(
+        &json!([
+            {"role": "system", "content": "be precise"},
+            {"role": "system", "content": "cite sources"},
+            {"role": "user", "content": "find rust examples"}
+        ]),
+        None,
+    )
+    .expect("anthropic messages");
+
+    assert_eq!(
+        system,
+        Some(json!([
+            {"type": "text", "text": "be precise"},
+            {"type": "text", "text": "cite sources"}
+        ]))
+    );
+}
+
+#[test]
 fn anthropic_messages_convert_to_openai_messages() {
     let messages = anthropic_messages_to_openai_messages(&json!([
         {
@@ -508,7 +649,7 @@ fn openai_message_downstream_blocks_include_thinking_and_tool_use() {
 }
 
 #[test]
-fn openai_message_downstream_blocks_ignore_non_text_array_items() {
+fn openai_message_downstream_blocks_preserve_image_url_items() {
     let blocks = openai_message_to_anthropic_content_blocks(&json!({
         "role": "assistant",
         "content": [
@@ -517,8 +658,82 @@ fn openai_message_downstream_blocks_ignore_non_text_array_items() {
         ]
     }));
 
-    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks.len(), 2);
     assert_eq!(blocks[0].get("text").and_then(Value::as_str), Some("hello"));
+    assert_eq!(blocks[1].get("type").and_then(Value::as_str), Some("image"));
+    assert_eq!(
+        blocks[1].pointer("/source/type").and_then(Value::as_str),
+        Some("url")
+    );
+    assert_eq!(
+        blocks[1].pointer("/source/url").and_then(Value::as_str),
+        Some("https://example.com/a.png")
+    );
+}
+
+#[test]
+fn openai_message_downstream_blocks_preserve_input_image_data_urls() {
+    let blocks = openai_message_to_anthropic_content_blocks(&json!({
+        "role": "user",
+        "content": [{
+            "type": "input_image",
+            "image_url": "data:image/png;base64,ZmFrZQ=="
+        }]
+    }));
+
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].get("type").and_then(Value::as_str), Some("image"));
+    assert_eq!(
+        blocks[0].pointer("/source/type").and_then(Value::as_str),
+        Some("base64")
+    );
+    assert_eq!(
+        blocks[0]
+            .pointer("/source/media_type")
+            .and_then(Value::as_str),
+        Some("image/png")
+    );
+    assert_eq!(
+        blocks[0].pointer("/source/data").and_then(Value::as_str),
+        Some("ZmFrZQ==")
+    );
+}
+
+#[test]
+fn openai_messages_to_anthropic_messages_preserve_image_content_blocks() {
+    let (system, messages) = openai_messages_to_anthropic_messages(
+        &json!([
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "describe this"},
+                    {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}}
+                ]
+            }
+        ]),
+        None,
+    )
+    .expect("anthropic messages");
+
+    assert_eq!(system, None);
+    assert_eq!(
+        messages
+            .pointer("/0/content/0/text")
+            .and_then(Value::as_str),
+        Some("describe this")
+    );
+    assert_eq!(
+        messages
+            .pointer("/0/content/1/type")
+            .and_then(Value::as_str),
+        Some("image")
+    );
+    assert_eq!(
+        messages
+            .pointer("/0/content/1/source/url")
+            .and_then(Value::as_str),
+        Some("https://example.com/a.png")
+    );
 }
 
 #[test]

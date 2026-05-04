@@ -93,6 +93,11 @@ pub use crate::conversion::{
 pub enum ContentBlock {
     /// Plain text content.
     Text { text: String },
+    /// Image content represented using an Anthropic-compatible source descriptor.
+    Image {
+        source: Value,
+        detail: Option<String>,
+    },
     /// Anthropic thinking content with an optional continuation signature.
     Thinking {
         thinking: String,
@@ -105,10 +110,7 @@ pub enum ContentBlock {
         input: Value,
     },
     /// Tool result content block.
-    ToolResult {
-        tool_use_id: String,
-        content: String,
-    },
+    ToolResult { tool_use_id: String, content: Value },
 }
 
 /// Message role in a chat completion request.

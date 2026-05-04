@@ -13,7 +13,8 @@ use crate::GatewayError;
 use crate::drivers::{DriverEndpointContext, ProviderDriver};
 use crate::pool::{ModelPolicy, ProviderKind, SecretString};
 use crate::request::{
-    Message, MessageRole, ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest,
+    ContentBlock, Message, MessageRole, ProxyChatRequest, ProxyEmbeddingsRequest,
+    ProxyResponsesRequest,
 };
 use crate::response::ProxySession;
 use crate::transport::{
@@ -107,6 +108,168 @@ fn build_chat_request_maps_model_and_url() {
     assert_eq!(
         body.get("model").and_then(serde_json::Value::as_str),
         Some("mapped-model")
+    );
+}
+
+#[test]
+fn build_chat_request_preserves_structured_text_blocks_without_raw_messages() {
+    let request = build_chat_request(
+        &endpoint(),
+        &ProxyChatRequest {
+            model: "alias".to_string(),
+            messages: vec![Message::from_blocks(
+                MessageRole::User,
+                vec![
+                    ContentBlock::Text {
+                        text: "first".to_string(),
+                    },
+                    ContentBlock::Text {
+                        text: "second".to_string(),
+                    },
+                ],
+            )],
+            system: None,
+            tools: None,
+            tool_choice: None,
+            raw_messages: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: Some(32),
+            stop_sequences: None,
+            stream: false,
+            extra: HashMap::new(),
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("chat request");
+
+    let body: Value = serde_json::from_slice(&request.body.expect("body")).expect("json body");
+    assert_eq!(
+        body.pointer("/messages/0/content")
+            .and_then(Value::as_array)
+            .map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(
+        body.pointer("/messages/0/content/0/text")
+            .and_then(Value::as_str),
+        Some("first")
+    );
+    assert_eq!(
+        body.pointer("/messages/0/content/1/text")
+            .and_then(Value::as_str),
+        Some("second")
+    );
+}
+
+#[test]
+fn build_chat_request_preserves_structured_image_blocks_without_raw_messages() {
+    let request = build_chat_request(
+        &endpoint(),
+        &ProxyChatRequest {
+            model: "alias".to_string(),
+            messages: vec![Message::from_blocks(
+                MessageRole::User,
+                vec![
+                    ContentBlock::Text {
+                        text: "describe this".to_string(),
+                    },
+                    ContentBlock::Image {
+                        source: json!({
+                            "type": "url",
+                            "url": "https://example.com/a.png"
+                        }),
+                        detail: Some("high".to_string()),
+                    },
+                ],
+            )],
+            system: None,
+            tools: None,
+            tool_choice: None,
+            raw_messages: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: Some(32),
+            stop_sequences: None,
+            stream: false,
+            extra: HashMap::new(),
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("chat request");
+
+    let body: Value = serde_json::from_slice(&request.body.expect("body")).expect("json body");
+    assert_eq!(
+        body.pointer("/messages/0/content/0/text")
+            .and_then(Value::as_str),
+        Some("describe this")
+    );
+    assert_eq!(
+        body.pointer("/messages/0/content/1/type")
+            .and_then(Value::as_str),
+        Some("image_url")
+    );
+    assert_eq!(
+        body.pointer("/messages/0/content/1/image_url/url")
+            .and_then(Value::as_str),
+        Some("https://example.com/a.png")
+    );
+    assert_eq!(
+        body.pointer("/messages/0/content/1/image_url/detail")
+            .and_then(Value::as_str),
+        Some("high")
+    );
+}
+
+#[test]
+fn build_chat_request_preserves_structured_tool_result_content_without_raw_messages() {
+    let request = build_chat_request(
+        &endpoint(),
+        &ProxyChatRequest {
+            model: "alias".to_string(),
+            messages: vec![Message::from_blocks(
+                MessageRole::Tool,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "call_1".to_string(),
+                    content: json!([
+                        {"type": "text", "text": "first"},
+                        {"type": "text", "text": "second"}
+                    ]),
+                }],
+            )],
+            system: None,
+            tools: None,
+            tool_choice: None,
+            raw_messages: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: Some(32),
+            stop_sequences: None,
+            stream: false,
+            extra: HashMap::new(),
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("chat request");
+
+    let body: Value = serde_json::from_slice(&request.body.expect("body")).expect("json body");
+    assert_eq!(
+        body.pointer("/messages/0/tool_call_id")
+            .and_then(Value::as_str),
+        Some("call_1")
+    );
+    assert_eq!(
+        body.pointer("/messages/0/content/0/text")
+            .and_then(Value::as_str),
+        Some("first")
+    );
+    assert_eq!(
+        body.pointer("/messages/0/content/1/text")
+            .and_then(Value::as_str),
+        Some("second")
     );
 }
 

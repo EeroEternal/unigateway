@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.0.1]
+
+### Breaking Changes
+
+* **`ContentBlock` now includes structured image content**: `unigateway-core::ContentBlock` adds an `Image` variant so OpenAI `image_url` / `input_image` and Anthropic `image` blocks can round-trip through the neutral request model. This is a semver-major change because downstream embedders matching exhaustively on `ContentBlock` must handle the new variant.
+* **`ContentBlock::ToolResult` now keeps structured JSON content**: tool results are no longer forced through a `String`. The public `content` field now preserves structured `serde_json::Value`, which is semver-breaking for embedders constructing or matching `ToolResult` blocks directly.
+
+### Changed
+
+* **OpenAI/Anthropic multimodal fidelity improved**: non-text image blocks are no longer forced out of the neutral message path. OpenAI raw messages can preserve `image_url`, `input_image`, and data URL image inputs when translating to Anthropic, and neutral `Image` blocks now serialize back out through both OpenAI-compatible and Anthropic request builders.
+* **Tool-result fidelity improved across protocol translation**: Anthropic `tool_result` blocks and OpenAI tool-role messages now preserve structured payloads instead of flattening them into plain text during neutral-model conversion or request rebuilding.
+* **SDK release hygiene improved**: `unigateway-core` execution code is split into focused submodules, and the SDK declares the Anthropic tool probe example with explicit required features so feature-matrix builds stay deterministic.
+
+### Validation
+
+* `cargo fmt --all -- --check`
+* `cargo clippy --workspace --all-targets -- -D warnings`
+* `cargo build --workspace`
+* `cargo test --workspace`
+
 ## [1.10.1]
 
 ### Changed

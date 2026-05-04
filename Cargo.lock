@@ -1497,14 +1497,14 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "unigateway"
-version = "1.10.1"
+version = "2.0.1"
 dependencies = [
  "unigateway-sdk",
 ]
 
 [[package]]
 name = "unigateway-config"
-version = "1.10.1"
+version = "2.0.1"
 dependencies = [
  "anyhow",
  "llm_providers",
@@ -1519,7 +1519,7 @@ dependencies = [
 
 [[package]]
 name = "unigateway-core"
-version = "1.10.1"
+version = "2.0.1"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -1534,7 +1534,7 @@ dependencies = [
 
 [[package]]
 name = "unigateway-host"
-version = "1.10.1"
+version = "2.0.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1550,7 +1550,7 @@ dependencies = [
 
 [[package]]
 name = "unigateway-protocol"
-version = "1.10.1"
+version = "2.0.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1564,10 +1564,11 @@ dependencies = [
 
 [[package]]
 name = "unigateway-sdk"
-version = "1.10.1"
+version = "2.0.1"
 dependencies = [
  "anyhow",
  "axum",
+ "futures-util",
  "serde",
  "serde_json",
  "tokio",
