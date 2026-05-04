@@ -31,3 +31,7 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3" }
+
+[[example]]
+name = "openai_passthrough"
+required-features = ["protocol"]
