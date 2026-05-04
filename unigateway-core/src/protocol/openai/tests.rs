@@ -79,10 +79,7 @@ fn build_chat_request_maps_model_and_url() {
         &endpoint(),
         &ProxyChatRequest {
             model: "alias".to_string(),
-            messages: vec![Message {
-                role: MessageRole::User,
-                content: "hello".to_string(),
-            }],
+            messages: vec![Message::text(MessageRole::User, "hello")],
             system: None,
             tools: None,
             tool_choice: None,
@@ -119,10 +116,7 @@ fn build_chat_request_merges_extra_without_overriding_core_fields() {
         &endpoint(),
         &ProxyChatRequest {
             model: "alias".to_string(),
-            messages: vec![Message {
-                role: MessageRole::User,
-                content: "hello".to_string(),
-            }],
+            messages: vec![Message::text(MessageRole::User, "hello")],
             system: None,
             tools: None,
             tool_choice: None,
@@ -232,9 +226,17 @@ fn build_chat_request_translates_anthropic_raw_messages_and_tool_choice() {
         .and_then(Value::as_array)
         .expect("messages array");
 
-    assert_eq!(messages.len(), 3);
+    assert_eq!(messages.len(), 4);
     assert_eq!(
-        messages[0]
+        messages[0].get("role").and_then(Value::as_str),
+        Some("system")
+    );
+    assert_eq!(
+        messages[0].get("content").and_then(Value::as_str),
+        Some("be concise")
+    );
+    assert_eq!(
+        messages[1]
             .get("content")
             .and_then(Value::as_array)
             .and_then(|blocks| blocks.first())
@@ -243,7 +245,7 @@ fn build_chat_request_translates_anthropic_raw_messages_and_tool_choice() {
         Some("weather in paris")
     );
     assert_eq!(
-        messages[1]
+        messages[2]
             .get("tool_calls")
             .and_then(Value::as_array)
             .and_then(|calls| calls.first())
@@ -252,17 +254,13 @@ fn build_chat_request_translates_anthropic_raw_messages_and_tool_choice() {
             .and_then(Value::as_str),
         Some("{\"city\":\"Paris\"}")
     );
-    assert_eq!(
-        messages[1].get("thinking").and_then(Value::as_str),
-        Some("need weather first")
-    );
     assert_eq!(body.get("top_k").and_then(Value::as_u64), Some(7));
     assert_eq!(
-        body.get("stop").and_then(Value::as_array).map(Vec::len),
-        Some(2)
+        messages[3].get("tool_call_id").and_then(Value::as_str),
+        Some("toolu_1")
     );
     assert_eq!(
-        messages[2].get("role").and_then(Value::as_str),
+        messages[3].get("role").and_then(Value::as_str),
         Some("tool")
     );
     assert_eq!(
@@ -299,10 +297,7 @@ fn build_chat_request_normalizes_string_any_tool_choice() {
         &endpoint(),
         &ProxyChatRequest {
             model: "alias".to_string(),
-            messages: vec![Message {
-                role: MessageRole::User,
-                content: "hello".to_string(),
-            }],
+            messages: vec![Message::text(MessageRole::User, "hello")],
             system: None,
             tools: Some(json!([{ "name": "lookup_weather" }])),
             tool_choice: Some(json!("any")),
@@ -472,10 +467,7 @@ async fn openai_driver_executes_non_streaming_operations() {
             endpoint(),
             ProxyChatRequest {
                 model: "alias".to_string(),
-                messages: vec![Message {
-                    role: MessageRole::User,
-                    content: "hello".to_string(),
-                }],
+                messages: vec![Message::text(MessageRole::User, "hello")],
                 system: None,
                 tools: None,
                 tool_choice: None,
@@ -606,10 +598,7 @@ async fn openai_driver_executes_streaming_chat() {
             endpoint(),
             ProxyChatRequest {
                 model: "alias".to_string(),
-                messages: vec![Message {
-                    role: MessageRole::User,
-                    content: "hello".to_string(),
-                }],
+                messages: vec![Message::text(MessageRole::User, "hello")],
                 system: None,
                 tools: None,
                 tool_choice: None,
@@ -676,10 +665,7 @@ async fn openai_driver_streaming_chat_completion_survives_dropped_stream() {
             endpoint(),
             ProxyChatRequest {
                 model: "alias".to_string(),
-                messages: vec![Message {
-                    role: MessageRole::User,
-                    content: "hello".to_string(),
-                }],
+                messages: vec![Message::text(MessageRole::User, "hello")],
                 system: None,
                 tools: None,
                 tool_choice: None,

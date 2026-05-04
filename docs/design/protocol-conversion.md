@@ -1019,11 +1019,14 @@ content[].tool_use
 
 前面阶段稳定后，再评估是否把 metadata 字符串升级为 public 强类型字段。
 
+当前基于仓库代码事实的进一步判断见 [`../dev/public-api-typing.md`](../dev/public-api-typing.md)：更合适的第一步不是立刻修改 `Message`，而是先把 `client_protocol` / `thinking_signature_status` 这类 request semantics 从 public `metadata` map 中抽成 typed view / helper。
+
 候选演进：
 
 ```text
 ClientProtocol enum
 ThinkingSignatureStatus enum
+Message { content: Vec<ContentBlock> }
 NativeChatPayload struct
 ProxyChatRequest builder
 ```

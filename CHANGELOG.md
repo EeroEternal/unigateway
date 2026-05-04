@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.10.0]
+
+### Breaking Changes
+
+* **`Message` is now block-first**: `unigateway-core::Message` now stores `content: Vec<ContentBlock>` instead of `content: String`. Text-only callers should migrate from `Message { role, content: "...".to_string() }` to `Message::text(role, "...")`; structured callers can use `Message::from_blocks(role, blocks)` to preserve thinking, tool use, and tool result blocks.
+
+### Added
+
+* **Typed chat request semantics**: added `ClientProtocol`, `ThinkingSignatureStatus`, and `ProxyChatRequest` helper methods for reading and writing protocol/source/signature semantics without scattering raw metadata strings across parser and driver code.
+* **Anthropic requested model alias helpers**: added helper functions for setting and reading the requested Anthropic model alias while preserving the existing metadata key for compatibility.
+* **Block-preserving fallback serialization**: OpenAI and Anthropic driver fallback paths now serialize block-first `Message` content instead of flattening all messages to plain strings.
+
+### Validation
+
+* `cargo fmt --all -- --check`
+* `cargo clippy --workspace --all-targets -- -D warnings`
+* `cargo test --workspace`
+
 ## [1.8.0]
 
 UniGateway v1.8.0 adds OpenAI chat extra passthrough for provider-specific fields.

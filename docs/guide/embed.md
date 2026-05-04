@@ -22,7 +22,7 @@ directly.
 
 ```toml
 [dependencies]
-unigateway-sdk = "1.7"
+unigateway-sdk = "1.10"
 
 # Or depend on individual crates directly:
 # unigateway-core = { path = "../unigateway-core" }
@@ -232,7 +232,7 @@ use unigateway_sdk::core::{ExecutionTarget, Message, MessageRole, ProxyChatReque
 
 let request = ProxyChatRequest {
     model:       "gpt-4o-mini".to_string(),
-    messages:    vec![Message { role: MessageRole::User, content: "Hello".to_string() }],
+    messages:    vec![Message::text(MessageRole::User, "Hello")],
     temperature: Some(0.7),
     top_p:       None,
     max_tokens:  None,

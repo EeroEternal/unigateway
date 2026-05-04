@@ -4,8 +4,10 @@ use anyhow::{Result, anyhow};
 use serde::Deserialize;
 use serde_json::Value;
 use unigateway_core::{
-    CLIENT_PROTOCOL_KEY, Message as CoreMessage, MessageRole, OPENAI_RAW_MESSAGES_KEY,
-    ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest,
+    ClientProtocol, ContentBlock, Message as CoreMessage, MessageRole, ProxyChatRequest,
+    ProxyEmbeddingsRequest, ProxyResponsesRequest, ThinkingSignatureStatus,
+    anthropic_content_to_blocks, is_placeholder_thinking_signature,
+    openai_message_to_content_blocks,
 };
 
 pub const ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY: &str = "unigateway.requested_model_alias";
@@ -16,21 +18,13 @@ pub fn openai_payload_to_chat_request(
     default_model: &str,
 ) -> Result<ProxyChatRequest> {
     let raw_messages = payload.get("messages").cloned();
-    let mut metadata = HashMap::new();
-
-    // Mark that raw_messages are in OpenAI format
-    if raw_messages.is_some() {
-        metadata.insert(OPENAI_RAW_MESSAGES_KEY.to_string(), "true".to_string());
-    }
-    metadata.insert(CLIENT_PROTOCOL_KEY.to_string(), "openai_chat".to_string());
-
-    Ok(ProxyChatRequest {
+    let mut request = ProxyChatRequest {
         model: payload
             .get("model")
             .and_then(Value::as_str)
             .unwrap_or(default_model)
             .to_string(),
-        messages: chat_messages(payload)?,
+        messages: openai_chat_messages(payload)?,
         temperature: payload
             .get("temperature")
             .and_then(Value::as_f64)
@@ -54,8 +48,18 @@ pub fn openai_payload_to_chat_request(
         tool_choice: payload.get("tool_choice").cloned(),
         raw_messages,
         extra: openai_chat_extra(payload),
-        metadata,
-    })
+        metadata: HashMap::new(),
+    };
+
+    if request.raw_messages.is_some() {
+        request.mark_openai_raw_messages();
+    }
+    request.set_client_protocol(ClientProtocol::OpenAiChat);
+    request.set_thinking_signature_status(openai_thinking_signature_status(
+        request.raw_messages.as_ref(),
+    ));
+
+    Ok(request)
 }
 
 /// Translates an OpenAI-compatible JSON payload into a core `ProxyResponsesRequest` (OpenAI Beta format).
@@ -95,14 +99,11 @@ pub fn anthropic_payload_to_chat_request(
         .to_string();
     let mut messages = Vec::new();
     if let Some(system) = payload.get("system").and_then(Value::as_str) {
-        messages.push(CoreMessage {
-            role: MessageRole::System,
-            content: system.to_string(),
-        });
+        messages.push(CoreMessage::text(MessageRole::System, system));
     }
-    messages.extend(chat_messages(payload)?);
+    messages.extend(anthropic_chat_messages(payload)?);
 
-    Ok(ProxyChatRequest {
+    let mut request = ProxyChatRequest {
         model: model.clone(),
         messages,
         temperature: payload
@@ -129,7 +130,14 @@ pub fn anthropic_payload_to_chat_request(
         raw_messages: payload.get("messages").cloned(),
         extra: anthropic_chat_extra(payload),
         metadata: anthropic_requested_model_alias(model),
-    })
+    };
+
+    request.set_client_protocol(ClientProtocol::AnthropicMessages);
+    request.set_thinking_signature_status(anthropic_thinking_signature_status(
+        request.raw_messages.as_ref(),
+    ));
+
+    Ok(request)
 }
 
 /// Translates an OpenAI-compatible JSON payload into a core `ProxyEmbeddingsRequest`.
@@ -171,16 +179,63 @@ fn stream_flag(payload: &Value, default: bool) -> bool {
 }
 
 pub fn anthropic_requested_model_alias(model: String) -> HashMap<String, String> {
-    HashMap::from([
-        (ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(), model),
-        (
-            CLIENT_PROTOCOL_KEY.to_string(),
-            "anthropic_messages".to_string(),
-        ),
-    ])
+    let mut metadata = HashMap::new();
+    set_anthropic_requested_model_alias(&mut metadata, model);
+    metadata.insert(
+        "unigateway.client_protocol".to_string(),
+        ClientProtocol::AnthropicMessages
+            .as_metadata_value()
+            .to_string(),
+    );
+    metadata
 }
 
-fn chat_messages(payload: &Value) -> Result<Vec<CoreMessage>> {
+pub fn set_anthropic_requested_model_alias(
+    metadata: &mut HashMap<String, String>,
+    model: impl Into<String>,
+) {
+    metadata.insert(
+        ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
+        model.into(),
+    );
+}
+
+pub fn anthropic_requested_model_alias_from_metadata(
+    metadata: &HashMap<String, String>,
+) -> Option<&str> {
+    metadata
+        .get(ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY)
+        .map(String::as_str)
+}
+
+pub fn anthropic_requested_model_alias_or(
+    metadata: &HashMap<String, String>,
+    fallback: &str,
+) -> String {
+    anthropic_requested_model_alias_from_metadata(metadata)
+        .unwrap_or(fallback)
+        .to_string()
+}
+
+fn openai_chat_messages(payload: &Value) -> Result<Vec<CoreMessage>> {
+    chat_messages(payload, |message| {
+        openai_message_to_content_blocks(message).map_err(|error| anyhow!(error.to_string()))
+    })
+}
+
+fn anthropic_chat_messages(payload: &Value) -> Result<Vec<CoreMessage>> {
+    chat_messages(payload, |message| {
+        let content = message
+            .get("content")
+            .ok_or_else(|| anyhow!("message.content is required"))?;
+        anthropic_content_to_blocks(content).map_err(|error| anyhow!(error.to_string()))
+    })
+}
+
+fn chat_messages(
+    payload: &Value,
+    content_blocks: impl Fn(&Value) -> Result<Vec<ContentBlock>>,
+) -> Result<Vec<CoreMessage>> {
     let Some(messages) = payload.get("messages").and_then(Value::as_array) else {
         return Err(anyhow!("messages must be an array"));
     };
@@ -194,12 +249,7 @@ fn chat_messages(payload: &Value) -> Result<Vec<CoreMessage>> {
                     .and_then(Value::as_str)
                     .unwrap_or("user"),
             );
-            let content = extract_text_content(
-                message
-                    .get("content")
-                    .ok_or_else(|| anyhow!("message.content is required"))?,
-            );
-            Ok(CoreMessage { role, content })
+            Ok(CoreMessage::from_blocks(role, content_blocks(message)?))
         })
         .collect()
 }
@@ -211,24 +261,6 @@ fn parse_role(role: &str) -> MessageRole {
         "tool" => MessageRole::Tool,
         _ => MessageRole::User,
     }
-}
-
-fn extract_text_content(value: &Value) -> String {
-    if let Some(text) = value.as_str() {
-        return text.to_string();
-    }
-
-    if let Some(blocks) = value.as_array() {
-        let mut parts = Vec::new();
-        for block in blocks {
-            if let Some(text) = block.get("text").and_then(Value::as_str) {
-                parts.push(text.to_string());
-            }
-        }
-        return parts.join("\n");
-    }
-
-    String::new()
 }
 
 fn openai_chat_extra(payload: &Value) -> HashMap<String, Value> {
@@ -287,6 +319,62 @@ fn anthropic_chat_extra(payload: &Value) -> HashMap<String, Value> {
         .collect()
 }
 
+fn openai_thinking_signature_status(raw_messages: Option<&Value>) -> ThinkingSignatureStatus {
+    let Some(messages) = raw_messages.and_then(Value::as_array) else {
+        return ThinkingSignatureStatus::Absent;
+    };
+
+    if messages.iter().any(|message| {
+        message
+            .get("reasoning_content")
+            .or_else(|| message.get("thinking"))
+            .and_then(Value::as_str)
+            .is_some_and(|thinking| !thinking.is_empty())
+    }) {
+        ThinkingSignatureStatus::Placeholder
+    } else {
+        ThinkingSignatureStatus::Absent
+    }
+}
+
+fn anthropic_thinking_signature_status(raw_messages: Option<&Value>) -> ThinkingSignatureStatus {
+    let Some(messages) = raw_messages.and_then(Value::as_array) else {
+        return ThinkingSignatureStatus::Absent;
+    };
+
+    let mut has_verbatim = false;
+    for message in messages {
+        let Some(blocks) = message.get("content").and_then(Value::as_array) else {
+            continue;
+        };
+
+        for block in blocks {
+            if block.get("type").and_then(Value::as_str) != Some("thinking") {
+                continue;
+            }
+
+            let Some(signature) = block
+                .get("signature")
+                .and_then(Value::as_str)
+                .filter(|signature| !signature.is_empty())
+            else {
+                continue;
+            };
+
+            if is_placeholder_thinking_signature(signature) {
+                return ThinkingSignatureStatus::Placeholder;
+            }
+            has_verbatim = true;
+        }
+    }
+
+    if has_verbatim {
+        ThinkingSignatureStatus::Verbatim
+    } else {
+        ThinkingSignatureStatus::Absent
+    }
+}
+
 fn filtered_response_extra(extra: HashMap<String, Value>) -> HashMap<String, Value> {
     extra
         .iter()
@@ -332,11 +420,14 @@ struct IncomingResponsesRequest {
 mod tests {
     use serde_json::Value;
     use serde_json::json;
+    use unigateway_core::{
+        ClientProtocol, THINKING_SIGNATURE_PLACEHOLDER_VALUE, ThinkingSignatureStatus,
+    };
 
     use super::{
-        ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, CLIENT_PROTOCOL_KEY, OPENAI_RAW_MESSAGES_KEY,
-        anthropic_payload_to_chat_request, openai_payload_to_chat_request,
-        openai_payload_to_embed_request, openai_payload_to_responses_request,
+        ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, anthropic_payload_to_chat_request,
+        openai_payload_to_chat_request, openai_payload_to_embed_request,
+        openai_payload_to_responses_request,
     };
 
     #[test]
@@ -542,18 +633,13 @@ mod tests {
 
         // Verify raw_messages are preserved
         assert!(req.raw_messages.is_some());
-        let raw = req.raw_messages.unwrap();
+        let raw = req.raw_messages.as_ref().expect("raw messages");
         assert!(raw.is_array());
         let raw_array = raw.as_array().unwrap();
         assert_eq!(raw_array.len(), 3);
 
         // Verify metadata marks this as OpenAI format
-        assert_eq!(
-            req.metadata
-                .get(OPENAI_RAW_MESSAGES_KEY)
-                .map(String::as_str),
-            Some("true")
-        );
+        assert!(req.has_openai_raw_messages());
 
         // Verify the assistant message has tool_calls preserved
         let assistant_msg = &raw_array[1];
@@ -583,9 +669,27 @@ mod tests {
         )
         .expect("request");
 
+        assert_eq!(req.client_protocol(), Some(ClientProtocol::OpenAiChat));
+    }
+
+    #[test]
+    fn openai_chat_request_marks_placeholder_signature_status_for_reasoning() {
+        let req = openai_payload_to_chat_request(
+            &json!({
+                "model": "gpt-4o-mini",
+                "messages": [{
+                    "role": "assistant",
+                    "content": "answer",
+                    "reasoning_content": "reasoning"
+                }]
+            }),
+            "gpt-4o-mini",
+        )
+        .expect("request");
+
         assert_eq!(
-            req.metadata.get(CLIENT_PROTOCOL_KEY).map(String::as_str),
-            Some("openai_chat")
+            req.thinking_signature_status(),
+            Some(ThinkingSignatureStatus::Placeholder)
         );
     }
 
@@ -601,8 +705,56 @@ mod tests {
         .expect("request");
 
         assert_eq!(
-            req.metadata.get(CLIENT_PROTOCOL_KEY).map(String::as_str),
-            Some("anthropic_messages")
+            req.client_protocol(),
+            Some(ClientProtocol::AnthropicMessages)
+        );
+    }
+
+    #[test]
+    fn anthropic_chat_request_marks_verbatim_signature_status() {
+        let req = anthropic_payload_to_chat_request(
+            &json!({
+                "model": "claude-3-5-sonnet-latest",
+                "messages": [{
+                    "role": "assistant",
+                    "content": [{
+                        "type": "thinking",
+                        "thinking": "original reasoning",
+                        "signature": "real-signature"
+                    }]
+                }]
+            }),
+            "claude-3-5-sonnet-latest",
+        )
+        .expect("request");
+
+        assert_eq!(
+            req.thinking_signature_status(),
+            Some(ThinkingSignatureStatus::Verbatim)
+        );
+    }
+
+    #[test]
+    fn anthropic_chat_request_marks_placeholder_signature_status() {
+        let req = anthropic_payload_to_chat_request(
+            &json!({
+                "model": "claude-3-5-sonnet-latest",
+                "messages": [{
+                    "role": "assistant",
+                    "content": [{
+                        "type": "thinking",
+                        "thinking": "renderer-only reasoning",
+                        "signature": THINKING_SIGNATURE_PLACEHOLDER_VALUE
+                    }]
+                }]
+            }),
+            "claude-3-5-sonnet-latest",
+        )
+        .expect("request");
+
+        assert_eq!(
+            req.thinking_signature_status(),
+            Some(ThinkingSignatureStatus::Placeholder)
         );
     }
 }

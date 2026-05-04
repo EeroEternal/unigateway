@@ -46,10 +46,10 @@ pub use pool::{
 };
 pub use registry::InMemoryDriverRegistry;
 pub use request::{
-    CLIENT_PROTOCOL_KEY, ContentBlock, Message, MessageRole, OPENAI_RAW_MESSAGES_KEY,
-    ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest,
-    THINKING_SIGNATURE_PLACEHOLDER_VALUE, THINKING_SIGNATURE_STATUS_KEY,
-    anthropic_content_to_blocks, anthropic_messages_to_openai_messages,
+    CLIENT_PROTOCOL_KEY, ClientProtocol, ContentBlock, Message, MessageRole,
+    OPENAI_RAW_MESSAGES_KEY, ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest,
+    StructuredMessage, THINKING_SIGNATURE_PLACEHOLDER_VALUE, THINKING_SIGNATURE_STATUS_KEY,
+    ThinkingSignatureStatus, anthropic_content_to_blocks, anthropic_messages_to_openai_messages,
     anthropic_tool_choice_to_openai_tool_choice, anthropic_tools_to_openai_tools,
     content_blocks_to_anthropic, content_blocks_to_anthropic_request,
     is_placeholder_thinking_signature, openai_message_to_content_blocks,

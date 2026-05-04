@@ -1,7 +1,7 @@
 use unigateway_core::{
     GatewayError, ProviderPool, ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest,
 };
-use unigateway_protocol::{ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, ProtocolHttpResponse};
+use unigateway_protocol::{ProtocolHttpResponse, anthropic_requested_model_alias_or};
 
 use super::chat::{execute_anthropic_chat_via_core, execute_openai_chat_via_core};
 use super::embeddings::execute_openai_embeddings_via_core;
@@ -118,11 +118,7 @@ impl HostProtocol {
 }
 
 pub fn anthropic_requested_model_alias(request: &ProxyChatRequest) -> String {
-    request
-        .metadata
-        .get(ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY)
-        .cloned()
-        .unwrap_or_else(|| request.model.clone())
+    anthropic_requested_model_alias_or(&request.metadata, &request.model)
 }
 
 pub(super) fn without_response_tools(request: ProxyResponsesRequest) -> ProxyResponsesRequest {

@@ -1,6 +1,6 @@
 [package]
 name = "unigateway-protocol"
-version = "1.9.1"
+version = "1.10.0"
 edition = "2024"
 rust-version = "1.92"
 description = "Reusable protocol parsing and response rendering for UniGateway."

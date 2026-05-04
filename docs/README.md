@@ -27,6 +27,7 @@
 | --- | --- |
 | [`memory.md`](dev/memory.md) | 贡献者与 AI 代理用的心智模型与代码入口 |
 | [`embed-sdk.md`](dev/embed-sdk.md) | `unigateway-sdk` 门面与对外 API 演进 |
+| [`public-api-typing.md`](dev/public-api-typing.md) | public request API 强类型化的小步路线：先抽离 protocol semantics，再评估是否升级 `Message` |
 | [`roadmap.md`](dev/roadmap.md) | 产品/库阶段与优先级（随迭代更新） |
 | [`refactor-baseline.md`](dev/refactor-baseline.md) | **历史**：拆分过程与结构债记录；根 `src/` 已删除，阅读时以 `arch.md` 为准 |
 | [`local-gateway.md`](dev/local-gateway.md) | **历史/设想**：本地网关 CLI 与观测增强（需由宿主应用实现） |

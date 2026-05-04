@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 use crate::drivers::DriverEndpointContext;
 use crate::error::GatewayError;
 use crate::request::{
-    MessageRole, OPENAI_RAW_MESSAGES_KEY, ProxyChatRequest, ProxyEmbeddingsRequest,
+    ContentBlock, Message, MessageRole, ProxyChatRequest, ProxyEmbeddingsRequest,
     ProxyResponsesRequest, anthropic_messages_to_openai_messages,
     anthropic_tool_choice_to_openai_tool_choice, anthropic_tools_to_openai_tools,
 };
@@ -65,7 +65,7 @@ pub fn build_chat_request(
 fn openai_chat_messages(request: &ProxyChatRequest) -> Result<Vec<Value>, GatewayError> {
     if let Some(raw_messages) = request.raw_messages.as_ref() {
         // Check if raw_messages are in OpenAI format (preserved from client)
-        if request.metadata.contains_key(OPENAI_RAW_MESSAGES_KEY) {
+        if request.has_openai_raw_messages() {
             if let Some(messages_array) = raw_messages.as_array() {
                 return Ok(messages_array.clone());
             }
@@ -74,19 +74,86 @@ fn openai_chat_messages(request: &ProxyChatRequest) -> Result<Vec<Value>, Gatewa
             ));
         }
         // Otherwise, treat as Anthropic format and convert
-        return anthropic_messages_to_openai_messages(raw_messages);
+        let mut messages = anthropic_messages_to_openai_messages(raw_messages)?;
+        if let Some(system) = request.system.as_ref().and_then(Value::as_str) {
+            messages.insert(
+                0,
+                json!({
+                    "role": "system",
+                    "content": system,
+                }),
+            );
+        }
+        return Ok(messages);
     }
 
-    Ok(request
-        .messages
+    request.messages.iter().map(openai_chat_message).collect()
+}
+
+fn openai_chat_message(message: &Message) -> Result<Value, GatewayError> {
+    let mut object = serde_json::Map::from_iter([(
+        "role".to_string(),
+        Value::String(openai_role(message.role).to_string()),
+    )]);
+
+    if message.role == MessageRole::Tool
+        && let Some(ContentBlock::ToolResult {
+            tool_use_id,
+            content,
+        }) = message
+            .content
+            .iter()
+            .find(|block| matches!(block, ContentBlock::ToolResult { .. }))
+    {
+        object.insert(
+            "tool_call_id".to_string(),
+            Value::String(tool_use_id.clone()),
+        );
+        object.insert("content".to_string(), Value::String(content.clone()));
+        return Ok(Value::Object(object));
+    }
+
+    let text = message.text_content();
+    object.insert("content".to_string(), Value::String(text));
+
+    let thinking = message
+        .content
         .iter()
-        .map(|message| {
-            json!({
-                "role": openai_role(message.role),
-                "content": message.content,
-            })
+        .filter_map(|block| match block {
+            ContentBlock::Thinking { thinking, .. } if !thinking.is_empty() => {
+                Some(thinking.as_str())
+            }
+            _ => None,
         })
-        .collect())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !thinking.is_empty() {
+        object.insert("reasoning_content".to_string(), Value::String(thinking));
+    }
+
+    let tool_calls = message
+        .content
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::ToolUse { id, name, input } => {
+                let arguments = serde_json::to_string(input).ok()?;
+                Some(json!({
+                    "id": id,
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": arguments,
+                    }
+                }))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !tool_calls.is_empty() {
+        object.insert("tool_calls".to_string(), Value::Array(tool_calls));
+    }
+
+    Ok(Value::Object(object))
 }
 pub fn build_responses_request(
     endpoint: &DriverEndpointContext,
@@ -207,7 +274,7 @@ fn join_url(base_url: &str, path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::request::{Message, MessageRole, ProxyChatRequest};
+    use crate::request::{ClientProtocol, Message, MessageRole, ProxyChatRequest};
     use std::collections::HashMap;
 
     #[test]
@@ -238,27 +305,15 @@ mod tests {
             }
         ]);
 
-        let mut metadata = HashMap::new();
-        metadata.insert(OPENAI_RAW_MESSAGES_KEY.to_string(), "true".to_string());
-
-        let request = ProxyChatRequest {
+        let mut request = ProxyChatRequest {
             model: "gpt-5.5".to_string(),
             messages: vec![
-                Message {
-                    role: MessageRole::User,
-                    content: "What's the weather?".to_string(),
-                },
-                Message {
-                    role: MessageRole::Assistant,
-                    content: String::new(),
-                },
-                Message {
-                    role: MessageRole::Tool,
-                    content: "Sunny and 75°F".to_string(),
-                },
+                Message::text(MessageRole::User, "What's the weather?"),
+                Message::text(MessageRole::Assistant, ""),
+                Message::text(MessageRole::Tool, "Sunny and 75°F"),
             ],
             raw_messages: Some(raw_messages),
-            metadata,
+            metadata: HashMap::new(),
             temperature: None,
             top_p: None,
             top_k: None,
@@ -270,6 +325,8 @@ mod tests {
             tool_choice: None,
             extra: HashMap::new(),
         };
+        request.set_client_protocol(ClientProtocol::OpenAiChat);
+        request.mark_openai_raw_messages();
 
         let messages = openai_chat_messages(&request).expect("messages");
         assert_eq!(messages.len(), 3);
@@ -295,10 +352,7 @@ mod tests {
     fn openai_chat_messages_falls_back_to_flattened_when_no_raw() {
         let request = ProxyChatRequest {
             model: "gpt-4".to_string(),
-            messages: vec![Message {
-                role: MessageRole::User,
-                content: "Hello".to_string(),
-            }],
+            messages: vec![Message::text(MessageRole::User, "Hello")],
             raw_messages: None,
             metadata: HashMap::new(),
             temperature: None,
@@ -322,6 +376,59 @@ mod tests {
         assert_eq!(
             messages[0].get("content").and_then(Value::as_str),
             Some("Hello")
+        );
+    }
+
+    #[test]
+    fn openai_chat_messages_serializes_structured_blocks() {
+        let request = ProxyChatRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![Message::from_blocks(
+                MessageRole::Assistant,
+                vec![
+                    ContentBlock::Thinking {
+                        thinking: "reasoning".to_string(),
+                        signature: Some("real-signature".to_string()),
+                    },
+                    ContentBlock::Text {
+                        text: "answer".to_string(),
+                    },
+                    ContentBlock::ToolUse {
+                        id: "call_1".to_string(),
+                        name: "search".to_string(),
+                        input: json!({"query": "rust"}),
+                    },
+                ],
+            )],
+            raw_messages: None,
+            metadata: HashMap::new(),
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: None,
+            stop_sequences: None,
+            stream: false,
+            system: None,
+            tools: None,
+            tool_choice: None,
+            extra: HashMap::new(),
+        };
+
+        let messages = openai_chat_messages(&request).expect("messages");
+        assert_eq!(
+            messages[0].get("content").and_then(Value::as_str),
+            Some("answer")
+        );
+        assert_eq!(
+            messages[0].get("reasoning_content").and_then(Value::as_str),
+            Some("reasoning")
+        );
+        assert_eq!(
+            messages[0]
+                .get("tool_calls")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(1)
         );
     }
 }
