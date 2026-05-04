@@ -27,7 +27,7 @@ Example:
 
 ```toml
 [dependencies]
-unigateway-sdk = "1.7"
+unigateway-sdk = "1.10"
 ```
 
 If you disable default features, prefer `features = ["host"]`. `embed` is still accepted as a
