@@ -3,6 +3,8 @@
 //!
 //! Provides the core abstraction for routing, retries, and provider execution.
 
+#[allow(missing_docs)]
+pub mod conversion;
 /// Traits and types defining integration with external API providers.
 pub mod drivers;
 /// High-level core engine and execution context structs.
@@ -44,8 +46,15 @@ pub use pool::{
 };
 pub use registry::InMemoryDriverRegistry;
 pub use request::{
-    Message, MessageRole, OPENAI_RAW_MESSAGES_KEY, ProxyChatRequest, ProxyEmbeddingsRequest,
-    ProxyResponsesRequest,
+    CLIENT_PROTOCOL_KEY, ContentBlock, Message, MessageRole, OPENAI_RAW_MESSAGES_KEY,
+    ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest,
+    THINKING_SIGNATURE_PLACEHOLDER_VALUE, THINKING_SIGNATURE_STATUS_KEY,
+    anthropic_content_to_blocks, anthropic_messages_to_openai_messages,
+    anthropic_tool_choice_to_openai_tool_choice, anthropic_tools_to_openai_tools,
+    content_blocks_to_anthropic, content_blocks_to_anthropic_request,
+    is_placeholder_thinking_signature, openai_message_to_content_blocks,
+    openai_messages_to_anthropic_messages, openai_tool_choice_to_anthropic_tool_choice,
+    openai_tools_to_anthropic_tools, validate_anthropic_request_messages,
 };
 pub use response::{
     AttemptReport, AttemptStatus, ChatResponseChunk, ChatResponseFinal, CompletedResponse,
