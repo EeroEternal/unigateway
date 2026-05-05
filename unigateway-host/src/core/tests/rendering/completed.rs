@@ -389,6 +389,174 @@ fn openai_completed_body_normalizes_anthropic_provider_output() {
 }
 
 #[test]
+fn openai_completed_body_can_reconstruct_prefixed_think_tags_when_enabled() {
+    let body = openai_completed_chat_body(CompletedResponse {
+        response: ChatResponseFinal {
+            model: Some("claude-opus-4-7".to_string()),
+            output_text: Some("final answer".to_string()),
+            raw: serde_json::json!({
+                "id": "chatcmpl_openai_reasoning_text_1",
+                "object": "chat.completion",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "<think>plan</think>final"
+                    },
+                    "finish_reason": "stop"
+                }]
+            }),
+        },
+        report: RequestReport {
+            request_id: "req_openai_reasoning_text_1".to_string(),
+            correlation_id: "req_openai_reasoning_text_1".to_string(),
+            pool_id: Some("svc".to_string()),
+            selected_endpoint_id: "compat-main".to_string(),
+            selected_provider: unigateway_core::ProviderKind::OpenAiCompatible,
+            kind: RequestKind::Chat,
+            attempts: Vec::new(),
+            usage: None,
+            latency_ms: 12,
+            started_at: std::time::SystemTime::UNIX_EPOCH,
+            finished_at: std::time::SystemTime::UNIX_EPOCH,
+            error_kind: None,
+            stream: None,
+            metadata: HashMap::from([(
+                REASONING_TEXT_ENCODING_KEY.to_string(),
+                REASONING_TEXT_ENCODING_XML_THINK_TAG.to_string(),
+            )]),
+        },
+    });
+
+    let message = body
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .expect("message");
+
+    assert_eq!(
+        message.get("content").and_then(Value::as_str),
+        Some("final")
+    );
+    assert_eq!(
+        message.get("reasoning_content").and_then(Value::as_str),
+        Some("plan")
+    );
+    assert_eq!(
+        message.get("thinking").and_then(Value::as_str),
+        Some("plan")
+    );
+}
+
+#[test]
+fn openai_completed_body_leaves_unclosed_prefixed_think_tag_as_content() {
+    let body = openai_completed_chat_body(CompletedResponse {
+        response: ChatResponseFinal {
+            model: Some("claude-opus-4-7".to_string()),
+            output_text: Some("<think>plan".to_string()),
+            raw: serde_json::json!({
+                "id": "chatcmpl_openai_reasoning_text_2",
+                "object": "chat.completion",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "<think>plan"
+                    },
+                    "finish_reason": "stop"
+                }]
+            }),
+        },
+        report: RequestReport {
+            request_id: "req_openai_reasoning_text_2".to_string(),
+            correlation_id: "req_openai_reasoning_text_2".to_string(),
+            pool_id: Some("svc".to_string()),
+            selected_endpoint_id: "compat-main".to_string(),
+            selected_provider: unigateway_core::ProviderKind::OpenAiCompatible,
+            kind: RequestKind::Chat,
+            attempts: Vec::new(),
+            usage: None,
+            latency_ms: 12,
+            started_at: std::time::SystemTime::UNIX_EPOCH,
+            finished_at: std::time::SystemTime::UNIX_EPOCH,
+            error_kind: None,
+            stream: None,
+            metadata: HashMap::from([(
+                REASONING_TEXT_ENCODING_KEY.to_string(),
+                REASONING_TEXT_ENCODING_XML_THINK_TAG.to_string(),
+            )]),
+        },
+    });
+
+    let message = body
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .expect("message");
+
+    assert_eq!(
+        message.get("content").and_then(Value::as_str),
+        Some("<think>plan")
+    );
+    assert!(message.get("reasoning_content").is_none());
+    assert!(message.get("thinking").is_none());
+}
+
+#[test]
+fn openai_completed_body_leaves_prefixed_think_tags_as_content_by_default() {
+    let body = openai_completed_chat_body(CompletedResponse {
+        response: ChatResponseFinal {
+            model: Some("claude-opus-4-7".to_string()),
+            output_text: Some("<think>plan</think>final".to_string()),
+            raw: serde_json::json!({
+                "id": "chatcmpl_openai_reasoning_text_3",
+                "object": "chat.completion",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "<think>plan</think>final"
+                    },
+                    "finish_reason": "stop"
+                }]
+            }),
+        },
+        report: RequestReport {
+            request_id: "req_openai_reasoning_text_3".to_string(),
+            correlation_id: "req_openai_reasoning_text_3".to_string(),
+            pool_id: Some("svc".to_string()),
+            selected_endpoint_id: "compat-main".to_string(),
+            selected_provider: unigateway_core::ProviderKind::OpenAiCompatible,
+            kind: RequestKind::Chat,
+            attempts: Vec::new(),
+            usage: None,
+            latency_ms: 12,
+            started_at: std::time::SystemTime::UNIX_EPOCH,
+            finished_at: std::time::SystemTime::UNIX_EPOCH,
+            error_kind: None,
+            stream: None,
+            metadata: HashMap::new(),
+        },
+    });
+
+    let message = body
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .expect("message");
+
+    assert_eq!(
+        message.get("content").and_then(Value::as_str),
+        Some("<think>plan</think>final")
+    );
+    assert!(message.get("reasoning_content").is_none());
+    assert!(message.get("thinking").is_none());
+}
+
+#[test]
 fn anthropic_response_body_preserves_thinking_block_structure() {
     let response = CompletedResponse {
         response: ChatResponseFinal {

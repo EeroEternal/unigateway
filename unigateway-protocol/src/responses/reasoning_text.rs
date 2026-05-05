@@ -52,8 +52,48 @@ pub(crate) fn normalize_openai_message_reasoning_text(
         return message.clone();
     };
 
+    normalized.insert(
+        "reasoning_content".to_string(),
+        Value::String(thinking.clone()),
+    );
     normalized.insert("thinking".to_string(), Value::String(thinking));
     normalized.insert("content".to_string(), Value::String(text));
+    Value::Object(normalized)
+}
+
+pub(crate) fn normalize_openai_chat_completion_reasoning_text(
+    body: &Value,
+    encoding: Option<ReasoningTextEncoding>,
+) -> Value {
+    let Some(encoding) = encoding else {
+        return body.clone();
+    };
+    let Some(mut normalized) = body.as_object().cloned() else {
+        return body.clone();
+    };
+    let Some(choices) = normalized.get("choices").and_then(Value::as_array).cloned() else {
+        return body.clone();
+    };
+
+    let normalized_choices = choices
+        .into_iter()
+        .map(|choice| {
+            let Some(mut normalized_choice) = choice.as_object().cloned() else {
+                return choice;
+            };
+            let Some(message) = normalized_choice.get("message") else {
+                return Value::Object(normalized_choice);
+            };
+
+            normalized_choice.insert(
+                "message".to_string(),
+                normalize_openai_message_reasoning_text(message, Some(encoding)),
+            );
+            Value::Object(normalized_choice)
+        })
+        .collect();
+
+    normalized.insert("choices".to_string(), Value::Array(normalized_choices));
     Value::Object(normalized)
 }
 

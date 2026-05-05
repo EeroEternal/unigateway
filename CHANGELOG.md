@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.0.3]
+
+### Changed
+
+* **OpenAI downstream reasoning-text reconstruction now honors declared `<think>` encodings**: completed OpenAI-compatible chat responses can now split prefixed `<think>...</think>` content into `reasoning_content` / `thinking` plus plain `content` when `unigateway.reasoning_text_encoding = xml_think_tag` is present in request or report metadata.
+* **OpenAI SSE rendering now reuses the shared reasoning-text stream parser**: streamed `choices[*].delta.content` chunks can reconstruct declared prefixed `<think>...</think>` reasoning across chunk boundaries and emit it through `delta.reasoning_content` / `delta.thinking`, while conservatively falling back to plain `content` if the close tag never arrives.
+* **OpenAI reasoning-text parsing remains explicit opt-in**: undeclared `<think>` text is preserved verbatim for both completed and streaming downstream rendering so normal content is not misclassified.
+
+### Validation
+
+* `cargo fmt --all -- --check`
+* `cargo clippy --workspace --all-targets -- -D warnings`
+* `cargo test --workspace`
+* `cargo fmt -- --check`
+* `cargo clippy -- -D warnings`
+* `cargo build --verbose`
+* `cargo test --verbose`
+
 ## [2.0.2]
 
 ### Added
