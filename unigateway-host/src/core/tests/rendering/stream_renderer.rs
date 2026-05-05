@@ -10,6 +10,7 @@ use unigateway_core::{
 use unigateway_protocol::{
     ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, ProtocolResponseBody, REASONING_TEXT_ENCODING_KEY,
     REASONING_TEXT_ENCODING_XML_THINK_TAG, render_anthropic_chat_session,
+    render_openai_chat_session,
 };
 
 #[tokio::test]
@@ -416,6 +417,202 @@ async fn anthropic_stream_renderer_can_reconstruct_prefixed_think_tags_when_enab
             && event.contains("\"type\":\"text_delta\"")
             && event.contains("final answer")
     }));
+}
+
+#[tokio::test]
+async fn openai_stream_renderer_can_reconstruct_prefixed_think_tags_when_enabled() {
+    let (completion_tx, completion_rx) = oneshot::channel();
+    assert!(
+        completion_tx
+            .send(Ok(CompletedResponse {
+                response: ChatResponseFinal {
+                    model: Some("claude-opus-4-7".to_string()),
+                    output_text: Some("final".to_string()),
+                    raw: serde_json::json!({
+                        "choices": [{
+                            "finish_reason": "stop"
+                        }]
+                    }),
+                },
+                report: RequestReport {
+                    request_id: "req_openai_stream_reasoning_text_1".to_string(),
+                    correlation_id: "req_openai_stream_reasoning_text_1".to_string(),
+                    pool_id: Some("svc".to_string()),
+                    selected_endpoint_id: "compat-main".to_string(),
+                    selected_provider: unigateway_core::ProviderKind::OpenAiCompatible,
+                    kind: RequestKind::Chat,
+                    attempts: Vec::new(),
+                    usage: Some(unigateway_core::TokenUsage {
+                        input_tokens: Some(6),
+                        output_tokens: Some(4),
+                        total_tokens: Some(10),
+                    }),
+                    latency_ms: 8,
+                    started_at: std::time::SystemTime::UNIX_EPOCH,
+                    finished_at: std::time::SystemTime::UNIX_EPOCH,
+                    error_kind: None,
+                    stream: None,
+                    metadata: HashMap::new(),
+                },
+            }))
+            .is_ok()
+    );
+
+    let response = render_openai_chat_session(ProxySession::Streaming(StreamingResponse {
+        stream: Box::pin(futures_util::stream::iter(vec![
+            Ok(ChatResponseChunk {
+                delta: Some("<think>pla".to_string()),
+                raw: serde_json::json!({
+                    "id": "chatcmpl_openai_stream_reasoning_text_1",
+                    "object": "chat.completion.chunk",
+                    "model": "claude-opus-4-7",
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "content": "<think>pla"
+                        },
+                        "finish_reason": null
+                    }]
+                }),
+            }),
+            Ok(ChatResponseChunk {
+                delta: Some("n</think>final".to_string()),
+                raw: serde_json::json!({
+                    "id": "chatcmpl_openai_stream_reasoning_text_1",
+                    "object": "chat.completion.chunk",
+                    "model": "claude-opus-4-7",
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "content": "n</think>final"
+                        },
+                        "finish_reason": null
+                    }]
+                }),
+            }),
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "id": "chatcmpl_openai_stream_reasoning_text_1",
+                    "object": "chat.completion.chunk",
+                    "model": "claude-opus-4-7",
+                    "choices": [{
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop"
+                    }]
+                }),
+            }),
+        ])),
+        completion: completion_rx,
+        request_id: "req_openai_stream_reasoning_text_1".to_string(),
+        request_metadata: HashMap::from([(
+            REASONING_TEXT_ENCODING_KEY.to_string(),
+            REASONING_TEXT_ENCODING_XML_THINK_TAG.to_string(),
+        )]),
+    }));
+
+    let (_, body) = response.into_parts();
+    let ProtocolResponseBody::ServerSentEvents(stream) = body else {
+        panic!("expected sse body");
+    };
+
+    let events = stream
+        .map(|item| String::from_utf8(item.expect("sse chunk").to_vec()).expect("utf8 chunk"))
+        .collect::<Vec<_>>()
+        .await;
+
+    assert!(events.iter().any(|event| {
+        event.contains("\"reasoning_content\":\"plan\"") && event.contains("\"thinking\":\"plan\"")
+    }));
+    assert!(events.iter().any(|event| {
+        event.contains("\"delta\":{\"content\":\"final\"}")
+            && event.contains("\"finish_reason\":null")
+    }));
+    assert!(
+        events
+            .iter()
+            .any(|event| event.contains("\"finish_reason\":\"stop\""))
+    );
+}
+
+#[tokio::test]
+async fn openai_stream_renderer_leaves_prefixed_think_tags_as_content_by_default() {
+    let (completion_tx, completion_rx) = oneshot::channel();
+    assert!(
+        completion_tx
+            .send(Ok(CompletedResponse {
+                response: ChatResponseFinal {
+                    model: Some("claude-opus-4-7".to_string()),
+                    output_text: Some("<think>plan</think>final".to_string()),
+                    raw: serde_json::json!({
+                        "choices": [{
+                            "finish_reason": "stop"
+                        }]
+                    }),
+                },
+                report: RequestReport {
+                    request_id: "req_openai_stream_reasoning_text_2".to_string(),
+                    correlation_id: "req_openai_stream_reasoning_text_2".to_string(),
+                    pool_id: Some("svc".to_string()),
+                    selected_endpoint_id: "compat-main".to_string(),
+                    selected_provider: unigateway_core::ProviderKind::OpenAiCompatible,
+                    kind: RequestKind::Chat,
+                    attempts: Vec::new(),
+                    usage: None,
+                    latency_ms: 8,
+                    started_at: std::time::SystemTime::UNIX_EPOCH,
+                    finished_at: std::time::SystemTime::UNIX_EPOCH,
+                    error_kind: None,
+                    stream: None,
+                    metadata: HashMap::new(),
+                },
+            }))
+            .is_ok()
+    );
+
+    let response = render_openai_chat_session(ProxySession::Streaming(StreamingResponse {
+        stream: Box::pin(futures_util::stream::iter(vec![Ok(ChatResponseChunk {
+            delta: Some("<think>plan</think>final".to_string()),
+            raw: serde_json::json!({
+                "id": "chatcmpl_openai_stream_reasoning_text_2",
+                "object": "chat.completion.chunk",
+                "model": "claude-opus-4-7",
+                "choices": [{
+                    "index": 0,
+                    "delta": {
+                        "content": "<think>plan</think>final"
+                    },
+                    "finish_reason": null
+                }]
+            }),
+        })])),
+        completion: completion_rx,
+        request_id: "req_openai_stream_reasoning_text_2".to_string(),
+        request_metadata: HashMap::new(),
+    }));
+
+    let (_, body) = response.into_parts();
+    let ProtocolResponseBody::ServerSentEvents(stream) = body else {
+        panic!("expected sse body");
+    };
+
+    let events = stream
+        .map(|item| String::from_utf8(item.expect("sse chunk").to_vec()).expect("utf8 chunk"))
+        .collect::<Vec<_>>()
+        .await;
+
+    assert!(
+        events
+            .iter()
+            .any(|event| { event.contains("\"content\":\"<think>plan</think>final\"") })
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| event.contains("reasoning_content"))
+    );
+    assert!(!events.iter().any(|event| event.contains("\"thinking\"")));
 }
 
 #[tokio::test]

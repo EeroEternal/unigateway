@@ -15,7 +15,10 @@ use super::anthropic_stream::{
     anthropic_usage_payload, drive_anthropic_chat_stream, map_finish_reason,
 };
 use super::openai_chat::{OpenAiChatStreamAdapter, openai_sse_chunks_from_chat_chunk};
-use super::reasoning_text::{normalize_openai_message_reasoning_text, reasoning_text_encoding};
+use super::reasoning_text::{
+    normalize_openai_chat_completion_reasoning_text, normalize_openai_message_reasoning_text,
+    reasoning_text_encoding,
+};
 
 pub fn render_openai_chat_session(
     session: ProxySession<ChatResponseChunk, ChatResponseFinal>,
@@ -32,12 +35,15 @@ pub fn render_openai_chat_session(
                 request_metadata,
             } = streaming;
             let stream_request_id = request_id.clone();
-            let adapter_state =
-                std::sync::Arc::new(std::sync::Mutex::new(OpenAiChatStreamAdapter::default()));
+            let reasoning_text_encoding = reasoning_text_encoding(&request_metadata);
+            let adapter_state = std::sync::Arc::new(std::sync::Mutex::new(
+                OpenAiChatStreamAdapter::with_reasoning_text_encoding(reasoning_text_encoding),
+            ));
 
+            let stream_adapter_state = adapter_state.clone();
             let stream = stream.flat_map(move |item| {
                 let request_id = stream_request_id.clone();
-                let adapter_state = adapter_state.clone();
+                let adapter_state = stream_adapter_state.clone();
 
                 let chunks: Vec<Result<Bytes, io::Error>> = match item {
                     Ok(chunk) => {
@@ -52,8 +58,19 @@ pub fn render_openai_chat_session(
 
                 stream::iter(chunks)
             });
-            let done =
-                stream::once(async { Ok::<Bytes, io::Error>(Bytes::from("data: [DONE]\n\n")) });
+            let done_adapter_state = adapter_state.clone();
+            let done_request_id = request_id.clone();
+            let done = stream::once(async move {
+                let mut adapter = done_adapter_state.lock().expect("adapter lock");
+                let mut chunks = adapter
+                    .finish_reasoning_text(&done_request_id)
+                    .into_iter()
+                    .map(Ok)
+                    .collect::<Vec<_>>();
+                chunks.push(Ok::<Bytes, io::Error>(Bytes::from("data: [DONE]\n\n")));
+                chunks
+            })
+            .flat_map(stream::iter);
             let completion_streaming = StreamingResponse {
                 stream: Box::pin(stream::empty::<
                     Result<ChatResponseChunk, unigateway_core::GatewayError>,
@@ -276,7 +293,11 @@ pub fn anthropic_completed_chat_body(
             .and_then(serde_json::Value::as_str)
             == Some("message")
     {
-        return result.response.raw;
+        let reasoning_text_encoding = reasoning_text_encoding(&result.report.metadata);
+        return normalize_openai_chat_completion_reasoning_text(
+            &result.response.raw,
+            reasoning_text_encoding,
+        );
     }
 
     let requested_model = anthropic_requested_model_alias_or(
@@ -360,7 +381,11 @@ pub fn openai_completed_chat_body(
             .and_then(serde_json::Value::as_array)
             .is_some()
     {
-        return result.response.raw;
+        let reasoning_text_encoding = reasoning_text_encoding(&result.report.metadata);
+        return normalize_openai_chat_completion_reasoning_text(
+            &result.response.raw,
+            reasoning_text_encoding,
+        );
     }
 
     serde_json::json!({
