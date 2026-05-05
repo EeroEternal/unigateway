@@ -220,6 +220,33 @@ Endpoint hint fields matter more than they look:
 
 When possible, fill all three and keep them stable across restarts so routing hints do not drift.
 
+### 3d. Declaring reasoning text encodings
+
+If an endpoint is known to emit reasoning-like text using an explicit encoding, declare that in
+metadata instead of teaching UniGateway a provider-specific rule.
+
+```rust
+use unigateway_sdk::protocol::{
+    REASONING_TEXT_ENCODING_KEY,
+    REASONING_TEXT_ENCODING_XML_THINK_TAG,
+};
+
+let endpoint = Endpoint {
+    // ...
+    metadata: HashMap::from([(
+        REASONING_TEXT_ENCODING_KEY.to_string(),
+        REASONING_TEXT_ENCODING_XML_THINK_TAG.to_string(),
+    )]),
+};
+```
+
+For the full contract, fallback rules, consumer-owned provider handling guidance, and a rollout
+checklist for host applications, see [`reasoning.md`](reasoning.md).
+
+If you need to choose between metadata profiles, `GatewayHooks`, explicit host dispatch, or a
+custom driver, see [`embedder_patterns.md`](embedder_patterns.md) and the extension ladder in
+[`reasoning.md`](reasoning.md).
+
 ---
 
 ## 4. Proxying requests

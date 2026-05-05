@@ -1,6 +1,6 @@
 [package]
 name = "unigateway"
-version = "2.0.1"
+version = "2.0.2"
 edition = "2024"
 rust-version = "1.92"
 description = "DEPRECATED: use the `unigateway-sdk` crate. Compatibility shim only; the standalone `ug` binary is not published from this repository."

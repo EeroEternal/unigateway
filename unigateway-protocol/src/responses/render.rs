@@ -15,6 +15,7 @@ use super::anthropic_stream::{
     anthropic_usage_payload, drive_anthropic_chat_stream, map_finish_reason,
 };
 use super::openai_chat::{OpenAiChatStreamAdapter, openai_sse_chunks_from_chat_chunk};
+use super::reasoning_text::{normalize_openai_message_reasoning_text, reasoning_text_encoding};
 
 pub fn render_openai_chat_session(
     session: ProxySession<ChatResponseChunk, ChatResponseFinal>,
@@ -282,6 +283,7 @@ pub fn anthropic_completed_chat_body(
         &result.report.metadata,
         result.response.model.as_deref().unwrap_or_default(),
     );
+    let reasoning_text_encoding = reasoning_text_encoding(&result.report.metadata);
 
     if let Some(choice) = result
         .response
@@ -297,8 +299,11 @@ pub fn anthropic_completed_chat_body(
             .and_then(serde_json::Value::as_str)
             .map(|id| format!("msg_{id}"))
             .unwrap_or_else(|| result.report.request_id.clone());
-        let content = choice
-            .get("message")
+        let normalized_message = choice.get("message").map(|message| {
+            normalize_openai_message_reasoning_text(message, reasoning_text_encoding)
+        });
+        let content = normalized_message
+            .as_ref()
             .map(openai_message_to_anthropic_content_blocks)
             .unwrap_or_default();
         let stop_reason = choice

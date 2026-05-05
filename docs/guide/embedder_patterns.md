@@ -167,42 +167,26 @@ let outcome = dispatch_request(
 
 ---
 
-## 模式三：扩展 `GatewayHooks`（请求/响应修改与审计）
+## 模式三：使用 `GatewayHooks`（请求修改、流式观测与审计）
 
-`GatewayHooks` 目前提供三个只读观测方法。当嵌入者需要在不修改引擎代码的前提下修改请求、修改响应或进行审计时，可以扩展此 trait。
+`GatewayHooks` 现在已经同时覆盖请求修改、生命周期观测和流式 chunk 观测。它适合做
+消费者应用自有的请求富化、trace 注入、审计和 metrics 采集，但不适合承载大段 provider
+解析逻辑。
 
 ### 现有 `GatewayHooks`
 
 ```rust
 pub trait GatewayHooks: Send + Sync + 'static {
+    fn on_request_started(&self, event: RequestStartedEvent) -> BoxFuture<'static, ()>;
     fn on_attempt_started(&self, event: AttemptStartedEvent) -> BoxFuture<'static, ()>;
     fn on_attempt_finished(&self, event: AttemptFinishedEvent) -> BoxFuture<'static, ()>;
     fn on_request_finished(&self, report: RequestReport) -> BoxFuture<'static, ()>;
-}
-```
-
-### 建议扩展的方法（带默认实现，保持向后兼容）
-
-```rust
-pub trait GatewayHooks: Send + Sync + 'static {
-    // ... 现有三个方法 ...
-
-    /// 请求进入 core 执行前调用，可修改请求体。
-    /// 默认实现为空，不影响现有实现者。
-    fn on_request(&self, _req: &mut ProxyChatRequest) -> BoxFuture<'static, ()> {
-        Box::pin(async {})
-    }
-
-    /// 响应从 core 返回后、交给调用者前调用，可修改响应体。
-    fn on_response(&self, _resp: &mut ProtocolHttpResponse) -> BoxFuture<'static, ()> {
-        Box::pin(async {})
-    }
-
-    /// 流式响应的每个 chunk 到达时调用，用于审计或 metrics 采集。
-    /// 注意：此方法只观测，不能修改 chunk（避免 Stream 所有权问题）。
-    fn on_stream_chunk(&self, _chunk: &ChatResponseChunk) -> BoxFuture<'static, ()> {
-        Box::pin(async {})
-    }
+    fn on_stream_started(&self, event: StreamStartedEvent) -> BoxFuture<'static, ()>;
+    fn on_stream_chunk_event(&self, event: StreamChunkEvent) -> BoxFuture<'static, ()>;
+    fn on_stream_completed(&self, report: StreamReport) -> BoxFuture<'static, ()>;
+    fn on_stream_aborted(&self, report: StreamReport) -> BoxFuture<'static, ()>;
+    fn on_request(&self, req: &mut ProxyChatRequest) -> BoxFuture<'static, ()>;
+    fn on_stream_chunk(&self, chunk: &ChatResponseChunk) -> BoxFuture<'static, ()>;
 }
 ```
 
@@ -233,6 +217,17 @@ impl GatewayHooks for HeaderInjectionHooks {
     }
 }
 ```
+
+### 什么时候不要用 `GatewayHooks`
+
+如果你需要做的是 provider-specific 上游协议解析，例如把某家 provider 的私有 chunk 先转成
+标准的 OpenAI / Anthropic 形状，再交给 UniGateway 渲染，那么 `GatewayHooks` 不是合适层。
+这类逻辑更适合：
+
+- 在消费者应用里维护 provider profile，并投影为 endpoint/request metadata；
+- 或者直接包一层 custom driver / adapter。
+
+`GatewayHooks` 更适合“修改请求”和“观测执行”，不适合承担完整的 provider normalizer。
 
 **审计日志**：
 

@@ -2,8 +2,11 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 use unigateway_core::{ChatResponseFinal, CompletedResponse, RequestKind, RequestReport};
-use unigateway_protocol::ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY;
 use unigateway_protocol::testing::{anthropic_completed_chat_body, openai_completed_chat_body};
+use unigateway_protocol::{
+    ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, REASONING_TEXT_ENCODING_KEY,
+    REASONING_TEXT_ENCODING_XML_THINK_TAG,
+};
 
 #[test]
 fn anthropic_completed_body_normalizes_openai_provider_output() {
@@ -214,6 +217,120 @@ fn anthropic_completed_body_converts_openai_reasoning_to_thinking_block() {
     assert_eq!(
         content[1].get("text").and_then(Value::as_str),
         Some("Paris is sunny")
+    );
+}
+
+#[test]
+fn anthropic_completed_body_can_reconstruct_prefixed_think_tags_when_enabled() {
+    let body = anthropic_completed_chat_body(CompletedResponse {
+        response: ChatResponseFinal {
+            model: Some("claude-opus-4-7".to_string()),
+            output_text: Some("final answer".to_string()),
+            raw: serde_json::json!({
+                "id": "chatcmpl_reasoning_text_1",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "<think>inspect the puzzle first</think>final answer"
+                    },
+                    "finish_reason": "stop"
+                }]
+            }),
+        },
+        report: RequestReport {
+            request_id: "req_reasoning_text_1".to_string(),
+            correlation_id: "req_reasoning_text_1".to_string(),
+            pool_id: Some("svc".to_string()),
+            selected_endpoint_id: "compat-main".to_string(),
+            selected_provider: unigateway_core::ProviderKind::OpenAiCompatible,
+            kind: RequestKind::Chat,
+            attempts: Vec::new(),
+            usage: None,
+            latency_ms: 12,
+            started_at: std::time::SystemTime::UNIX_EPOCH,
+            finished_at: std::time::SystemTime::UNIX_EPOCH,
+            error_kind: None,
+            stream: None,
+            metadata: HashMap::from([
+                (
+                    ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
+                    "claude-3-5-sonnet-latest".to_string(),
+                ),
+                (
+                    REASONING_TEXT_ENCODING_KEY.to_string(),
+                    REASONING_TEXT_ENCODING_XML_THINK_TAG.to_string(),
+                ),
+            ]),
+        },
+    });
+
+    let content = body
+        .get("content")
+        .and_then(Value::as_array)
+        .expect("content array");
+
+    assert_eq!(
+        content[0].get("type").and_then(Value::as_str),
+        Some("thinking")
+    );
+    assert_eq!(
+        content[0].get("thinking").and_then(Value::as_str),
+        Some("inspect the puzzle first")
+    );
+    assert_eq!(
+        content[1].get("text").and_then(Value::as_str),
+        Some("final answer")
+    );
+}
+
+#[test]
+fn anthropic_completed_body_leaves_prefixed_think_tags_as_text_by_default() {
+    let body = anthropic_completed_chat_body(CompletedResponse {
+        response: ChatResponseFinal {
+            model: Some("claude-opus-4-7".to_string()),
+            output_text: Some("<think>inspect the puzzle first</think>final answer".to_string()),
+            raw: serde_json::json!({
+                "id": "chatcmpl_reasoning_text_2",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "<think>inspect the puzzle first</think>final answer"
+                    },
+                    "finish_reason": "stop"
+                }]
+            }),
+        },
+        report: RequestReport {
+            request_id: "req_reasoning_text_2".to_string(),
+            correlation_id: "req_reasoning_text_2".to_string(),
+            pool_id: Some("svc".to_string()),
+            selected_endpoint_id: "compat-main".to_string(),
+            selected_provider: unigateway_core::ProviderKind::OpenAiCompatible,
+            kind: RequestKind::Chat,
+            attempts: Vec::new(),
+            usage: None,
+            latency_ms: 12,
+            started_at: std::time::SystemTime::UNIX_EPOCH,
+            finished_at: std::time::SystemTime::UNIX_EPOCH,
+            error_kind: None,
+            stream: None,
+            metadata: HashMap::from([(
+                ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
+                "claude-3-5-sonnet-latest".to_string(),
+            )]),
+        },
+    });
+
+    let content = body
+        .get("content")
+        .and_then(Value::as_array)
+        .expect("content array");
+
+    assert_eq!(content.len(), 1);
+    assert_eq!(content[0].get("type").and_then(Value::as_str), Some("text"));
+    assert_eq!(
+        content[0].get("text").and_then(Value::as_str),
+        Some("<think>inspect the puzzle first</think>final answer")
     );
 }
 

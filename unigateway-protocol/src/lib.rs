@@ -11,6 +11,10 @@ pub use requests::{
     set_anthropic_requested_model_alias,
 };
 pub use responses::{
+    ANTHROPIC_REASONING_TEXT_FORMAT_KEY, ANTHROPIC_REASONING_TEXT_FORMAT_XML_THINK_TAG,
+    REASONING_TEXT_ENCODING_KEY, REASONING_TEXT_ENCODING_XML_THINK_TAG,
+};
+pub use responses::{
     AnthropicStreamAggregator, render_anthropic_chat_session, render_openai_chat_session,
     render_openai_embeddings_response, render_openai_responses_session,
     render_openai_responses_stream_from_completed,

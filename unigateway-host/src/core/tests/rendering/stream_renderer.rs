@@ -8,7 +8,8 @@ use unigateway_core::{
     RequestReport, StreamingResponse,
 };
 use unigateway_protocol::{
-    ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, ProtocolResponseBody, render_anthropic_chat_session,
+    ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, ProtocolResponseBody, REASONING_TEXT_ENCODING_KEY,
+    REASONING_TEXT_ENCODING_XML_THINK_TAG, render_anthropic_chat_session,
 };
 
 #[tokio::test]
@@ -306,6 +307,115 @@ async fn anthropic_stream_renderer_converts_openai_reasoning_deltas_to_thinking_
     assert!(thinking_delta < signature_delta);
     assert!(signature_delta < thinking_stop);
     assert!(thinking_stop < text_start);
+}
+
+#[tokio::test]
+async fn anthropic_stream_renderer_can_reconstruct_prefixed_think_tags_when_enabled() {
+    let (completion_tx, completion_rx) = oneshot::channel();
+    assert!(
+        completion_tx
+            .send(Ok(CompletedResponse {
+                response: ChatResponseFinal {
+                    model: Some("claude-opus-4-7".to_string()),
+                    output_text: Some("final answer".to_string()),
+                    raw: serde_json::json!({
+                        "choices": [{
+                            "finish_reason": "stop"
+                        }]
+                    }),
+                },
+                report: RequestReport {
+                    request_id: "req_stream_reasoning_text_1".to_string(),
+                    correlation_id: "req_stream_reasoning_text_1".to_string(),
+                    pool_id: Some("svc".to_string()),
+                    selected_endpoint_id: "compat-main".to_string(),
+                    selected_provider: unigateway_core::ProviderKind::OpenAiCompatible,
+                    kind: RequestKind::Chat,
+                    attempts: Vec::new(),
+                    usage: Some(unigateway_core::TokenUsage {
+                        input_tokens: Some(6),
+                        output_tokens: Some(4),
+                        total_tokens: Some(10),
+                    }),
+                    latency_ms: 8,
+                    started_at: std::time::SystemTime::UNIX_EPOCH,
+                    finished_at: std::time::SystemTime::UNIX_EPOCH,
+                    error_kind: None,
+                    stream: None,
+                    metadata: HashMap::new(),
+                },
+            }))
+            .is_ok()
+    );
+
+    let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        stream: Box::pin(futures_util::stream::iter(vec![
+            Ok(ChatResponseChunk {
+                delta: Some("<think>inspect ".to_string()),
+                raw: serde_json::json!({
+                    "id": "chatcmpl_reasoning_text_1",
+                    "model": "claude-opus-4-7",
+                    "choices": [{
+                        "delta": {
+                            "content": "<think>inspect "
+                        }
+                    }]
+                }),
+            }),
+            Ok(ChatResponseChunk {
+                delta: Some("the puzzle</think>final answer".to_string()),
+                raw: serde_json::json!({
+                    "id": "chatcmpl_reasoning_text_1",
+                    "model": "claude-opus-4-7",
+                    "choices": [{
+                        "delta": {
+                            "content": "the puzzle</think>final answer"
+                        }
+                    }]
+                }),
+            }),
+        ])),
+        completion: completion_rx,
+        request_id: "req_stream_reasoning_text_1".to_string(),
+        request_metadata: HashMap::from([
+            (
+                ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
+                "claude-3-5-sonnet-latest".to_string(),
+            ),
+            (
+                REASONING_TEXT_ENCODING_KEY.to_string(),
+                REASONING_TEXT_ENCODING_XML_THINK_TAG.to_string(),
+            ),
+        ]),
+    }));
+
+    let (_, body) = response.into_parts();
+    let ProtocolResponseBody::ServerSentEvents(stream) = body else {
+        panic!("expected sse body");
+    };
+
+    let events = stream
+        .map(|item| String::from_utf8(item.expect("sse chunk").to_vec()).expect("utf8 chunk"))
+        .collect::<Vec<_>>()
+        .await;
+
+    assert!(events.iter().any(|event| {
+        event.contains("event: content_block_start") && event.contains("\"type\":\"thinking\"")
+    }));
+    assert!(events.iter().any(|event| {
+        event.contains("event: content_block_delta")
+            && event.contains("\"type\":\"thinking_delta\"")
+            && event.contains("inspect the puzzle")
+    }));
+    assert!(events.iter().any(|event| {
+        event.contains("event: content_block_delta")
+            && event.contains("\"type\":\"signature_delta\"")
+    }));
+    assert!(events.iter().any(|event| {
+        event.contains("event: content_block_delta")
+            && event.contains("\"type\":\"text_delta\"")
+            && event.contains("final answer")
+    }));
 }
 
 #[tokio::test]

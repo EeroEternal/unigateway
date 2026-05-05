@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.0.2]
+
+### Added
+
+* **Neutral reasoning-text normalization contract**: `unigateway-protocol` now exposes a neutral `REASONING_TEXT_ENCODING_*` metadata contract for declared reasoning-like text encodings, while continuing to accept the legacy Anthropic-oriented key as a backward-compatible alias.
+* **Conservative `<think>` text reconstruction for Anthropic downstream rendering**: OpenAI-compatible completed and streaming responses can now rebuild Anthropic `thinking` blocks from a declared prefixed `<think>...</think>` encoding, while leaving undeclared or malformed inputs as plain text.
+* **Embedder guidance for provider-specific specialization**: new docs describe the neutral normalization contract, failure semantics, and the consumer-owned rollout paths for provider profiles, request enrichment, and custom drivers.
+
+### Validation
+
+* `cargo fmt --all -- --check`
+* `cargo clippy --workspace --all-targets -- -D warnings`
+* `cargo test --workspace`
+
 ## [2.0.1]
 
 ### Breaking Changes

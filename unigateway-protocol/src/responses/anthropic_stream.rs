@@ -14,7 +14,10 @@ use unigateway_core::{
     },
 };
 
-#[derive(Default)]
+use super::reasoning_text::{
+    ReasoningTextChunk, ReasoningTextEncoding, ReasoningTextStreamParser, reasoning_text_encoding,
+};
+
 struct AnthropicOpenAiStreamState {
     prelude_sent: bool,
     next_content_index: usize,
@@ -23,6 +26,22 @@ struct AnthropicOpenAiStreamState {
     stop_reason: Option<String>,
     pending_tool_calls: BTreeMap<usize, PendingOpenAiToolCall>,
     saw_native_anthropic: bool,
+    reasoning_text_parser: Option<ReasoningTextStreamParser>,
+}
+
+impl AnthropicOpenAiStreamState {
+    fn new(reasoning_text_encoding: Option<ReasoningTextEncoding>) -> Self {
+        Self {
+            prelude_sent: false,
+            next_content_index: 0,
+            active_content_block_index: None,
+            active_content_block_type: None,
+            stop_reason: None,
+            pending_tool_calls: BTreeMap::new(),
+            saw_native_anthropic: false,
+            reasoning_text_parser: reasoning_text_encoding.map(ReasoningTextStreamParser::new),
+        }
+    }
 }
 
 pub(super) async fn drive_anthropic_chat_stream(
@@ -31,7 +50,8 @@ pub(super) async fn drive_anthropic_chat_stream(
     sender: mpsc::Sender<Result<Bytes, io::Error>>,
 ) {
     let request_id = streaming.request_id.clone();
-    let mut state = AnthropicOpenAiStreamState::default();
+    let reasoning_text_encoding = reasoning_text_encoding(&streaming.request_metadata);
+    let mut state = AnthropicOpenAiStreamState::new(reasoning_text_encoding);
 
     while let Some(item) = streaming.stream.next().await {
         match item {
@@ -103,7 +123,16 @@ pub(super) async fn drive_anthropic_chat_stream(
             .output_text
             .as_deref()
             .filter(|text| !text.is_empty())
-        && emit_text_delta(&sender, &mut state, text).await.is_err()
+        && emit_openai_text_delta(&sender, &mut state, text)
+            .await
+            .is_err()
+    {
+        return;
+    }
+
+    if flush_reasoning_text_parser(&sender, &mut state)
+        .await
+        .is_err()
     {
         return;
     }
@@ -417,7 +446,7 @@ async fn process_openai_chunk_for_anthropic_stream(
         .and_then(serde_json::Value::as_str)
         .filter(|text| !text.is_empty())
     {
-        emit_text_delta(sender, state, text).await?;
+        emit_openai_text_delta(sender, state, text).await?;
     }
 
     if let Some(tool_calls) = delta
@@ -431,6 +460,48 @@ async fn process_openai_chunk_for_anthropic_stream(
                 .map(|value| value as usize)
                 .unwrap_or(fallback_index);
             apply_openai_tool_call_delta(sender, state, tool_index, tool_call).await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn emit_openai_text_delta(
+    sender: &mpsc::Sender<Result<Bytes, io::Error>>,
+    state: &mut AnthropicOpenAiStreamState,
+    text: &str,
+) -> Result<(), io::Error> {
+    let Some(parser) = state.reasoning_text_parser.as_mut() else {
+        return emit_text_delta(sender, state, text).await;
+    };
+    let chunks = parser.push(text);
+    emit_reasoning_text_chunks(sender, state, chunks).await
+}
+
+async fn flush_reasoning_text_parser(
+    sender: &mpsc::Sender<Result<Bytes, io::Error>>,
+    state: &mut AnthropicOpenAiStreamState,
+) -> Result<(), io::Error> {
+    let Some(parser) = state.reasoning_text_parser.as_mut() else {
+        return Ok(());
+    };
+    let chunks = parser.finish();
+    emit_reasoning_text_chunks(sender, state, chunks).await
+}
+
+async fn emit_reasoning_text_chunks(
+    sender: &mpsc::Sender<Result<Bytes, io::Error>>,
+    state: &mut AnthropicOpenAiStreamState,
+    chunks: Vec<ReasoningTextChunk>,
+) -> Result<(), io::Error> {
+    for chunk in chunks {
+        match chunk {
+            ReasoningTextChunk::Thinking(thinking) => {
+                emit_thinking_delta(sender, state, &thinking).await?;
+            }
+            ReasoningTextChunk::Text(text) => {
+                emit_text_delta(sender, state, &text).await?;
+            }
         }
     }
 

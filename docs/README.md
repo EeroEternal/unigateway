@@ -25,6 +25,7 @@ This repository is a Rust library workspace. It does not ship an in-tree HTTP se
 | [`providers.md`](guide/providers.md) | TOML and call examples for common providers. |
 | [`embed.md`](guide/embed.md) | Embedding UniGateway in another Rust application. |
 | [`embedder_patterns.md`](guide/embedder_patterns.md) | Production embedding patterns: dynamic state awareness, external routing, `GatewayHooks` extension, and runtime refresh. |
+| [`reasoning.md`](guide/reasoning.md) | Neutral reasoning normalization contract, metadata hints, and embedder-owned provider specialization. |
 
 ## Dev
 
