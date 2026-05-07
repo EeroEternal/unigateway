@@ -182,12 +182,14 @@ impl ReasoningTextStreamParser {
             _ => unreachable!(),
         };
 
-        if open_tag.starts_with(combined.as_str()) {
+        let trimmed = combined.trim_start();
+
+        if open_tag.starts_with(trimmed) {
             self.state = StreamParseState::DetectingOpen { buffer: combined };
             return Vec::new();
         }
 
-        if let Some(after_open) = combined.strip_prefix(open_tag) {
+        if let Some(after_open) = trimmed.strip_prefix(open_tag) {
             self.state = StreamParseState::CollectingThinking {
                 buffer: String::new(),
             };
@@ -233,11 +235,121 @@ fn split_prefixed_xml_tag(
     open_tag: &str,
     close_tag: &str,
 ) -> Option<(String, String)> {
-    let remainder = content.strip_prefix(open_tag)?;
+    let remainder = content.trim_start().strip_prefix(open_tag)?;
     let close_index = remainder.find(close_tag)?;
 
     Some((
         remainder[..close_index].to_string(),
         remainder[(close_index + close_tag.len())..].to_string(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_prefixed_xml_tag_extracts_reasoning() {
+        let (reasoning, remainder) = split_prefixed_xml_tag(
+            "<think>some reasoning</think>and then text",
+            "<think>",
+            "</think>",
+        )
+        .unwrap();
+        assert_eq!(reasoning, "some reasoning");
+        assert_eq!(remainder, "and then text");
+    }
+
+    #[test]
+    fn split_prefixed_xml_tag_ignores_non_prefixed_text() {
+        assert_eq!(
+            split_prefixed_xml_tag("no think tag", "<think>", "</think>"),
+            None
+        );
+        assert_eq!(
+            split_prefixed_xml_tag(" <not_think>foo", "<think>", "</think>"),
+            None
+        );
+    }
+
+    #[test]
+    fn stream_parser_handles_split_open_tag() {
+        let mut parser = ReasoningTextStreamParser::new(ReasoningTextEncoding::XmlThinkTag);
+        let mut chunks = Vec::new();
+        chunks.extend(parser.push("<thi"));
+        chunks.extend(parser.push("nk>"));
+        chunks.extend(parser.push("reasoning"));
+        chunks.extend(parser.push("</think>text"));
+        chunks.extend(parser.finish());
+
+        assert_eq!(
+            chunks,
+            vec![
+                ReasoningTextChunk::Thinking("reasoning".to_string()),
+                ReasoningTextChunk::Text("text".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn stream_parser_handles_split_close_tag() {
+        let mut parser = ReasoningTextStreamParser::new(ReasoningTextEncoding::XmlThinkTag);
+        let mut chunks = Vec::new();
+        chunks.extend(parser.push("<think>reasoning</th"));
+        chunks.extend(parser.push("ink>text"));
+        chunks.extend(parser.finish());
+
+        assert_eq!(
+            chunks,
+            vec![
+                ReasoningTextChunk::Thinking("reasoning".to_string()),
+                ReasoningTextChunk::Text("text".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn stream_parser_flushes_incomplete_open_tag_as_text() {
+        let mut parser = ReasoningTextStreamParser::new(ReasoningTextEncoding::XmlThinkTag);
+        let mut chunks = Vec::new();
+        chunks.extend(parser.push("<thi"));
+        chunks.extend(parser.finish());
+
+        assert_eq!(chunks, vec![ReasoningTextChunk::Text("<thi".to_string())]);
+    }
+
+    #[test]
+    fn stream_parser_flushes_incomplete_thinking_as_text() {
+        let mut parser = ReasoningTextStreamParser::new(ReasoningTextEncoding::XmlThinkTag);
+        let mut chunks = Vec::new();
+        chunks.extend(parser.push("<think>reasoning"));
+        chunks.extend(parser.finish());
+
+        assert_eq!(
+            chunks,
+            vec![ReasoningTextChunk::Text("<think>reasoning".to_string())]
+        );
+    }
+
+    #[test]
+    fn stream_parser_allows_leading_whitespace_before_think_tag() {
+        let mut parser = ReasoningTextStreamParser::new(ReasoningTextEncoding::XmlThinkTag);
+        let mut chunks = Vec::new();
+        chunks.extend(parser.push(" \n  <think>reasoning</think>text"));
+        chunks.extend(parser.finish());
+
+        assert_eq!(
+            chunks,
+            vec![
+                ReasoningTextChunk::Thinking("reasoning".to_string()),
+                ReasoningTextChunk::Text("text".to_string())
+            ]
+        );
+
+        let (reasoning, remainder) =
+            split_prefixed_xml_tag(" \n  <think>reasoning</think>text", "<think>", "</think>")
+                .unwrap();
+        assert_eq!(reasoning, "reasoning");
+        assert_eq!(remainder, "text");
+    }
 }

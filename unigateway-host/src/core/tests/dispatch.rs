@@ -443,3 +443,456 @@ async fn dispatch_anthropic_stream_request_to_openai_upstream_renders_anthropic_
         Some("system")
     );
 }
+
+#[tokio::test]
+async fn dispatch_openai_request_with_xml_think_tag_metadata_renders_reasoning_content() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let transport = Arc::new(StaticTransport {
+        response: Some(unigateway_core::transport::TransportResponse {
+            status: 200,
+            headers: HashMap::new(),
+            body: serde_json::to_vec(&json!({
+                "id": "chatcmpl_123",
+                "object": "chat.completion",
+                "model": "deepseek-reasoner",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "<think>hidden reasoning</think>visible answer"
+                    },
+                    "finish_reason": "stop"
+                }],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 10,
+                    "total_tokens": 20
+                }
+            }))
+            .expect("openai response body"),
+        }),
+        stream_chunks: None,
+        seen: seen.clone(),
+    });
+    let engine = test_engine(transport);
+    let pool = pool_with_endpoint(
+        "pool-openai-reasoning",
+        Endpoint {
+            endpoint_id: "openai-reasoning".to_string(),
+            provider_name: Some("OpenAI Compatible".to_string()),
+            source_endpoint_id: Some("openai:reasoning".to_string()),
+            provider_family: Some("openai".to_string()),
+            provider_kind: ProviderKind::OpenAiCompatible,
+            driver_id: "openai-compatible".to_string(),
+            base_url: "https://api.openai-compatible.com/v1/".to_string(),
+            api_key: SecretString::new("sk-test"),
+            model_policy: ModelPolicy::default(),
+            enabled: true,
+            metadata: HashMap::new(),
+        },
+    );
+    engine.upsert_pool(pool.clone()).await.expect("upsert pool");
+
+    let payload = json!({
+        "model": "deepseek-reasoner",
+        "messages": [
+            {"role": "user", "content": "Explain."}
+        ]
+    });
+    let mut request =
+        openai_payload_to_chat_request(&payload, "deepseek-reasoner").expect("openai parse");
+    request.metadata.insert(
+        unigateway_protocol::REASONING_TEXT_ENCODING_KEY.to_string(),
+        unigateway_protocol::REASONING_TEXT_ENCODING_XML_THINK_TAG.to_string(),
+    );
+    let host = NoopPoolHost;
+    let context = HostContext::from_parts(&engine, &host);
+
+    let body = dispatched_json_body(
+        dispatch_request(
+            &context,
+            HostDispatchTarget::Pool(pool),
+            HostProtocol::OpenAiChat,
+            None,
+            HostRequest::Chat(request),
+        )
+        .await
+        .expect("dispatch"),
+    );
+
+    let message = body
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .expect("message");
+
+    assert_eq!(
+        message.get("reasoning_content").and_then(Value::as_str),
+        Some("hidden reasoning")
+    );
+    assert_eq!(
+        message.get("content").and_then(Value::as_str),
+        Some("visible answer")
+    );
+}
+
+#[tokio::test]
+async fn dispatch_anthropic_request_with_xml_think_tag_metadata_renders_thinking_block() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let transport = Arc::new(StaticTransport {
+        response: Some(unigateway_core::transport::TransportResponse {
+            status: 200,
+            headers: HashMap::new(),
+            body: serde_json::to_vec(&json!({
+                "id": "chatcmpl_123",
+                "object": "chat.completion",
+                "model": "deepseek-reasoner",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "<think>hidden reasoning</think>visible answer"
+                    },
+                    "finish_reason": "stop"
+                }],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 10,
+                    "total_tokens": 20
+                }
+            }))
+            .expect("openai response body"),
+        }),
+        stream_chunks: None,
+        seen: seen.clone(),
+    });
+    let engine = test_engine(transport);
+    let pool = pool_with_endpoint(
+        "pool-anthropic-reasoning",
+        Endpoint {
+            endpoint_id: "openai-reasoning".to_string(),
+            provider_name: Some("OpenAI Compatible".to_string()),
+            source_endpoint_id: Some("openai:reasoning".to_string()),
+            provider_family: Some("openai".to_string()),
+            provider_kind: ProviderKind::OpenAiCompatible,
+            driver_id: "openai-compatible".to_string(),
+            base_url: "https://api.openai-compatible.com/v1/".to_string(),
+            api_key: SecretString::new("sk-test"),
+            model_policy: ModelPolicy::default(),
+            enabled: true,
+            metadata: HashMap::new(),
+        },
+    );
+    engine.upsert_pool(pool.clone()).await.expect("upsert pool");
+
+    let payload = json!({
+        "model": "deepseek-reasoner",
+        "messages": [
+            {"role": "user", "content": "Explain."}
+        ],
+        "max_tokens": 1024,
+        "stream": false
+    });
+    let mut request =
+        anthropic_payload_to_chat_request(&payload, "deepseek-reasoner").expect("anthropic parse");
+    request.metadata.insert(
+        unigateway_protocol::REASONING_TEXT_ENCODING_KEY.to_string(),
+        unigateway_protocol::REASONING_TEXT_ENCODING_XML_THINK_TAG.to_string(),
+    );
+    let host = NoopPoolHost;
+    let context = HostContext::from_parts(&engine, &host);
+
+    let body = dispatched_json_body(
+        dispatch_request(
+            &context,
+            HostDispatchTarget::Pool(pool),
+            HostProtocol::AnthropicMessages,
+            None,
+            HostRequest::Chat(request),
+        )
+        .await
+        .expect("dispatch"),
+    );
+
+    let content = body
+        .get("content")
+        .and_then(Value::as_array)
+        .expect("content");
+
+    assert_eq!(
+        content
+            .first()
+            .and_then(|b| b.get("type"))
+            .and_then(Value::as_str),
+        Some("thinking")
+    );
+    assert_eq!(
+        content
+            .first()
+            .and_then(|b| b.get("thinking"))
+            .and_then(Value::as_str),
+        Some("hidden reasoning")
+    );
+    assert_eq!(
+        content
+            .get(1)
+            .and_then(|b| b.get("type"))
+            .and_then(Value::as_str),
+        Some("text")
+    );
+    assert_eq!(
+        content
+            .get(1)
+            .and_then(|b| b.get("text"))
+            .and_then(Value::as_str),
+        Some("visible answer")
+    );
+}
+
+#[tokio::test]
+async fn dispatch_openai_stream_request_with_xml_think_tag_metadata_renders_reasoning_content() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let transport = Arc::new(StaticTransport {
+        response: None,
+        stream_chunks: Some(vec![
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "content": "<thi"
+                        }
+                    }]
+                })
+            )
+            .into_bytes(),
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "content": "nk>hidden</"
+                        }
+                    }]
+                })
+            )
+            .into_bytes(),
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "content": "think>visible"
+                        }
+                    }]
+                })
+            )
+            .into_bytes(),
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop"
+                    }]
+                })
+            )
+            .into_bytes(),
+            b"data: [DONE]\n\n".to_vec(),
+        ]),
+        seen: seen.clone(),
+    });
+    let engine = test_engine(transport);
+    let pool = pool_with_endpoint(
+        "pool-openai-reasoning",
+        Endpoint {
+            endpoint_id: "openai-reasoning".to_string(),
+            provider_name: Some("OpenAI Compatible".to_string()),
+            source_endpoint_id: Some("openai:reasoning".to_string()),
+            provider_family: Some("openai".to_string()),
+            provider_kind: ProviderKind::OpenAiCompatible,
+            driver_id: "openai-compatible".to_string(),
+            base_url: "https://api.openai-compatible.com/v1/".to_string(),
+            api_key: SecretString::new("sk-test"),
+            model_policy: ModelPolicy::default(),
+            enabled: true,
+            metadata: HashMap::new(),
+        },
+    );
+    engine.upsert_pool(pool.clone()).await.expect("upsert pool");
+
+    let payload = json!({
+        "model": "deepseek-reasoner",
+        "messages": [
+            {"role": "user", "content": "Explain."}
+        ],
+        "stream": true
+    });
+    let mut request =
+        openai_payload_to_chat_request(&payload, "deepseek-reasoner").expect("openai parse");
+    request.metadata.insert(
+        unigateway_protocol::REASONING_TEXT_ENCODING_KEY.to_string(),
+        unigateway_protocol::REASONING_TEXT_ENCODING_XML_THINK_TAG.to_string(),
+    );
+    let host = NoopPoolHost;
+    let context = HostContext::from_parts(&engine, &host);
+
+    let HostDispatchOutcome::Response(response) = dispatch_request(
+        &context,
+        HostDispatchTarget::Pool(pool),
+        HostProtocol::OpenAiChat,
+        None,
+        HostRequest::Chat(request),
+    )
+    .await
+    .expect("dispatch") else {
+        panic!("expected response");
+    };
+
+    let mut events = Vec::new();
+    let (_, body) = response.into_parts();
+    if let unigateway_protocol::ProtocolResponseBody::ServerSentEvents(mut stream) = body {
+        use futures_util::StreamExt;
+        while let Some(chunk) = stream.next().await {
+            events.push(String::from_utf8(chunk.unwrap().to_vec()).unwrap());
+        }
+    } else {
+        panic!("expected sse body");
+    }
+
+    let full = events.join("");
+    assert!(full.contains("\"reasoning_content\":\"hidden\""));
+    assert!(full.contains("\"content\":\"visible\""));
+    assert!(!full.contains("<think>"));
+    assert!(!full.contains("</think>"));
+}
+
+#[tokio::test]
+async fn dispatch_anthropic_stream_request_with_xml_think_tag_metadata_renders_thinking_block() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let transport = Arc::new(StaticTransport {
+        response: None,
+        stream_chunks: Some(vec![
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "content": "<thi"
+                        }
+                    }]
+                })
+            )
+            .into_bytes(),
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "content": "nk>hidden</"
+                        }
+                    }]
+                })
+            )
+            .into_bytes(),
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "content": "think>visible"
+                        }
+                    }]
+                })
+            )
+            .into_bytes(),
+            format!(
+                "data: {}\n\n",
+                json!({
+                    "choices": [{
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop"
+                    }]
+                })
+            )
+            .into_bytes(),
+            b"data: [DONE]\n\n".to_vec(),
+        ]),
+        seen: seen.clone(),
+    });
+    let engine = test_engine(transport);
+    let pool = pool_with_endpoint(
+        "pool-anthropic-reasoning",
+        Endpoint {
+            endpoint_id: "openai-reasoning".to_string(),
+            provider_name: Some("OpenAI Compatible".to_string()),
+            source_endpoint_id: Some("openai:reasoning".to_string()),
+            provider_family: Some("openai".to_string()),
+            provider_kind: ProviderKind::OpenAiCompatible,
+            driver_id: "openai-compatible".to_string(),
+            base_url: "https://api.openai-compatible.com/v1/".to_string(),
+            api_key: SecretString::new("sk-test"),
+            model_policy: ModelPolicy::default(),
+            enabled: true,
+            metadata: HashMap::new(),
+        },
+    );
+    engine.upsert_pool(pool.clone()).await.expect("upsert pool");
+
+    let payload = json!({
+        "model": "deepseek-reasoner",
+        "messages": [
+            {"role": "user", "content": "Explain."}
+        ],
+        "max_tokens": 1024,
+        "stream": true
+    });
+    let mut request =
+        anthropic_payload_to_chat_request(&payload, "deepseek-reasoner").expect("anthropic parse");
+    request.metadata.insert(
+        unigateway_protocol::REASONING_TEXT_ENCODING_KEY.to_string(),
+        unigateway_protocol::REASONING_TEXT_ENCODING_XML_THINK_TAG.to_string(),
+    );
+    let host = NoopPoolHost;
+    let context = HostContext::from_parts(&engine, &host);
+
+    let HostDispatchOutcome::Response(response) = dispatch_request(
+        &context,
+        HostDispatchTarget::Pool(pool),
+        HostProtocol::AnthropicMessages,
+        None,
+        HostRequest::Chat(request),
+    )
+    .await
+    .expect("dispatch") else {
+        panic!("expected response");
+    };
+
+    let mut events = Vec::new();
+    let (_, body) = response.into_parts();
+    if let unigateway_protocol::ProtocolResponseBody::ServerSentEvents(mut stream) = body {
+        use futures_util::StreamExt;
+        while let Some(chunk) = stream.next().await {
+            events.push(String::from_utf8(chunk.unwrap().to_vec()).unwrap());
+        }
+    } else {
+        panic!("expected sse body");
+    }
+
+    let full = events.join("");
+    assert!(full.contains("\"type\":\"thinking\""));
+    assert!(full.contains("\"thinking\":\"hidden\""));
+    assert!(full.contains("\"type\":\"signature_delta\""));
+    assert!(full.contains("\"text\":\"visible\""));
+    assert!(!full.contains("<think>"));
+    assert!(!full.contains("</think>"));
+}
