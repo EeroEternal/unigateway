@@ -991,3 +991,144 @@ async fn openai_driver_streaming_responses_completion_survives_dropped_stream() 
         ProxySession::Completed(_) => panic!("expected streaming response"),
     }
 }
+
+#[test]
+fn build_chat_request_injects_thinking_for_claude_when_xml_think_tag_requested() {
+    use crate::drivers::DriverEndpointContext;
+    use crate::request::ProxyChatRequest;
+    use std::collections::HashMap;
+
+    let endpoint = DriverEndpointContext {
+        endpoint_id: "test".to_string(),
+        provider_kind: crate::pool::ProviderKind::OpenAiCompatible,
+        base_url: "https://api.openai.com/v1/".to_string(),
+        api_key: crate::pool::SecretString::new("test"),
+        model_policy: Default::default(),
+        metadata: Default::default(),
+    };
+
+    let mut request = ProxyChatRequest {
+        model: "claude-3-7-sonnet".to_string(),
+        stream: false,
+        messages: vec![],
+        system: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        max_tokens: None,
+        stop_sequences: None,
+        tools: None,
+        tool_choice: None,
+        extra: HashMap::new(),
+        raw_messages: None,
+        metadata: HashMap::from([(
+            "unigateway.reasoning_text_encoding".to_string(),
+            "xml_think_tag".to_string(),
+        )]),
+    };
+
+    let req = build_chat_request(&endpoint, &request).unwrap();
+    let body = req.body.as_ref().unwrap();
+    let json: serde_json::Value = serde_json::from_slice(body).unwrap();
+
+    assert_eq!(
+        json.get("thinking")
+            .and_then(|v| v.get("type"))
+            .and_then(|v| v.as_str()),
+        Some("enabled")
+    );
+    assert_eq!(
+        json.get("thinking")
+            .and_then(|v| v.get("budget_tokens"))
+            .and_then(|v| v.as_u64()),
+        Some(2048)
+    );
+    assert_eq!(json.get("max_tokens").and_then(|v| v.as_u64()), Some(4096));
+
+    request.max_tokens = Some(8000);
+    let req = build_chat_request(&endpoint, &request).unwrap();
+    let json: serde_json::Value = serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
+    assert_eq!(
+        json.get("thinking")
+            .and_then(|v| v.get("budget_tokens"))
+            .and_then(|v| v.as_u64()),
+        Some(4000)
+    );
+    assert_eq!(json.get("max_tokens").and_then(|v| v.as_u64()), Some(8000));
+
+    request.max_tokens = Some(1500);
+    let req = build_chat_request(&endpoint, &request).unwrap();
+    let json: serde_json::Value = serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
+    assert_eq!(
+        json.get("thinking")
+            .and_then(|v| v.get("budget_tokens"))
+            .and_then(|v| v.as_u64()),
+        Some(1024)
+    );
+    assert_eq!(json.get("max_tokens").and_then(|v| v.as_u64()), Some(1500));
+
+    request.max_tokens = Some(500);
+    let req = build_chat_request(&endpoint, &request).unwrap();
+    let json: serde_json::Value = serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
+    assert!(
+        json.get("thinking").is_none(),
+        "should not inject if max_tokens is too small"
+    );
+
+    request
+        .extra
+        .insert("enable_thinking".to_string(), serde_json::json!(true));
+    request.max_tokens = None;
+    let req = build_chat_request(&endpoint, &request).unwrap();
+    let json: serde_json::Value = serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
+    assert!(
+        json.get("thinking").is_none(),
+        "should not inject if client provided reasoning flags"
+    );
+}
+
+#[test]
+fn build_chat_request_skips_thinking_injection_for_non_claude_or_missing_metadata() {
+    use crate::drivers::DriverEndpointContext;
+    use crate::request::ProxyChatRequest;
+    use std::collections::HashMap;
+
+    let endpoint = DriverEndpointContext {
+        endpoint_id: "test".to_string(),
+        provider_kind: crate::pool::ProviderKind::OpenAiCompatible,
+        base_url: "https://api.openai.com/v1/".to_string(),
+        api_key: crate::pool::SecretString::new("test"),
+        model_policy: Default::default(),
+        metadata: Default::default(),
+    };
+
+    let mut request = ProxyChatRequest {
+        model: "deepseek-reasoner".to_string(),
+        stream: false,
+        messages: vec![],
+        system: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        max_tokens: None,
+        stop_sequences: None,
+        tools: None,
+        tool_choice: None,
+        extra: HashMap::new(),
+        raw_messages: None,
+        metadata: HashMap::from([(
+            "unigateway.reasoning_text_encoding".to_string(),
+            "xml_think_tag".to_string(),
+        )]),
+    };
+
+    let req = build_chat_request(&endpoint, &request).unwrap();
+    let json: serde_json::Value = serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
+    assert!(json.get("thinking").is_none());
+
+    request.model = "claude-3-7-sonnet".to_string();
+    request.metadata.clear();
+    let req = build_chat_request(&endpoint, &request).unwrap();
+    let json: serde_json::Value = serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
+    assert!(json.get("thinking").is_none());
+}

@@ -49,6 +49,35 @@ pub fn build_chat_request(
     {
         payload.insert("tool_choice".to_string(), tool_choice);
     }
+
+    let is_claude = request.model.to_lowercase().contains("claude");
+    let is_xml_think = request
+        .metadata
+        .get("unigateway.reasoning_text_encoding")
+        .map(|s| s.as_str())
+        == Some("xml_think_tag");
+
+    let has_explicit_thinking = request.extra.contains_key("thinking")
+        || request.extra.contains_key("enable_thinking")
+        || request.extra.contains_key("reasoning");
+
+    if is_claude && is_xml_think && !has_explicit_thinking {
+        let max_tokens = request.max_tokens.unwrap_or(4096);
+        if max_tokens > 1024 {
+            let budget_tokens = (max_tokens / 2).max(1024);
+            payload.insert(
+                "thinking".to_string(),
+                json!({
+                    "type": "enabled",
+                    "budget_tokens": budget_tokens
+                }),
+            );
+            if request.max_tokens.is_none() {
+                payload.insert("max_tokens".to_string(), json!(max_tokens));
+            }
+        }
+    }
+
     for (key, value) in request.extra.clone() {
         payload.entry(key).or_insert(value);
     }
