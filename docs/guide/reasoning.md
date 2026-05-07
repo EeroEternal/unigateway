@@ -367,3 +367,26 @@ Use this rule of thumb:
 
 When in doubt, choose the smaller path first. UniGateway's fallback behavior is intentionally safe,
 so it is better to under-normalize than to ship a provider-specific parser too early.
+
+---
+
+## 10. OpenAI-Compatible Claude Endpoints
+
+When `unigateway.reasoning_text_encoding` is set to `xml_think_tag` and the requested model name contains `claude`, UniGateway automatically injects Anthropic's `thinking` block into the upstream OpenAI-compatible request payload (unless the client explicitly provided a `thinking` or `reasoning` parameter):
+
+```json
+{
+  "thinking": {
+    "type": "enabled",
+    "budget_tokens": 1024
+  }
+}
+```
+
+This behavior accommodates OpenAI-compatible endpoints that proxy requests to Anthropic while expecting the native `thinking` parameter to be passed through transparently. 
+
+### Note on Provider Support
+
+Not all OpenAI-compatible providers correctly handle or pass through Anthropic's `thinking` parameter via their `/v1/chat/completions` endpoint. If a provider ignores this parameter (returning standard text without reasoning) or returns a `400 Bad Request`, it means they do not support enabling Claude's extended thinking mode through their OpenAI-compatible interface. 
+
+In such cases, it is recommended to fall back to using the native Anthropic API endpoint (`provider_type = "anthropic"`) if reasoning is required. To prevent UniGateway from injecting this parameter, or to pass provider-specific enablement flags, explicitly set `thinking`, `enable_thinking`, or `reasoning` inside the client request's `extra` parameters.
