@@ -61,11 +61,20 @@ it does not belong in UniGateway's generic library boundary.
 
 UniGateway should interpret upstream outputs in this order:
 
-1. Native structured reasoning from the upstream protocol.
+1. Native structured reasoning from the upstream protocol (e.g., Anthropic's `thinking` content blocks).
 2. Explicit structured reasoning fields on OpenAI-compatible payloads, such as
    `reasoning_content` or `thinking`.
 3. Explicitly declared text encodings from metadata.
 4. Plain text fallback.
+
+### Cross-Protocol Mapping
+
+UniGateway automatically maps structured reasoning between protocols:
+
+- **Anthropic Upstream → OpenAI Downstream**: Native `thinking` content blocks are mapped to OpenAI's `reasoning_content` delta field in SSE streams and the completion message.
+- **OpenAI Upstream → Anthropic Downstream**: OpenAI's `reasoning_content` is mapped to Anthropic `thinking` content blocks.
+
+This mapping happens at the protocol layer and does not require explicit metadata opt-in if the upstream already provides structured fields.
 
 If an upstream response does not match one of the first three cases, UniGateway must treat it
 as ordinary text.

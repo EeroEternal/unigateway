@@ -1,6 +1,6 @@
 [package]
 name = "unigateway-sdk"
-version = "2.0.5"
+version = "2.0.6"
 edition = "2024"
 rust-version = "1.92"
 description = "Thin facade crate for embedders using UniGateway core, protocol, and host libraries."

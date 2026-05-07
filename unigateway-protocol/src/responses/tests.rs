@@ -293,7 +293,7 @@ async fn openai_renderer_streaming_response_reasoning_text() {
     use futures_util::StreamExt;
     use std::collections::HashMap;
     use tokio::sync::oneshot;
-    use unigateway_core::{ChatResponseChunk, ChatResponseFinal, ProxySession, StreamingResponse};
+    use unigateway_core::{ChatResponseChunk, ProxySession, StreamingResponse};
 
     let (_, completion_rx) = oneshot::channel();
     let response = render_openai_chat_session(ProxySession::Streaming(StreamingResponse {
@@ -434,6 +434,82 @@ async fn anthropic_renderer_completed_response_reasoning_text() {
 }
 
 #[tokio::test]
+async fn anthropic_renderer_completed_response_structured_reasoning() {
+    use crate::responses::render_anthropic_chat_session;
+    use std::collections::HashMap;
+    use unigateway_core::{
+        ChatResponseFinal, CompletedResponse, ProviderKind, ProxySession, RequestKind,
+        RequestReport, THINKING_SIGNATURE_PLACEHOLDER_VALUE,
+    };
+
+    let response = render_anthropic_chat_session(ProxySession::Completed(CompletedResponse {
+        response: ChatResponseFinal {
+            model: Some("model".to_string()),
+            output_text: Some("visible".to_string()),
+            raw: serde_json::json!({
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "reasoning_content": "hidden",
+                        "content": "visible"
+                    }
+                }]
+            }),
+        },
+        report: RequestReport {
+            request_id: "req".to_string(),
+            correlation_id: "req".to_string(),
+            pool_id: None,
+            selected_endpoint_id: "end".to_string(),
+            selected_provider: ProviderKind::OpenAiCompatible,
+            kind: RequestKind::Chat,
+            attempts: vec![],
+            usage: None,
+            latency_ms: 0,
+            started_at: std::time::SystemTime::UNIX_EPOCH,
+            finished_at: std::time::SystemTime::UNIX_EPOCH,
+            error_kind: None,
+            stream: None,
+            metadata: HashMap::new(),
+        },
+    }));
+
+    let (status, body) = response.into_parts();
+    assert_eq!(status, http::StatusCode::OK);
+
+    if let crate::ProtocolResponseBody::Json(json) = body {
+        let content = json
+            .pointer("/content")
+            .expect("content")
+            .as_array()
+            .expect("array");
+        assert_eq!(
+            content[0].get("type").and_then(|v| v.as_str()),
+            Some("thinking")
+        );
+        assert_eq!(
+            content[0].get("thinking").and_then(|v| v.as_str()),
+            Some("hidden")
+        );
+        assert_eq!(
+            content[0].get("signature").and_then(|v| v.as_str()),
+            Some(THINKING_SIGNATURE_PLACEHOLDER_VALUE)
+        );
+        assert_eq!(
+            content[1].get("type").and_then(|v| v.as_str()),
+            Some("text")
+        );
+        assert_eq!(
+            content[1].get("text").and_then(|v| v.as_str()),
+            Some("visible")
+        );
+    } else {
+        panic!("expected json body");
+    }
+}
+
+#[tokio::test]
 async fn anthropic_renderer_streaming_response_reasoning_text() {
     use crate::REASONING_TEXT_ENCODING_KEY;
     use crate::responses::render_anthropic_chat_session;
@@ -536,3 +612,179 @@ async fn anthropic_renderer_streaming_response_reasoning_text() {
         panic!("expected sse body");
     }
 }
+
+#[tokio::test]
+async fn anthropic_renderer_streaming_response_structured_reasoning() {
+    use crate::responses::render_anthropic_chat_session;
+    use futures_util::StreamExt;
+    use std::collections::HashMap;
+    use tokio::sync::oneshot;
+    use unigateway_core::{
+        ChatResponseChunk, ChatResponseFinal, CompletedResponse, ProviderKind, ProxySession,
+        RequestKind, RequestReport, StreamingResponse, THINKING_SIGNATURE_PLACEHOLDER_VALUE,
+    };
+
+    let (completion_tx, completion_rx) = oneshot::channel();
+    let _ = completion_tx.send(Ok(CompletedResponse {
+        response: ChatResponseFinal {
+            model: Some("model".to_string()),
+            output_text: Some("visible".to_string()),
+            raw: serde_json::json!({}),
+        },
+        report: RequestReport {
+            request_id: "req_stream".to_string(),
+            correlation_id: "req_stream".to_string(),
+            pool_id: None,
+            selected_endpoint_id: "end".to_string(),
+            selected_provider: ProviderKind::OpenAiCompatible,
+            kind: RequestKind::Chat,
+            attempts: vec![],
+            usage: None,
+            latency_ms: 0,
+            started_at: std::time::SystemTime::UNIX_EPOCH,
+            finished_at: std::time::SystemTime::UNIX_EPOCH,
+            error_kind: None,
+            stream: None,
+            metadata: HashMap::new(),
+        },
+    }));
+
+    let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        stream: Box::pin(futures_util::stream::iter(vec![
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "reasoning_content": "hidden"
+                        }
+                    }]
+                }),
+            }),
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "content": "visible"
+                        }
+                    }]
+                }),
+            }),
+        ])),
+        completion: completion_rx,
+        request_id: "req_stream".to_string(),
+        request_metadata: HashMap::new(),
+    }));
+
+    let (status, body) = response.into_parts();
+    assert_eq!(status, http::StatusCode::OK);
+
+    if let crate::ProtocolResponseBody::ServerSentEvents(mut stream) = body {
+        let mut events = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            events.push(String::from_utf8(chunk.unwrap().to_vec()).unwrap());
+        }
+        let full = events.join("");
+        assert!(full.contains("\"type\":\"thinking\""));
+        assert!(full.contains("\"type\":\"thinking_delta\""));
+        assert!(full.contains("\"thinking\":\"hidden\""));
+        assert!(full.contains("\"type\":\"signature_delta\""));
+        assert!(full.contains(THINKING_SIGNATURE_PLACEHOLDER_VALUE));
+        assert!(full.contains("\"type\":\"text\""));
+        assert!(full.contains("\"text\":\"visible\""));
+    } else {
+        panic!("expected sse body");
+    }
+}
+    #[tokio::test]
+    async fn openai_renderer_streaming_anthropic_thinking_blocks() {
+        use std::collections::HashMap;
+
+        use futures_util::StreamExt;
+        use unigateway_core::{ChatResponseChunk, ProxySession, StreamingResponse};
+
+        use crate::responses::render::render_openai_chat_session;
+
+        let (_completion_tx, completion_rx) = tokio::sync::oneshot::channel();
+
+        let response = render_openai_chat_session(ProxySession::Streaming(StreamingResponse {
+            stream: Box::pin(futures_util::stream::iter(vec![
+                Ok(ChatResponseChunk {
+                    delta: None,
+                    raw: serde_json::json!({
+                        "type": "message_start",
+                        "model": "claude-3-5"
+                    }),
+                }),
+                Ok(ChatResponseChunk {
+                    delta: None,
+                    raw: serde_json::json!({
+                        "type": "content_block_start",
+                        "index": 0,
+                        "content_block": { "type": "thinking" }
+                    }),
+                }),
+                Ok(ChatResponseChunk {
+                    delta: None,
+                    raw: serde_json::json!({
+                        "type": "content_block_delta",
+                        "index": 0,
+                        "delta": { "type": "thinking_delta", "thinking": "Let me think..." }
+                    }),
+                }),
+                Ok(ChatResponseChunk {
+                    delta: None,
+                    raw: serde_json::json!({
+                        "type": "content_block_stop",
+                        "index": 0
+                    }),
+                }),
+                Ok(ChatResponseChunk {
+                    delta: None,
+                    raw: serde_json::json!({
+                        "type": "content_block_start",
+                        "index": 1,
+                        "content_block": { "type": "text", "text": "" }
+                    }),
+                }),
+                Ok(ChatResponseChunk {
+                    delta: None,
+                    raw: serde_json::json!({
+                        "type": "content_block_delta",
+                        "index": 1,
+                        "delta": { "type": "text_delta", "text": "Hello world" }
+                    }),
+                }),
+                Ok(ChatResponseChunk {
+                    delta: None,
+                    raw: serde_json::json!({
+                        "type": "message_stop"
+                    }),
+                }),
+            ])),
+            completion: completion_rx,
+            request_id: "req_stream".to_string(),
+            request_metadata: HashMap::new(),
+        }));
+
+        let (_status, body) = response.into_parts();
+        match body {
+            crate::ProtocolResponseBody::ServerSentEvents(mut stream) => {
+                let mut events = Vec::new();
+                while let Some(chunk) = stream.next().await {
+                    events.push(String::from_utf8(chunk.unwrap().to_vec()).unwrap());
+                }
+                let full = events.join("");
+                // Check for reasoning_content (OpenAI standard)
+                assert!(full.contains("\"reasoning_content\":\"Let me think...\""));
+                // Check for thinking (DeepSeek/Some providers compatible)
+                assert!(full.contains("\"thinking\":\"Let me think...\""));
+                // Check for content
+                assert!(full.contains("\"content\":\"Hello world\""));
+            }
+            _ => panic!("expected sse body"),
+        }
+    }

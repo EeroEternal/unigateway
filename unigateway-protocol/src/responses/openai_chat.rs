@@ -95,16 +95,16 @@ pub fn openai_sse_chunks_from_chat_chunk(
             )]
         }
         "content_block_delta" => {
-            let Some(delta) = chunk
-                .raw
-                .get("delta")
-                .and_then(|delta| delta.get("text"))
-                .and_then(Value::as_str)
-            else {
-                return Vec::new();
-            };
+            let delta = chunk.raw.get("delta");
+            if let Some(text) = delta.and_then(|d| d.get("text")).and_then(Value::as_str) {
+                return emit_openai_text_delta(request_id, adapter, 0, text);
+            }
 
-            emit_openai_text_delta(request_id, adapter, 0, delta)
+            if let Some(thinking) = delta.and_then(|d| d.get("thinking")).and_then(Value::as_str) {
+                return emit_openai_thinking_delta(request_id, adapter, 0, thinking);
+            }
+
+            Vec::new()
         }
         "message_stop" => {
             let mut chunks = adapter.finish_reasoning_text(request_id);
@@ -241,6 +241,37 @@ fn emit_openai_text_delta(
         &model,
         choice_index,
         parser.push(text),
+    ));
+    chunks
+}
+
+fn emit_openai_thinking_delta(
+    request_id: &str,
+    adapter: &mut OpenAiChatStreamAdapter,
+    choice_index: usize,
+    thinking: &str,
+) -> Vec<Bytes> {
+    let mut chunks = Vec::new();
+    if !adapter.sent_role_chunk {
+        adapter.sent_role_chunk = true;
+        chunks.push(openai_chat_sse_bytes(
+            request_id,
+            adapter.model.as_deref().unwrap_or_default(),
+            serde_json::json!({"role": "assistant"}),
+            None,
+        ));
+    }
+
+    let model = adapter.model.clone().unwrap_or_default();
+    chunks.push(openai_chat_sse_bytes_for_choice(
+        request_id,
+        &model,
+        choice_index,
+        serde_json::json!({
+            "reasoning_content": thinking,
+            "thinking": thinking,
+        }),
+        None,
     ));
     chunks
 }

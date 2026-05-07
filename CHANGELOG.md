@@ -4,7 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
-## [2.0.3]
+## [2.0.6]
+
+### Added
+
+* **Anthropic-to-OpenAI structured reasoning mapping**: `unigateway-protocol` now extracts native Anthropic `thinking` content blocks and translates them into OpenAI-compatible `reasoning_content` deltas in SSE streams and completed messages. This enables downstream visibility of Claude thinking when routed through the native Anthropic driver.
+
+### Validation
+
+* Verified against BAI and taotoken native Anthropic endpoints.
+* Added `openai_renderer_streaming_anthropic_thinking_blocks` regression test.
+
+## [2.0.5]
+
+### Added
+
+* **OpenAI-to-Anthropic thinking block conversion**: OpenAI-style `reasoning_content` is now correctly mapped to Anthropic `thinking` content blocks during downstream rendering.
 
 ### Changed
 
