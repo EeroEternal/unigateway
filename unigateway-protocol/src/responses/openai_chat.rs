@@ -100,7 +100,10 @@ pub fn openai_sse_chunks_from_chat_chunk(
                 return emit_openai_text_delta(request_id, adapter, 0, text);
             }
 
-            if let Some(thinking) = delta.and_then(|d| d.get("thinking")).and_then(Value::as_str) {
+            if let Some(thinking) = delta
+                .and_then(|d| d.get("thinking"))
+                .and_then(Value::as_str)
+            {
                 return emit_openai_thinking_delta(request_id, adapter, 0, thinking);
             }
 
