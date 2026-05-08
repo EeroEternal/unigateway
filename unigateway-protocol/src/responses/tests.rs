@@ -699,92 +699,92 @@ async fn anthropic_renderer_streaming_response_structured_reasoning() {
         panic!("expected sse body");
     }
 }
-    #[tokio::test]
-    async fn openai_renderer_streaming_anthropic_thinking_blocks() {
-        use std::collections::HashMap;
+#[tokio::test]
+async fn openai_renderer_streaming_anthropic_thinking_blocks() {
+    use std::collections::HashMap;
 
-        use futures_util::StreamExt;
-        use unigateway_core::{ChatResponseChunk, ProxySession, StreamingResponse};
+    use futures_util::StreamExt;
+    use unigateway_core::{ChatResponseChunk, ProxySession, StreamingResponse};
 
-        use crate::responses::render::render_openai_chat_session;
+    use crate::responses::render::render_openai_chat_session;
 
-        let (_completion_tx, completion_rx) = tokio::sync::oneshot::channel();
+    let (_completion_tx, completion_rx) = tokio::sync::oneshot::channel();
 
-        let response = render_openai_chat_session(ProxySession::Streaming(StreamingResponse {
-            stream: Box::pin(futures_util::stream::iter(vec![
-                Ok(ChatResponseChunk {
-                    delta: None,
-                    raw: serde_json::json!({
-                        "type": "message_start",
-                        "model": "claude-3-5"
-                    }),
+    let response = render_openai_chat_session(ProxySession::Streaming(StreamingResponse {
+        stream: Box::pin(futures_util::stream::iter(vec![
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "type": "message_start",
+                    "model": "claude-3-5"
                 }),
-                Ok(ChatResponseChunk {
-                    delta: None,
-                    raw: serde_json::json!({
-                        "type": "content_block_start",
-                        "index": 0,
-                        "content_block": { "type": "thinking" }
-                    }),
+            }),
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": { "type": "thinking" }
                 }),
-                Ok(ChatResponseChunk {
-                    delta: None,
-                    raw: serde_json::json!({
-                        "type": "content_block_delta",
-                        "index": 0,
-                        "delta": { "type": "thinking_delta", "thinking": "Let me think..." }
-                    }),
+            }),
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": { "type": "thinking_delta", "thinking": "Let me think..." }
                 }),
-                Ok(ChatResponseChunk {
-                    delta: None,
-                    raw: serde_json::json!({
-                        "type": "content_block_stop",
-                        "index": 0
-                    }),
+            }),
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "type": "content_block_stop",
+                    "index": 0
                 }),
-                Ok(ChatResponseChunk {
-                    delta: None,
-                    raw: serde_json::json!({
-                        "type": "content_block_start",
-                        "index": 1,
-                        "content_block": { "type": "text", "text": "" }
-                    }),
+            }),
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "type": "content_block_start",
+                    "index": 1,
+                    "content_block": { "type": "text", "text": "" }
                 }),
-                Ok(ChatResponseChunk {
-                    delta: None,
-                    raw: serde_json::json!({
-                        "type": "content_block_delta",
-                        "index": 1,
-                        "delta": { "type": "text_delta", "text": "Hello world" }
-                    }),
+            }),
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "type": "content_block_delta",
+                    "index": 1,
+                    "delta": { "type": "text_delta", "text": "Hello world" }
                 }),
-                Ok(ChatResponseChunk {
-                    delta: None,
-                    raw: serde_json::json!({
-                        "type": "message_stop"
-                    }),
+            }),
+            Ok(ChatResponseChunk {
+                delta: None,
+                raw: serde_json::json!({
+                    "type": "message_stop"
                 }),
-            ])),
-            completion: completion_rx,
-            request_id: "req_stream".to_string(),
-            request_metadata: HashMap::new(),
-        }));
+            }),
+        ])),
+        completion: completion_rx,
+        request_id: "req_stream".to_string(),
+        request_metadata: HashMap::new(),
+    }));
 
-        let (_status, body) = response.into_parts();
-        match body {
-            crate::ProtocolResponseBody::ServerSentEvents(mut stream) => {
-                let mut events = Vec::new();
-                while let Some(chunk) = stream.next().await {
-                    events.push(String::from_utf8(chunk.unwrap().to_vec()).unwrap());
-                }
-                let full = events.join("");
-                // Check for reasoning_content (OpenAI standard)
-                assert!(full.contains("\"reasoning_content\":\"Let me think...\""));
-                // Check for thinking (DeepSeek/Some providers compatible)
-                assert!(full.contains("\"thinking\":\"Let me think...\""));
-                // Check for content
-                assert!(full.contains("\"content\":\"Hello world\""));
+    let (_status, body) = response.into_parts();
+    match body {
+        crate::ProtocolResponseBody::ServerSentEvents(mut stream) => {
+            let mut events = Vec::new();
+            while let Some(chunk) = stream.next().await {
+                events.push(String::from_utf8(chunk.unwrap().to_vec()).unwrap());
             }
-            _ => panic!("expected sse body"),
+            let full = events.join("");
+            // Check for reasoning_content (OpenAI standard)
+            assert!(full.contains("\"reasoning_content\":\"Let me think...\""));
+            // Check for thinking (DeepSeek/Some providers compatible)
+            assert!(full.contains("\"thinking\":\"Let me think...\""));
+            // Check for content
+            assert!(full.contains("\"content\":\"Hello world\""));
         }
+        _ => panic!("expected sse body"),
     }
+}
