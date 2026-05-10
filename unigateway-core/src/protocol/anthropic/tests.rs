@@ -606,6 +606,45 @@ async fn anthropic_driver_executes_streaming_chat() {
     }
 }
 
+#[test]
+fn build_chat_request_drops_top_p_when_both_temperature_and_top_p_present() {
+    // Regression test: even if extra re-introduces top_p, the defensive check
+    // after the extra merge must remove it when temperature is also present.
+    let request = build_chat_request(
+        &endpoint(),
+        &ProxyChatRequest {
+            model: "claude-3-5-sonnet".to_string(),
+            messages: vec![Message::text(MessageRole::User, "hello")],
+            system: None,
+            tools: None,
+            tool_choice: None,
+            raw_messages: None,
+            temperature: Some(0.7),
+            top_p: Some(0.9),
+            top_k: None,
+            max_tokens: Some(1024),
+            stop_sequences: None,
+            stream: false,
+            // Simulate a client that sends both params and extra somehow retains top_p
+            extra: HashMap::from([("top_p".to_string(), json!(0.9))]),
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("anthropic request");
+
+    let body: serde_json::Value =
+        serde_json::from_slice(&request.body.expect("body")).expect("json body");
+    assert!(
+        body.get("temperature").is_some(),
+        "temperature should be present"
+    );
+    assert!(
+        body.get("top_p").is_none(),
+        "top_p must be removed when temperature is also present, but got: {}",
+        body
+    );
+}
+
 #[tokio::test]
 async fn anthropic_driver_streaming_chat_completion_survives_dropped_stream() {
     let transport = Arc::new(MockTransport {

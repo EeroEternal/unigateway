@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.0.8]
+
+### Fixed
+
+* **Anthropic driver: drop `top_p` when both `temperature` and `top_p` are present, even if `extra` fields re-introduce `top_p` after the initial filter.** Previously the conflict resolution in `build_chat_request` could be defeated when `ProxyChatRequest.extra` contained a `top_p` entry, because the `extra` merge loop used `or_insert` and would re-add `top_p` after the match block had correctly omitted it. A defensive check now runs after the `extra` merge to unconditionally remove `top_p` when `temperature` is already present. This fixes the bug where clients (e.g. Cherry Studio) sending both parameters via the native `/v1/messages` passthrough path still received 400 errors from upstream Anthropic-compatible endpoints.
+
 ## [2.0.6]
 
 ### Added
