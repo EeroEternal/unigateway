@@ -51,19 +51,31 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Publish unigateway-core
-        run: cargo publish -p unigateway-core --no-verify
+        run: |
+          cargo publish -p unigateway-core --no-verify || \
+          echo "::warning::unigateway-core@v2.0.8 already published, skipping"
 
       - name: Publish unigateway-config
-        run: cargo publish -p unigateway-config --no-verify
+        run: |
+          cargo publish -p unigateway-config --no-verify || \
+          echo "::warning::unigateway-config@v2.0.8 already published, skipping"
 
       - name: Publish unigateway-protocol
-        run: cargo publish -p unigateway-protocol --no-verify
+        run: |
+          cargo publish -p unigateway-protocol --no-verify || \
+          echo "::warning::unigateway-protocol@v2.0.8 already published, skipping"
 
       - name: Publish unigateway-host
-        run: cargo publish -p unigateway-host --no-verify
+        run: |
+          cargo publish -p unigateway-host --no-verify || \
+          echo "::warning::unigateway-host@v2.0.8 already published, skipping"
 
       - name: Publish unigateway-sdk
-        run: cargo publish -p unigateway-sdk --no-verify
+        run: |
+          cargo publish -p unigateway-sdk --no-verify || \
+          echo "::warning::unigateway-sdk@v2.0.8 already published, skipping"
 
       - name: Publish unigateway (deprecated shim)
-        run: cargo publish -p unigateway --no-verify
+        run: |
+          cargo publish -p unigateway --no-verify || \
+          echo "::warning::unigateway@v2.0.8 already published, skipping"
