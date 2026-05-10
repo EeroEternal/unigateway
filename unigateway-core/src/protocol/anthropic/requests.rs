@@ -90,6 +90,13 @@ pub fn build_chat_request(
         payload.entry(key).or_insert(value);
     }
 
+    // Defensive: extra fields (e.g. top_p) must not re-introduce a conflict
+    // with temperature after the match block above. Anthropic API rejects
+    // requests that specify both parameters.
+    if payload.contains_key("temperature") && payload.contains_key("top_p") {
+        payload.remove("top_p");
+    }
+
     TransportRequest::post_json(
         Some(endpoint.endpoint_id.clone()),
         join_url(&endpoint.base_url, "messages"),
