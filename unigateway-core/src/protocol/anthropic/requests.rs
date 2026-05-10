@@ -61,11 +61,18 @@ pub fn build_chat_request(
     if let Some(system) = system {
         payload.insert("system".to_string(), system);
     }
-    if let Some(temperature) = request.temperature {
-        payload.insert("temperature".to_string(), json!(temperature));
-    }
-    if let Some(top_p) = request.top_p {
-        payload.insert("top_p".to_string(), json!(top_p));
+    // Anthropic API forbids specifying both `temperature` and `top_p` in the same
+    // request; doing so results in a 400 error. To improve compatibility with clients
+    // that send both parameters (e.g. Cherry Studio), we prioritize `temperature` and
+    // silently drop `top_p` when both are present.
+    match (request.temperature, request.top_p) {
+        (Some(temperature), _) => {
+            payload.insert("temperature".to_string(), json!(temperature));
+        }
+        (None, Some(top_p)) => {
+            payload.insert("top_p".to_string(), json!(top_p));
+        }
+        (None, None) => {}
     }
     if let Some(top_k) = request.top_k {
         payload.insert("top_k".to_string(), json!(top_k));
