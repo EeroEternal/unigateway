@@ -47,6 +47,7 @@ async fn dispatch_openai_request_to_anthropic_upstream_renders_openai_response()
             api_key: SecretString::new("sk-ant"),
             model_policy: ModelPolicy::default(),
             enabled: true,
+            max_concurrency: None,
             metadata: HashMap::new(),
         },
     );
@@ -160,6 +161,7 @@ async fn dispatch_anthropic_request_to_openai_upstream_renders_anthropic_respons
             api_key: SecretString::new("sk-openai"),
             model_policy: ModelPolicy::default(),
             enabled: true,
+            max_concurrency: None,
             metadata: HashMap::new(),
         },
     );
@@ -277,6 +279,7 @@ async fn dispatch_openai_stream_request_to_anthropic_upstream_renders_openai_sse
             api_key: SecretString::new("sk-ant"),
             model_policy: ModelPolicy::default(),
             enabled: true,
+            max_concurrency: None,
             metadata: HashMap::new(),
         },
     );
@@ -366,6 +369,7 @@ async fn dispatch_anthropic_stream_request_to_openai_upstream_renders_anthropic_
             api_key: SecretString::new("sk-openai"),
             model_policy: ModelPolicy::default(),
             enabled: true,
+            max_concurrency: None,
             metadata: HashMap::new(),
         },
     );
@@ -488,6 +492,7 @@ async fn dispatch_openai_request_with_xml_think_tag_metadata_renders_reasoning_c
             api_key: SecretString::new("sk-test"),
             model_policy: ModelPolicy::default(),
             enabled: true,
+            max_concurrency: None,
             metadata: HashMap::new(),
         },
     );
@@ -581,6 +586,7 @@ async fn dispatch_anthropic_request_with_xml_think_tag_metadata_renders_thinking
             api_key: SecretString::new("sk-test"),
             model_policy: ModelPolicy::default(),
             enabled: true,
+            max_concurrency: None,
             metadata: HashMap::new(),
         },
     );
@@ -721,6 +727,7 @@ async fn dispatch_openai_stream_request_with_xml_think_tag_metadata_renders_reas
             api_key: SecretString::new("sk-test"),
             model_policy: ModelPolicy::default(),
             enabled: true,
+            max_concurrency: None,
             metadata: HashMap::new(),
         },
     );
@@ -843,6 +850,7 @@ async fn dispatch_anthropic_stream_request_with_xml_think_tag_metadata_renders_t
             api_key: SecretString::new("sk-test"),
             model_policy: ModelPolicy::default(),
             enabled: true,
+            max_concurrency: None,
             metadata: HashMap::new(),
         },
     );

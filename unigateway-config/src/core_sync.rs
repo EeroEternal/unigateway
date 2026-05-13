@@ -215,6 +215,7 @@ fn to_core_endpoint(
         api_key: SecretString::new(provider.api_key.clone()),
         model_policy: parse_model_policy(provider),
         enabled: true,
+        max_concurrency: None,
         metadata,
     })
 }

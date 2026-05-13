@@ -111,6 +111,9 @@ pub struct AttemptStartedEvent {
     pub provider_kind: ProviderKind,
     /// The zero-indexed retry attempt number
     pub attempt_index: usize,
+    /// Number of active concurrent attempts on this endpoint at the moment this attempt started
+    /// (includes this attempt).
+    pub active_attempts_at_start: usize,
     /// Metadata inherited from the service/provider configurations
     pub metadata: HashMap<String, String>,
 }

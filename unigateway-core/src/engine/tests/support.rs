@@ -43,6 +43,7 @@ pub(super) fn endpoint(endpoint_id: &str) -> Endpoint {
         api_key: SecretString::new(format!("sk-{endpoint_id}")),
         model_policy: Default::default(),
         enabled: true,
+        max_concurrency: None,
         metadata: HashMap::new(),
     }
 }

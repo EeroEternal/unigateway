@@ -48,7 +48,7 @@ impl UniGatewayEngine {
             let endpoint_id = endpoint.endpoint_id.clone();
 
             let aimd = self.aimd_for_endpoint(&endpoint_id).await;
-            let aimd_guard = match aimd.acquire() {
+            let aimd_guard = match aimd.acquire(endpoint.max_concurrency) {
                 Some(guard) => guard,
                 None => {
                     skipped_due_to_aimd += 1;
@@ -67,6 +67,7 @@ impl UniGatewayEngine {
             let attempt_metadata = context.metadata.clone();
 
             let attempt_record_index = attempts.len();
+            let active_attempts_at_start = aimd.snapshot().active_connections;
             self.emit_attempt_started(AttemptStartedEvent {
                 request_id: request_id.clone(),
                 correlation_id: request_id.clone(),
@@ -74,6 +75,7 @@ impl UniGatewayEngine {
                 endpoint_id: endpoint_id.clone(),
                 provider_kind,
                 attempt_index: attempt_record_index,
+                active_attempts_at_start,
                 metadata: attempt_metadata.clone(),
             })
             .await;

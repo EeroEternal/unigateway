@@ -329,7 +329,7 @@ async fn aimd_saturation_yields_all_endpoints_saturated() {
 
     let aimd = engine.aimd_for_endpoint("alpha_only").await;
     let mut guards = Vec::new();
-    while let Some(guard) = aimd.acquire() {
+    while let Some(guard) = aimd.acquire(None) {
         guards.push(guard);
     }
 

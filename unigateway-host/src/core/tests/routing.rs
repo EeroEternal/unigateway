@@ -117,6 +117,7 @@ fn openai_compatible_target_filters_mixed_pool() {
         api_key: SecretString::new("sk-ant"),
         model_policy: ModelPolicy::default(),
         enabled: true,
+        max_concurrency: None,
         metadata: HashMap::new(),
     };
 

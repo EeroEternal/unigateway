@@ -68,9 +68,17 @@ impl AdaptiveConcurrency {
             .as_millis() as u64
     }
 
-    pub fn acquire(self: &Arc<Self>) -> Option<AimdGuard> {
+    /// Attempt to acquire a concurrency slot.
+    ///
+    /// `hard_limit` is an optional static cap applied on top of the adaptive limit.
+    /// The effective limit is `min(current_limit, hard_limit)` when `hard_limit` is `Some`,
+    /// otherwise just `current_limit`.
+    pub fn acquire(self: &Arc<Self>, hard_limit: Option<usize>) -> Option<AimdGuard> {
         let mut current_active = self.active_connections.load(Ordering::Relaxed);
-        let limit = self.current_limit.load(Ordering::Relaxed);
+        let mut limit = self.current_limit.load(Ordering::Relaxed);
+        if let Some(hard) = hard_limit {
+            limit = limit.min(hard);
+        }
         loop {
             if current_active >= limit {
                 return None;
