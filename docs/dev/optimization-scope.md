@@ -65,15 +65,30 @@ effective_limit = min(adaptive_current_limit, endpoint_max_concurrency.unwrap_or
 - Score 排序是**策略无关的前置步骤**：`apply_routing_feedback()`（`routing.rs:246`）对所有策略先做 score 降序排序 + suppress/cooldown 过滤，然后 `ordered_endpoints()` 中 `Fallback` 保持不变，`Random` 打散，`RoundRobin` 轮转
 - 平局裁决已存在：`sort_endpoints_by_signal` 中 `right_score.total_cmp(&left_score).then_with(|| left.endpoint_id.cmp(&right.endpoint_id))`（`routing.rs:306`）
 
-### 判定：适合纳入，但需重命名
+### 判定：适合纳入，命名 `ScoreOrdered`
 
-新增策略的语义应是"禁掉 Random/RoundRobin 的再扰动，严格保持 feedback 前置排序结果"。命名为 `ScoreOrdered` 而非 `Priority`：
+新增策略的语义是"禁掉 Random/RoundRobin 的再扰动，严格保持 feedback 前置排序结果"。命名为 `ScoreOrdered` 而非 `Priority`：
 - `ScoreOrdered` 描述机械行为（按 score 排序），是中立术语
 - `Priority` 带有业务/产品语义倾向
 
+**与 Fallback 的关系：不是重复，是不同契约**
+
+`ScoreOrdered` 和 `Fallback` 在 `ordered_endpoints()` 中的实现分支体相同（都是空分支 `{}`），但契约不同：
+
+| 策略 | 契约 |
+|------|------|
+| `Fallback` | 保持 endpoint 在 pool 中的**配置原始顺序**，逐个尝试。不承诺 score 语义 |
+| `ScoreOrdered` | **声明式地**依赖 `RoutingFeedbackProvider` 提供的 score 排序。无 feedback 时退化为配置顺序，但意图明确 |
+
+`ScoreOrdered` 的价值是**让配置意图显式化**——"我要按分值走"比"我用 Fallback（但实际因为有 feedback provider 而按分值走）"更可读。同时也让无 feedback provider 时的 `Fallback` 回归纯粹语义。
+
+**注意：宿主层可能不需要 ScoreOrdered**
+
+score 由宿主通过 `RoutingFeedbackProvider` trait 注入（`feedback.rs:9`），UniGateway 不计算 score，只消费。当宿主（如 ParaRouter）已在宿主层完成核心路由决策（provider 选择、计价、优先级），仅通过 `endpoint_hint` 下发到 UniGateway 做 RoundRobin 分发时，`ScoreOrdered` 不会被用到。它作为一个中立原语存在，供需要它的宿主使用。
+
 ### 补充考虑：平局随机化
 
-GPT 5.5 建议可让策略区分 `Deterministic` 与 `Random` 平局模式。当前 `endpoint_id` 确定性平局对可复现性和调试更友好；随机打散会增加审计难度。短期保持确定性平局即可，若后续有明确需求再扩展。
+当前 `endpoint_id` 确定性平局对可复现性和调试更友好；随机打散会增加审计难度。短期保持确定性平局即可，若后续有明确需求再扩展。
 
 ### 涉及位置
 
@@ -201,7 +216,7 @@ trait OutboundRequestMiddleware {
 | P0 | #4 metadata 透传审计 | 确认当前已正确（无代码改动，仅确认） |
 | P1 | #1 endpoint 静态并发上限 | 通用 capacity 原语，多个宿主场景需要 |
 | P1 | #3 指标增强（`active_attempts_at_start`） | 中立可观测指标，投入小收益明确 |
-| P2 | #2 `ScoreOrdered` 策略 | 需澄清语义，避免与现有 Fallback 重复 |
+| P2 | #2 `ScoreOrdered` 策略 | 非重复，是 `Fallback` 的显式化替代契约。当前 ParaRouter 在宿主层做路由决策，暂不需要 |
 | - | #5 驱动钩子 | 暂不实施，现有机制已覆盖 |
 
 ---
