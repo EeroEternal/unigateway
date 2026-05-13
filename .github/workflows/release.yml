@@ -53,29 +53,29 @@ jobs:
       - name: Publish unigateway-core
         run: |
           cargo publish -p unigateway-core --no-verify || \
-          echo "::warning::unigateway-core@v2.0.8 already published, skipping"
+          echo "::warning::unigateway-core already published, skipping"
 
       - name: Publish unigateway-config
         run: |
           cargo publish -p unigateway-config --no-verify || \
-          echo "::warning::unigateway-config@v2.0.8 already published, skipping"
+          echo "::warning::unigateway-config already published, skipping"
 
       - name: Publish unigateway-protocol
         run: |
           cargo publish -p unigateway-protocol --no-verify || \
-          echo "::warning::unigateway-protocol@v2.0.8 already published, skipping"
+          echo "::warning::unigateway-protocol already published, skipping"
 
       - name: Publish unigateway-host
         run: |
           cargo publish -p unigateway-host --no-verify || \
-          echo "::warning::unigateway-host@v2.0.8 already published, skipping"
+          echo "::warning::unigateway-host already published, skipping"
 
       - name: Publish unigateway-sdk
         run: |
           cargo publish -p unigateway-sdk --no-verify || \
-          echo "::warning::unigateway-sdk@v2.0.8 already published, skipping"
+          echo "::warning::unigateway-sdk already published, skipping"
 
       - name: Publish unigateway (deprecated shim)
         run: |
           cargo publish -p unigateway --no-verify || \
-          echo "::warning::unigateway@v2.0.8 already published, skipping"
+          echo "::warning::unigateway already published, skipping"
