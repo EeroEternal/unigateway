@@ -30,6 +30,7 @@ pub(super) fn endpoint() -> Endpoint {
         api_key: SecretString::new("sk-test"),
         model_policy: ModelPolicy::default(),
         enabled: true,
+        max_concurrency: None,
         metadata: HashMap::new(),
     }
 }

@@ -84,6 +84,7 @@ pub fn build_env_pool(
                 model_mapping: std::collections::HashMap::new(),
             },
             enabled: true,
+            max_concurrency: None,
             metadata: std::collections::HashMap::new(),
         }],
         load_balancing: LoadBalancingStrategy::RoundRobin,

@@ -50,6 +50,7 @@ async fn main() -> anyhow::Result<()> {
             model_mapping: HashMap::new(),
         },
         enabled: true,
+        max_concurrency: None,
         metadata: HashMap::new(),
     };
 

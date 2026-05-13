@@ -82,6 +82,12 @@ pub struct Endpoint {
     pub api_key: SecretString,
     pub model_policy: ModelPolicy,
     pub enabled: bool,
+    /// Optional static concurrency cap for this endpoint.
+    ///
+    /// When set, the AIMD effective concurrency limit for this endpoint will never exceed this
+    /// value, regardless of the adaptive limit. `None` means no additional cap beyond the global
+    /// AIMD configuration.
+    pub max_concurrency: Option<usize>,
     pub metadata: HashMap<String, String>,
 }
 
