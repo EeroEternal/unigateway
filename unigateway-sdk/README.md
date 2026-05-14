@@ -27,7 +27,7 @@ Example:
 
 ```toml
 [dependencies]
-unigateway-sdk = "2.0"
+unigateway-sdk = "2.1"
 ```
 
 If you disable default features, prefer `features = ["host"]`. `embed` is still accepted as a
@@ -70,6 +70,7 @@ let endpoint = Endpoint {
 	api_key: SecretString::new("sk-..."),
 	model_policy: ModelPolicy::default(),
 	enabled: true,
+	max_concurrency: Some(50),
 	metadata: HashMap::new(),
 };
 ```

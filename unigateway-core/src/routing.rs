@@ -34,7 +34,7 @@ impl ExecutionSnapshot {
 
         let mut endpoints = self.endpoints.clone();
         match self.load_balancing {
-            LoadBalancingStrategy::Fallback => {}
+            LoadBalancingStrategy::Fallback | LoadBalancingStrategy::ScoreOrdered => {}
             LoadBalancingStrategy::Random => {
                 let mut rng = rand::thread_rng();
                 endpoints.shuffle(&mut rng);

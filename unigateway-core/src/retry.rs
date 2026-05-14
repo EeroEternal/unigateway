@@ -7,6 +7,7 @@ pub enum LoadBalancingStrategy {
     Fallback,
     Random,
     RoundRobin,
+    ScoreOrdered,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
