@@ -206,3 +206,65 @@ async fn routing_feedback_prioritizes_scored_endpoints() {
 
     assert_eq!(selected.endpoint_id, "c");
 }
+
+#[tokio::test]
+async fn score_ordered_strictly_follows_feedback_scores() {
+    let feedback_provider = StaticFeedbackProvider {
+        by_pool: HashMap::from([(
+            "alpha".to_string(),
+            RoutingFeedback {
+                endpoint_signals: HashMap::from([
+                    (
+                        "a".to_string(),
+                        EndpointSignal {
+                            score: Some(100.0),
+                            excluded: false,
+                            cooldown_until: None,
+                            recent_error_rate: None,
+                        },
+                    ),
+                    (
+                        "b".to_string(),
+                        EndpointSignal {
+                            score: Some(50.0),
+                            excluded: false,
+                            cooldown_until: None,
+                            recent_error_rate: None,
+                        },
+                    ),
+                ]),
+            },
+        )]),
+    };
+
+    let engine = UniGatewayEngine::builder()
+        .with_driver_registry(Arc::new(InMemoryDriverRegistry::new()))
+        .with_routing_feedback_provider(Arc::new(feedback_provider))
+        .build()
+        .unwrap();
+
+    // Pool configuration has "b" then "a"
+    engine
+        .upsert_pool(pool(
+            "alpha",
+            LoadBalancingStrategy::ScoreOrdered,
+            vec![endpoint("b"), endpoint("a")],
+        ))
+        .await
+        .expect("upsert pool");
+
+    let snapshot = engine
+        .execution_snapshot(&ExecutionTarget::Pool {
+            pool_id: "alpha".to_string(),
+        })
+        .await
+        .expect("snapshot");
+
+    let endpoints = snapshot
+        .ordered_endpoints(&mut HashMap::new(), 10)
+        .expect("ordered endpoints");
+
+    // Should be "a" then "b" because score of "a" (100) > "b" (50)
+    assert_eq!(endpoints[0].endpoint_id, "a");
+    assert_eq!(endpoints[1].endpoint_id, "b");
+}

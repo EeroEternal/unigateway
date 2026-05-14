@@ -225,6 +225,7 @@ fn to_core_strategy(service: &ServiceEntry) -> Result<LoadBalancingStrategy> {
         "fallback" => Ok(LoadBalancingStrategy::Fallback),
         "round_robin" => Ok(LoadBalancingStrategy::RoundRobin),
         "random" => Ok(LoadBalancingStrategy::Random),
+        "score_ordered" => Ok(LoadBalancingStrategy::ScoreOrdered),
         other => Err(anyhow!(
             "service '{}' uses unsupported core routing strategy '{}'",
             service.id,
@@ -367,6 +368,40 @@ mod tests {
 
         assert_eq!(pools.len(), 1);
         assert_eq!(pools[0].load_balancing, LoadBalancingStrategy::Fallback);
+    }
+
+    #[tokio::test]
+    async fn build_all_core_pools_supports_score_ordered_strategy() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(&config_path).await.expect("load state");
+
+        state.create_service("svc", "Service").await;
+        state
+            .set_service_routing_strategy("svc", "score_ordered")
+            .await
+            .expect("set strategy");
+        let provider_id = state
+            .create_provider(
+                "openai-main",
+                "openai",
+                "",
+                Some("https://api.openai.com"),
+                "sk-oa",
+                None,
+            )
+            .await;
+        state
+            .bind_provider_to_service("svc", provider_id)
+            .await
+            .expect("bind provider");
+
+        let pools = build_all_core_pools(&state)
+            .await
+            .expect("score_ordered strategy should sync");
+
+        assert_eq!(pools.len(), 1);
+        assert_eq!(pools[0].load_balancing, LoadBalancingStrategy::ScoreOrdered);
     }
 
     #[tokio::test]

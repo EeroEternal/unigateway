@@ -4,6 +4,25 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.1.1]
+
+### Added
+
+* **`ScoreOrdered` load balancing strategy**: added `LoadBalancingStrategy::ScoreOrdered` to `unigateway-core`. This strategy strictly follows the scores provided by a `RoutingFeedbackProvider` (falling back to configuration order if no scores are available). This allows embedders to implement custom, dynamic scoring logic (e.g., cost-based, quality-based) and have the gateway respect it exactly.
+* **Config support for `score_ordered`**: `unigateway-config` now supports the `"score_ordered"` routing strategy string in service configurations.
+
+### Fixed
+
+* **Documentation consistency**: updated `optimization-scope.md` to accurately reflect the v2.1.0 and v2.1.1 implementation status of `max_concurrency`, `upsert_pool`, and `ScoreOrdered`.
+
+## [2.1.0]
+
+### Added
+
+* **Endpoint static concurrency limits**: `Endpoint` now includes an optional `max_concurrency` field. This static cap is integrated into the AIMD concurrency controller as a hard upper bound.
+* **Dynamic pool updates**: `UniGatewayEngine::upsert_pool` allows hot-swapping provider pools without restarting the engine.
+* **Enhanced attempt observability**: `AttemptStartedEvent` now includes `active_attempts_at_start`, enabling host-side "least connections" or other concurrency-aware routing logic.
+
 ## [2.0.8]
 
 ### Fixed
