@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use serde_json::Value;
+use unigateway_core::ANTHROPIC_THINKING_OUTPUT_KEY;
 use unigateway_core::{ChatResponseFinal, CompletedResponse, RequestKind, RequestReport};
 use unigateway_protocol::testing::{anthropic_completed_chat_body, openai_completed_chat_body};
 use unigateway_protocol::{
@@ -194,10 +195,16 @@ fn anthropic_completed_body_converts_openai_reasoning_to_thinking_block() {
             finished_at: std::time::SystemTime::UNIX_EPOCH,
             error_kind: None,
             stream: None,
-            metadata: HashMap::from([(
-                ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
-                "claude-3-5-sonnet-latest".to_string(),
-            )]),
+            metadata: HashMap::from([
+                (
+                    ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
+                    "claude-3-5-sonnet-latest".to_string(),
+                ),
+                (
+                    ANTHROPIC_THINKING_OUTPUT_KEY.to_string(),
+                    "placeholder_thinking".to_string(),
+                ),
+            ]),
         },
     });
 
@@ -259,6 +266,10 @@ fn anthropic_completed_body_can_reconstruct_prefixed_think_tags_when_enabled() {
                 (
                     REASONING_TEXT_ENCODING_KEY.to_string(),
                     REASONING_TEXT_ENCODING_XML_THINK_TAG.to_string(),
+                ),
+                (
+                    ANTHROPIC_THINKING_OUTPUT_KEY.to_string(),
+                    "placeholder_thinking".to_string(),
                 ),
             ]),
         },

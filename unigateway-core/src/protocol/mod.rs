@@ -1,5 +1,6 @@
 pub mod anthropic;
 pub mod openai;
+mod tool_choice_retry;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};

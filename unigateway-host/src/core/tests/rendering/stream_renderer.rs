@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use futures_util::StreamExt;
 use http::StatusCode;
 use tokio::sync::oneshot;
+use unigateway_core::ANTHROPIC_THINKING_OUTPUT_KEY;
 use unigateway_core::{
     ChatResponseChunk, ChatResponseFinal, CompletedResponse, ProxySession, RequestKind,
     RequestReport, StreamingResponse,
@@ -254,10 +255,16 @@ async fn anthropic_stream_renderer_converts_openai_reasoning_deltas_to_thinking_
         ])),
         completion: completion_rx,
         request_id: "req_stream_reasoning_1".to_string(),
-        request_metadata: HashMap::from([(
-            ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
-            "claude-3-5-sonnet-latest".to_string(),
-        )]),
+        request_metadata: HashMap::from([
+            (
+                ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
+                "claude-3-5-sonnet-latest".to_string(),
+            ),
+            (
+                ANTHROPIC_THINKING_OUTPUT_KEY.to_string(),
+                "placeholder_thinking".to_string(),
+            ),
+        ]),
     }));
 
     let (_, body) = response.into_parts();
@@ -386,6 +393,10 @@ async fn anthropic_stream_renderer_can_reconstruct_prefixed_think_tags_when_enab
             (
                 REASONING_TEXT_ENCODING_KEY.to_string(),
                 REASONING_TEXT_ENCODING_XML_THINK_TAG.to_string(),
+            ),
+            (
+                ANTHROPIC_THINKING_OUTPUT_KEY.to_string(),
+                "placeholder_thinking".to_string(),
             ),
         ]),
     }));

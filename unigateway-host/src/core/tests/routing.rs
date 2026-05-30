@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use unigateway_core::{
-    Endpoint, EndpointRef, ExecutionPlan, ExecutionTarget, GatewayError, ModelPolicy, ProviderKind,
-    ProxyResponsesRequest, SecretString,
+    Endpoint, EndpointCapabilities, EndpointRef, ExecutionPlan, ExecutionTarget, GatewayError,
+    ModelPolicy, ProviderKind, ProxyResponsesRequest, SecretString,
 };
 
 use super::super::dispatch::{should_preserve_stream_error, without_response_tools};
@@ -118,6 +118,7 @@ fn openai_compatible_target_filters_mixed_pool() {
         model_policy: ModelPolicy::default(),
         enabled: true,
         max_concurrency: None,
+        capabilities: EndpointCapabilities::default(),
         metadata: HashMap::new(),
     };
 

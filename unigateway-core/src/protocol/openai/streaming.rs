@@ -15,8 +15,10 @@ use crate::response::{
 };
 use crate::transport::{HttpTransport, TransportByteStream};
 
+use super::super::tool_choice_retry::send_stream_with_tool_choice_retry;
 use super::parsing::{parse_openai_usage, parse_responses_usage};
 use super::requests::{build_chat_request, build_responses_request};
+use crate::conversion::UpstreamToolChoiceProtocol;
 
 #[derive(Default)]
 struct OpenAiChatStreamState {
@@ -44,8 +46,16 @@ pub(super) async fn start_chat_stream(
 ) -> Result<ProxySession<ChatResponseChunk, ChatResponseFinal>, GatewayError> {
     let request_id = super::super::next_request_id();
     let started_at = SystemTime::now();
-    let transport_request = build_chat_request(&endpoint, &request)?;
-    let transport_response = transport.send_stream(transport_request).await?;
+    let mut request_metadata = request.metadata.clone();
+    request_metadata.extend(endpoint.metadata.clone());
+    let (transport_response, endpoint) = send_stream_with_tool_choice_retry(
+        endpoint,
+        &request,
+        UpstreamToolChoiceProtocol::OpenAi,
+        build_chat_request,
+        |transport_request| transport.send_stream(transport_request),
+    )
+    .await?;
     let (chunk_tx, chunk_rx) = mpsc::unbounded_channel();
     let (completion_tx, completion_rx) = tokio::sync::oneshot::channel();
     let completion_request_id = request_id.clone();
@@ -66,7 +76,7 @@ pub(super) async fn start_chat_stream(
         stream: Box::pin(UnboundedReceiverStream::new(chunk_rx)),
         completion: completion_rx,
         request_id,
-        request_metadata: request.metadata.clone(),
+        request_metadata,
     }))
 }
 
@@ -77,7 +87,8 @@ pub(super) async fn start_responses_stream(
 ) -> Result<ProxySession<ResponsesEvent, ResponsesFinal>, GatewayError> {
     let request_id = super::super::next_request_id();
     let started_at = SystemTime::now();
-    let transport_request = build_responses_request(&endpoint, &request)?;
+    let mut endpoint = endpoint;
+    let transport_request = build_responses_request(&mut endpoint, &request)?;
     let transport_response = transport.send_stream(transport_request).await?;
     let (event_tx, event_rx) = mpsc::unbounded_channel();
     let (completion_tx, completion_rx) = tokio::sync::oneshot::channel();

@@ -396,10 +396,16 @@ async fn anthropic_renderer_completed_response_reasoning_text() {
             finished_at: std::time::SystemTime::UNIX_EPOCH,
             error_kind: None,
             stream: None,
-            metadata: HashMap::from([(
-                REASONING_TEXT_ENCODING_KEY.to_string(),
-                "xml_think_tag".to_string(),
-            )]),
+            metadata: HashMap::from([
+                (
+                    REASONING_TEXT_ENCODING_KEY.to_string(),
+                    "xml_think_tag".to_string(),
+                ),
+                (
+                    unigateway_core::ANTHROPIC_THINKING_OUTPUT_KEY.to_string(),
+                    "placeholder_thinking".to_string(),
+                ),
+            ]),
         },
     }));
 
@@ -471,7 +477,10 @@ async fn anthropic_renderer_completed_response_structured_reasoning() {
             finished_at: std::time::SystemTime::UNIX_EPOCH,
             error_kind: None,
             stream: None,
-            metadata: HashMap::new(),
+            metadata: HashMap::from([(
+                unigateway_core::ANTHROPIC_THINKING_OUTPUT_KEY.to_string(),
+                "placeholder_thinking".to_string(),
+            )]),
         },
     }));
 
@@ -587,10 +596,16 @@ async fn anthropic_renderer_streaming_response_reasoning_text() {
         ])),
         completion: completion_rx,
         request_id: "req_stream".to_string(),
-        request_metadata: HashMap::from([(
-            REASONING_TEXT_ENCODING_KEY.to_string(),
-            "xml_think_tag".to_string(),
-        )]),
+        request_metadata: HashMap::from([
+            (
+                REASONING_TEXT_ENCODING_KEY.to_string(),
+                "xml_think_tag".to_string(),
+            ),
+            (
+                unigateway_core::ANTHROPIC_THINKING_OUTPUT_KEY.to_string(),
+                "placeholder_thinking".to_string(),
+            ),
+        ]),
     }));
 
     let (status, body) = response.into_parts();
@@ -676,7 +691,10 @@ async fn anthropic_renderer_streaming_response_structured_reasoning() {
         ])),
         completion: completion_rx,
         request_id: "req_stream".to_string(),
-        request_metadata: HashMap::new(),
+        request_metadata: HashMap::from([(
+            unigateway_core::ANTHROPIC_THINKING_OUTPUT_KEY.to_string(),
+            "placeholder_thinking".to_string(),
+        )]),
     }));
 
     let (status, body) = response.into_parts();

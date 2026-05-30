@@ -8,6 +8,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::InMemoryDriverRegistry;
+use crate::capabilities::EndpointCapabilities;
 use crate::drivers::{DriverEndpointContext, ProviderDriver};
 use crate::feedback::{RoutingFeedback, RoutingFeedbackProvider};
 use crate::hooks::{
@@ -44,6 +45,7 @@ pub(super) fn endpoint(endpoint_id: &str) -> Endpoint {
         model_policy: Default::default(),
         enabled: true,
         max_concurrency: None,
+        capabilities: EndpointCapabilities::default(),
         metadata: HashMap::new(),
     }
 }

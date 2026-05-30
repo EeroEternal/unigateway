@@ -9,8 +9,8 @@ use super::super::dispatch::{
     HostDispatchOutcome, HostDispatchTarget, HostProtocol, HostRequest, dispatch_request,
 };
 use super::support::{
-    NoopPoolHost, StaticTransport, dispatched_json_body, pool_with_endpoint, seen_request_json,
-    sse_body, test_engine,
+    NoopPoolHost, StaticTransport, dispatched_json_body, placeholder_thinking_capabilities,
+    pool_with_endpoint, seen_request_json, sse_body, test_engine,
 };
 use crate::host::HostContext;
 
@@ -48,6 +48,7 @@ async fn dispatch_openai_request_to_anthropic_upstream_renders_openai_response()
             model_policy: ModelPolicy::default(),
             enabled: true,
             max_concurrency: None,
+            capabilities: placeholder_thinking_capabilities(),
             metadata: HashMap::new(),
         },
     );
@@ -162,6 +163,7 @@ async fn dispatch_anthropic_request_to_openai_upstream_renders_anthropic_respons
             model_policy: ModelPolicy::default(),
             enabled: true,
             max_concurrency: None,
+            capabilities: placeholder_thinking_capabilities(),
             metadata: HashMap::new(),
         },
     );
@@ -280,6 +282,7 @@ async fn dispatch_openai_stream_request_to_anthropic_upstream_renders_openai_sse
             model_policy: ModelPolicy::default(),
             enabled: true,
             max_concurrency: None,
+            capabilities: placeholder_thinking_capabilities(),
             metadata: HashMap::new(),
         },
     );
@@ -370,6 +373,7 @@ async fn dispatch_anthropic_stream_request_to_openai_upstream_renders_anthropic_
             model_policy: ModelPolicy::default(),
             enabled: true,
             max_concurrency: None,
+            capabilities: placeholder_thinking_capabilities(),
             metadata: HashMap::new(),
         },
     );
@@ -493,6 +497,7 @@ async fn dispatch_openai_request_with_xml_think_tag_metadata_renders_reasoning_c
             model_policy: ModelPolicy::default(),
             enabled: true,
             max_concurrency: None,
+            capabilities: placeholder_thinking_capabilities(),
             metadata: HashMap::new(),
         },
     );
@@ -587,6 +592,7 @@ async fn dispatch_anthropic_request_with_xml_think_tag_metadata_renders_thinking
             model_policy: ModelPolicy::default(),
             enabled: true,
             max_concurrency: None,
+            capabilities: placeholder_thinking_capabilities(),
             metadata: HashMap::new(),
         },
     );
@@ -728,6 +734,7 @@ async fn dispatch_openai_stream_request_with_xml_think_tag_metadata_renders_reas
             model_policy: ModelPolicy::default(),
             enabled: true,
             max_concurrency: None,
+            capabilities: placeholder_thinking_capabilities(),
             metadata: HashMap::new(),
         },
     );
@@ -851,6 +858,7 @@ async fn dispatch_anthropic_stream_request_with_xml_think_tag_metadata_renders_t
             model_policy: ModelPolicy::default(),
             enabled: true,
             max_concurrency: None,
+            capabilities: placeholder_thinking_capabilities(),
             metadata: HashMap::new(),
         },
     );

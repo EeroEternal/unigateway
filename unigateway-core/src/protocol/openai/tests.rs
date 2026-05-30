@@ -10,6 +10,7 @@ use super::{
     parse_responses_response,
 };
 use crate::GatewayError;
+use crate::capabilities::EndpointCapabilities;
 use crate::drivers::{DriverEndpointContext, ProviderDriver};
 use crate::pool::{ModelPolicy, ProviderKind, SecretString};
 use crate::request::{
@@ -70,6 +71,7 @@ fn endpoint() -> DriverEndpointContext {
             default_model: Some("gpt-4o-mini".to_string()),
             model_mapping: HashMap::from([("alias".to_string(), "mapped-model".to_string())]),
         },
+        capabilities: EndpointCapabilities::default(),
         metadata: HashMap::from([("pool_id".to_string(), "alpha".to_string())]),
     }
 }
@@ -77,7 +79,7 @@ fn endpoint() -> DriverEndpointContext {
 #[test]
 fn build_chat_request_maps_model_and_url() {
     let request = build_chat_request(
-        &endpoint(),
+        &mut endpoint(),
         &ProxyChatRequest {
             model: "alias".to_string(),
             messages: vec![Message::text(MessageRole::User, "hello")],
@@ -114,7 +116,7 @@ fn build_chat_request_maps_model_and_url() {
 #[test]
 fn build_chat_request_preserves_structured_text_blocks_without_raw_messages() {
     let request = build_chat_request(
-        &endpoint(),
+        &mut endpoint(),
         &ProxyChatRequest {
             model: "alias".to_string(),
             messages: vec![Message::from_blocks(
@@ -166,7 +168,7 @@ fn build_chat_request_preserves_structured_text_blocks_without_raw_messages() {
 #[test]
 fn build_chat_request_preserves_structured_image_blocks_without_raw_messages() {
     let request = build_chat_request(
-        &endpoint(),
+        &mut endpoint(),
         &ProxyChatRequest {
             model: "alias".to_string(),
             messages: vec![Message::from_blocks(
@@ -226,7 +228,7 @@ fn build_chat_request_preserves_structured_image_blocks_without_raw_messages() {
 #[test]
 fn build_chat_request_preserves_structured_tool_result_content_without_raw_messages() {
     let request = build_chat_request(
-        &endpoint(),
+        &mut endpoint(),
         &ProxyChatRequest {
             model: "alias".to_string(),
             messages: vec![Message::from_blocks(
@@ -276,7 +278,7 @@ fn build_chat_request_preserves_structured_tool_result_content_without_raw_messa
 #[test]
 fn build_chat_request_merges_extra_without_overriding_core_fields() {
     let request = build_chat_request(
-        &endpoint(),
+        &mut endpoint(),
         &ProxyChatRequest {
             model: "alias".to_string(),
             messages: vec![Message::text(MessageRole::User, "hello")],
@@ -320,7 +322,7 @@ fn build_chat_request_merges_extra_without_overriding_core_fields() {
 #[test]
 fn build_chat_request_translates_anthropic_raw_messages_and_tool_choice() {
     let request = build_chat_request(
-        &endpoint(),
+        &mut endpoint(),
         &ProxyChatRequest {
             model: "alias".to_string(),
             messages: Vec::new(),
@@ -427,11 +429,8 @@ fn build_chat_request_translates_anthropic_raw_messages_and_tool_choice() {
         Some("tool")
     );
     assert_eq!(
-        body.get("tool_choice")
-            .and_then(|choice| choice.get("function"))
-            .and_then(|function| function.get("name"))
-            .and_then(Value::as_str),
-        Some("lookup_weather")
+        body.get("tool_choice").and_then(Value::as_str),
+        Some("auto")
     );
     assert_eq!(
         body.get("tools")
@@ -457,13 +456,114 @@ fn build_chat_request_translates_anthropic_raw_messages_and_tool_choice() {
 #[test]
 fn build_chat_request_normalizes_string_any_tool_choice() {
     let request = build_chat_request(
-        &endpoint(),
+        &mut endpoint(),
         &ProxyChatRequest {
             model: "alias".to_string(),
             messages: vec![Message::text(MessageRole::User, "hello")],
             system: None,
             tools: Some(json!([{ "name": "lookup_weather" }])),
             tool_choice: Some(json!("any")),
+            raw_messages: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: None,
+            stop_sequences: None,
+            stream: false,
+            extra: HashMap::new(),
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("chat request");
+
+    let body: Value = serde_json::from_slice(&request.body.expect("body")).expect("json body");
+    assert_eq!(
+        body.get("tool_choice").and_then(Value::as_str),
+        Some("auto")
+    );
+}
+
+#[test]
+fn build_chat_request_downgrades_forced_openai_function_tool_choice_to_auto() {
+    use crate::request::TOOL_CHOICE_ORIGINAL_KEY;
+
+    let mut endpoint_ctx = endpoint();
+    let request = build_chat_request(
+        &mut endpoint_ctx,
+        &ProxyChatRequest {
+            model: "alias".to_string(),
+            messages: vec![Message::text(MessageRole::User, "weather in Beijing")],
+            system: None,
+            tools: Some(json!([{
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"city": {"type": "string"}},
+                        "required": ["city"]
+                    }
+                }
+            }])),
+            tool_choice: Some(json!({
+                "type": "function",
+                "function": {"name": "get_weather"}
+            })),
+            raw_messages: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: None,
+            stop_sequences: None,
+            stream: false,
+            extra: HashMap::new(),
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("chat request");
+
+    let body: Value = serde_json::from_slice(&request.body.expect("body")).expect("json body");
+    assert_eq!(
+        body.get("tool_choice").and_then(Value::as_str),
+        Some("auto")
+    );
+    assert!(endpoint_ctx.metadata.contains_key(TOOL_CHOICE_ORIGINAL_KEY));
+}
+
+#[test]
+fn build_chat_request_memtensor_style_downgrades_named_function_to_required() {
+    use crate::capabilities::{EndpointCapabilities, ToolCallingCapabilities};
+
+    let mut endpoint_ctx = DriverEndpointContext {
+        endpoint_id: "ep-mem".to_string(),
+        provider_kind: ProviderKind::OpenAiCompatible,
+        base_url: "https://api.example.com/v1/".to_string(),
+        api_key: SecretString::new("sk-test"),
+        model_policy: ModelPolicy::default(),
+        capabilities: EndpointCapabilities {
+            tool_calling: Some(ToolCallingCapabilities::memtensor_style()),
+            reasoning: None,
+        },
+        metadata: HashMap::new(),
+    };
+
+    let request = build_chat_request(
+        &mut endpoint_ctx,
+        &ProxyChatRequest {
+            model: "alias".to_string(),
+            messages: vec![Message::text(MessageRole::User, "hello")],
+            system: None,
+            tools: Some(json!([{
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            }])),
+            tool_choice: Some(json!({
+                "type": "function",
+                "function": {"name": "get_weather"}
+            })),
             raw_messages: None,
             temperature: None,
             top_p: None,
@@ -487,7 +587,7 @@ fn build_chat_request_normalizes_string_any_tool_choice() {
 #[test]
 fn build_responses_request_forwards_supported_optional_fields() {
     let request = build_responses_request(
-        &endpoint(),
+        &mut endpoint(),
         &ProxyResponsesRequest {
             model: "alias".to_string(),
             input: Some(json!([{"role": "user", "content": "hello"}])),
@@ -998,12 +1098,13 @@ fn build_chat_request_injects_thinking_for_claude_when_xml_think_tag_requested()
     use crate::request::ProxyChatRequest;
     use std::collections::HashMap;
 
-    let endpoint = DriverEndpointContext {
+    let mut endpoint = DriverEndpointContext {
         endpoint_id: "test".to_string(),
         provider_kind: crate::pool::ProviderKind::OpenAiCompatible,
         base_url: "https://api.openai.com/v1/".to_string(),
         api_key: crate::pool::SecretString::new("test"),
         model_policy: Default::default(),
+        capabilities: EndpointCapabilities::default(),
         metadata: Default::default(),
     };
 
@@ -1027,7 +1128,7 @@ fn build_chat_request_injects_thinking_for_claude_when_xml_think_tag_requested()
         )]),
     };
 
-    let req = build_chat_request(&endpoint, &request).unwrap();
+    let req = build_chat_request(&mut endpoint, &request).unwrap();
     let body = req.body.as_ref().unwrap();
     let json: serde_json::Value = serde_json::from_slice(body).unwrap();
 
@@ -1046,7 +1147,7 @@ fn build_chat_request_injects_thinking_for_claude_when_xml_think_tag_requested()
     assert_eq!(json.get("max_tokens").and_then(|v| v.as_u64()), Some(4096));
 
     request.max_tokens = Some(8000);
-    let req = build_chat_request(&endpoint, &request).unwrap();
+    let req = build_chat_request(&mut endpoint, &request).unwrap();
     let json: serde_json::Value = serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
     assert_eq!(
         json.get("thinking")
@@ -1057,7 +1158,7 @@ fn build_chat_request_injects_thinking_for_claude_when_xml_think_tag_requested()
     assert_eq!(json.get("max_tokens").and_then(|v| v.as_u64()), Some(8000));
 
     request.max_tokens = Some(1500);
-    let req = build_chat_request(&endpoint, &request).unwrap();
+    let req = build_chat_request(&mut endpoint, &request).unwrap();
     let json: serde_json::Value = serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
     assert_eq!(
         json.get("thinking")
@@ -1068,7 +1169,7 @@ fn build_chat_request_injects_thinking_for_claude_when_xml_think_tag_requested()
     assert_eq!(json.get("max_tokens").and_then(|v| v.as_u64()), Some(1500));
 
     request.max_tokens = Some(500);
-    let req = build_chat_request(&endpoint, &request).unwrap();
+    let req = build_chat_request(&mut endpoint, &request).unwrap();
     let json: serde_json::Value = serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
     assert!(
         json.get("thinking").is_none(),
@@ -1079,7 +1180,7 @@ fn build_chat_request_injects_thinking_for_claude_when_xml_think_tag_requested()
         .extra
         .insert("enable_thinking".to_string(), serde_json::json!(true));
     request.max_tokens = None;
-    let req = build_chat_request(&endpoint, &request).unwrap();
+    let req = build_chat_request(&mut endpoint, &request).unwrap();
     let json: serde_json::Value = serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
     assert!(
         json.get("thinking").is_none(),
@@ -1093,12 +1194,13 @@ fn build_chat_request_skips_thinking_injection_for_non_claude_or_missing_metadat
     use crate::request::ProxyChatRequest;
     use std::collections::HashMap;
 
-    let endpoint = DriverEndpointContext {
+    let mut endpoint = DriverEndpointContext {
         endpoint_id: "test".to_string(),
         provider_kind: crate::pool::ProviderKind::OpenAiCompatible,
         base_url: "https://api.openai.com/v1/".to_string(),
         api_key: crate::pool::SecretString::new("test"),
         model_policy: Default::default(),
+        capabilities: EndpointCapabilities::default(),
         metadata: Default::default(),
     };
 
@@ -1122,13 +1224,13 @@ fn build_chat_request_skips_thinking_injection_for_non_claude_or_missing_metadat
         )]),
     };
 
-    let req = build_chat_request(&endpoint, &request).unwrap();
+    let req = build_chat_request(&mut endpoint, &request).unwrap();
     let json: serde_json::Value = serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
     assert!(json.get("thinking").is_none());
 
     request.model = "claude-3-7-sonnet".to_string();
     request.metadata.clear();
-    let req = build_chat_request(&endpoint, &request).unwrap();
+    let req = build_chat_request(&mut endpoint, &request).unwrap();
     let json: serde_json::Value = serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
     assert!(json.get("thinking").is_none());
 }

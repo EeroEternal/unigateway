@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.2.0]
+
+### Added
+
+* **Provider-scoped tool calling capabilities**: `Endpoint.capabilities.tool_calling` declares supported `tool_choice` modes and per-mode downgrade policies, with conservative OpenAI-compatible defaults and a `memtensor_style()` preset for upstreams that accept `required` but reject named function choice.
+* **Shared `tool_choice` normalizer**: OpenAI and Anthropic upstream request builders now normalize outgoing `tool_choice` before rendering, with trace metadata (`unigateway.tool_choice.original`, `.normalized`, `.reason`) recorded on execution reports.
+* **Reactive tool-choice fallback**: upstream 400 responses matching known unsupported `tool_choice` patterns trigger a single same-endpoint retry with a further downgrade (`named_function/required → auto → none`).
+* **Anthropic thinking output policy**: `Endpoint.capabilities.reasoning.anthropic_thinking_output` controls downstream thinking block rendering (`structured`, `omit_thinking`, `placeholder_thinking`). OpenAI-compatible upstreams default to `omit_thinking` so placeholder signatures are not emitted unless explicitly enabled.
+
+### Changed
+
+* **Streaming report metadata**: chat stream responses now merge endpoint capability metadata into `request_metadata` so protocol renderers can apply thinking output policy consistently.
+
 ## [2.1.1]
 
 ### Added

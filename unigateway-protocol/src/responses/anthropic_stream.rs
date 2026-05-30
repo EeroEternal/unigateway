@@ -6,8 +6,8 @@ use bytes::Bytes;
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
 use unigateway_core::{
-    ChatResponseChunk, ChatResponseFinal, StreamingResponse, THINKING_SIGNATURE_PLACEHOLDER_VALUE,
-    TokenUsage,
+    AnthropicThinkingOutputPolicy, ChatResponseChunk, ChatResponseFinal, StreamingResponse,
+    THINKING_SIGNATURE_PLACEHOLDER_VALUE, TokenUsage,
     conversion::{
         PendingOpenAiToolCall, apply_openai_tool_call_delta_update,
         flush_openai_tool_call_stop_update,
@@ -15,7 +15,8 @@ use unigateway_core::{
 };
 
 use super::reasoning_text::{
-    ReasoningTextChunk, ReasoningTextEncoding, ReasoningTextStreamParser, reasoning_text_encoding,
+    ReasoningTextChunk, ReasoningTextEncoding, ReasoningTextStreamParser,
+    anthropic_thinking_output_policy, reasoning_text_encoding,
 };
 
 struct AnthropicOpenAiStreamState {
@@ -27,10 +28,14 @@ struct AnthropicOpenAiStreamState {
     pending_tool_calls: BTreeMap<usize, PendingOpenAiToolCall>,
     saw_native_anthropic: bool,
     reasoning_text_parser: Option<ReasoningTextStreamParser>,
+    thinking_output_policy: AnthropicThinkingOutputPolicy,
 }
 
 impl AnthropicOpenAiStreamState {
-    fn new(reasoning_text_encoding: Option<ReasoningTextEncoding>) -> Self {
+    fn new(
+        reasoning_text_encoding: Option<ReasoningTextEncoding>,
+        thinking_output_policy: AnthropicThinkingOutputPolicy,
+    ) -> Self {
         Self {
             prelude_sent: false,
             next_content_index: 0,
@@ -40,7 +45,15 @@ impl AnthropicOpenAiStreamState {
             pending_tool_calls: BTreeMap::new(),
             saw_native_anthropic: false,
             reasoning_text_parser: reasoning_text_encoding.map(ReasoningTextStreamParser::new),
+            thinking_output_policy,
         }
+    }
+
+    fn uses_placeholder_thinking_signature(&self) -> bool {
+        matches!(
+            self.thinking_output_policy,
+            AnthropicThinkingOutputPolicy::PlaceholderThinking
+        )
     }
 }
 
@@ -51,7 +64,9 @@ pub(super) async fn drive_anthropic_chat_stream(
 ) {
     let request_id = streaming.request_id.clone();
     let reasoning_text_encoding = reasoning_text_encoding(&streaming.request_metadata);
-    let mut state = AnthropicOpenAiStreamState::new(reasoning_text_encoding);
+    let thinking_output_policy = anthropic_thinking_output_policy(&streaming.request_metadata);
+    let mut state =
+        AnthropicOpenAiStreamState::new(reasoning_text_encoding, thinking_output_policy);
 
     while let Some(item) = streaming.stream.next().await {
         match item {
@@ -379,7 +394,7 @@ async fn close_active_content_block(
 
     let active_type = state.active_content_block_type.take();
 
-    if active_type == Some("thinking") {
+    if active_type == Some("thinking") && state.uses_placeholder_thinking_signature() {
         emit_sse_json(
             sender,
             "content_block_delta",
@@ -437,6 +452,7 @@ async fn process_openai_chunk_for_anthropic_stream(
         })
         .and_then(serde_json::Value::as_str)
         .filter(|thinking| !thinking.is_empty())
+        && state.thinking_output_policy == AnthropicThinkingOutputPolicy::PlaceholderThinking
     {
         emit_thinking_delta(sender, state, thinking).await?;
     }
@@ -496,8 +512,14 @@ async fn emit_reasoning_text_chunks(
 ) -> Result<(), io::Error> {
     for chunk in chunks {
         match chunk {
-            ReasoningTextChunk::Thinking(thinking) => {
+            ReasoningTextChunk::Thinking(thinking)
+                if state.thinking_output_policy
+                    == AnthropicThinkingOutputPolicy::PlaceholderThinking =>
+            {
                 emit_thinking_delta(sender, state, &thinking).await?;
+            }
+            ReasoningTextChunk::Thinking(thinking) => {
+                emit_text_delta(sender, state, &thinking).await?;
             }
             ReasoningTextChunk::Text(text) => {
                 emit_text_delta(sender, state, &text).await?;

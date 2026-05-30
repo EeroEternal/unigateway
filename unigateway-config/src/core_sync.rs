@@ -4,8 +4,8 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Result, anyhow};
 use unigateway_core::{
-    Endpoint, LoadBalancingStrategy, ModelPolicy, ProviderKind, ProviderPool, RetryPolicy,
-    SecretString, UniGatewayEngine,
+    Endpoint, EndpointCapabilities, LoadBalancingStrategy, ModelPolicy, ProviderKind, ProviderPool,
+    RetryPolicy, SecretString, UniGatewayEngine,
 };
 
 use super::{BindingEntry, GatewayConfigFile, GatewayState, ProviderEntry, ServiceEntry};
@@ -216,6 +216,7 @@ fn to_core_endpoint(
         model_policy: parse_model_policy(provider),
         enabled: true,
         max_concurrency: None,
+        capabilities: EndpointCapabilities::default(),
         metadata,
     })
 }

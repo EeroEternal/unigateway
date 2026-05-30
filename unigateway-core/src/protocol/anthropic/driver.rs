@@ -12,10 +12,12 @@ use crate::response::{
 };
 use crate::transport::HttpTransport;
 
+use super::super::tool_choice_retry::send_with_tool_choice_retry;
 use super::DRIVER_ID;
 use super::parsing::parse_chat_response;
 use super::requests::build_chat_request;
 use super::streaming::start_chat_stream;
+use crate::conversion::UpstreamToolChoiceProtocol;
 
 pub struct AnthropicDriver {
     transport: Arc<dyn HttpTransport>,
@@ -50,15 +52,15 @@ impl ProviderDriver for AnthropicDriver {
             }
 
             let started_at = SystemTime::now();
-            let transport_request = build_chat_request(&endpoint, &request)?;
-            let response = transport.send(transport_request).await?;
-            if !(200..300).contains(&response.status) {
-                return Err(GatewayError::UpstreamHttp {
-                    status: response.status,
-                    body: String::from_utf8(response.body).ok(),
-                    endpoint_id: endpoint.endpoint_id,
-                });
-            }
+            let endpoint = endpoint;
+            let (response, endpoint) = send_with_tool_choice_retry(
+                endpoint,
+                &request,
+                UpstreamToolChoiceProtocol::Anthropic,
+                build_chat_request,
+                |transport_request| transport.send(transport_request),
+            )
+            .await?;
 
             let (response_body, usage) = parse_chat_response(&response.body)?;
             let finished_at = SystemTime::now();

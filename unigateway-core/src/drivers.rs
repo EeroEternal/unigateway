@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 
+use crate::capabilities::EndpointCapabilities;
 use crate::error::GatewayError;
 use crate::pool::{EndpointId, ModelPolicy, ProviderKind, SecretString};
 use crate::request::{ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest};
@@ -64,6 +65,8 @@ pub struct DriverEndpointContext {
     pub api_key: SecretString,
     /// Model renaming and fallback maps
     pub model_policy: ModelPolicy,
+    /// Resolved endpoint capability declarations used during protocol rendering.
+    pub capabilities: EndpointCapabilities,
     /// Arbitrary configuration attributes
     pub metadata: HashMap<String, String>,
 }

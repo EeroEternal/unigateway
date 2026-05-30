@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use unigateway_core::{
     ChatResponseChunk, ChatResponseFinal, CompletedResponse, EmbeddingsResponse, ProviderKind,
     ProxySession, ResponsesEvent, ResponsesFinal, StreamingResponse, TokenUsage,
-    conversion::openai_message_to_anthropic_content_blocks,
+    conversion::openai_message_to_anthropic_content_blocks_with_policy,
 };
 
 use crate::{ProtocolHttpResponse, anthropic_requested_model_alias_or};
@@ -16,8 +16,8 @@ use super::anthropic_stream::{
 };
 use super::openai_chat::{OpenAiChatStreamAdapter, openai_sse_chunks_from_chat_chunk};
 use super::reasoning_text::{
-    normalize_openai_chat_completion_reasoning_text, normalize_openai_message_reasoning_text,
-    reasoning_text_encoding,
+    anthropic_thinking_output_policy, normalize_openai_chat_completion_reasoning_text,
+    normalize_openai_message_reasoning_text, reasoning_text_encoding,
 };
 
 pub fn render_openai_chat_session(
@@ -305,6 +305,7 @@ pub fn anthropic_completed_chat_body(
         result.response.model.as_deref().unwrap_or_default(),
     );
     let reasoning_text_encoding = reasoning_text_encoding(&result.report.metadata);
+    let thinking_output_policy = anthropic_thinking_output_policy(&result.report.metadata);
 
     if let Some(choice) = result
         .response
@@ -325,7 +326,12 @@ pub fn anthropic_completed_chat_body(
         });
         let content = normalized_message
             .as_ref()
-            .map(openai_message_to_anthropic_content_blocks)
+            .map(|message| {
+                openai_message_to_anthropic_content_blocks_with_policy(
+                    message,
+                    thinking_output_policy,
+                )
+            })
             .unwrap_or_default();
         let stop_reason = choice
             .get("finish_reason")

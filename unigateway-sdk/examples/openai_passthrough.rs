@@ -15,7 +15,7 @@ use tokio::net::TcpListener;
 
 use unigateway_sdk::core::retry::LoadBalancingStrategy;
 use unigateway_sdk::core::{
-    Endpoint, ModelPolicy, ProviderKind, SecretString, UniGatewayEngine,
+    Endpoint, EndpointCapabilities, ModelPolicy, ProviderKind, SecretString, UniGatewayEngine,
     pool::{ExecutionTarget, ProviderPool},
 };
 use unigateway_sdk::protocol::openai_payload_to_chat_request;
@@ -51,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
         },
         enabled: true,
         max_concurrency: None,
+        capabilities: EndpointCapabilities::default(),
         metadata: HashMap::new(),
     };
 
