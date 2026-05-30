@@ -3,6 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use tokio::sync::{Mutex, RwLock};
 
+use crate::capabilities::EndpointCapabilities;
 use crate::drivers::{DriverEndpointContext, DriverRegistry, ProviderDriver};
 use crate::error::GatewayError;
 use crate::feedback::RoutingFeedbackProvider;
@@ -279,6 +280,8 @@ impl UniGatewayEngine {
             metadata.entry("pool_id".to_string()).or_insert(pool_id);
         }
         metadata.extend(request_metadata);
+        let capabilities = EndpointCapabilities::resolve_for_endpoint(&endpoint);
+        capabilities.inject_metadata(&mut metadata);
 
         DriverEndpointContext {
             endpoint_id: endpoint.endpoint_id,
@@ -286,6 +289,7 @@ impl UniGatewayEngine {
             base_url: endpoint.base_url,
             api_key: endpoint.api_key,
             model_policy: endpoint.model_policy,
+            capabilities,
             metadata,
         }
     }

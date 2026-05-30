@@ -10,13 +10,23 @@ use unigateway_core::transport::{
     HttpTransport, StreamingTransportResponse, TransportRequest, TransportResponse,
 };
 use unigateway_core::{
-    Endpoint, GatewayError, InMemoryDriverRegistry, LoadBalancingStrategy, ModelPolicy,
-    ProviderKind, ProviderPool, RetryPolicy, SecretString, UniGatewayEngine,
+    AnthropicThinkingOutputPolicy, Endpoint, EndpointCapabilities, GatewayError,
+    InMemoryDriverRegistry, LoadBalancingStrategy, ModelPolicy, ProviderKind, ProviderPool,
+    ReasoningCapabilities, RetryPolicy, SecretString, UniGatewayEngine,
 };
 use unigateway_protocol::{ProtocolHttpResponse, ProtocolResponseBody};
 
 use super::super::dispatch::HostDispatchOutcome;
 use crate::host::{HostFuture, PoolHost, PoolLookupOutcome, PoolLookupResult};
+
+pub(super) fn placeholder_thinking_capabilities() -> EndpointCapabilities {
+    EndpointCapabilities {
+        reasoning: Some(ReasoningCapabilities {
+            anthropic_thinking_output: AnthropicThinkingOutputPolicy::PlaceholderThinking,
+        }),
+        ..EndpointCapabilities::default()
+    }
+}
 
 pub(super) fn endpoint() -> Endpoint {
     Endpoint {
@@ -31,6 +41,7 @@ pub(super) fn endpoint() -> Endpoint {
         model_policy: ModelPolicy::default(),
         enabled: true,
         max_concurrency: None,
+        capabilities: EndpointCapabilities::default(),
         metadata: HashMap::new(),
     }
 }

@@ -1,6 +1,6 @@
 use unigateway_core::{
-    Endpoint, LoadBalancingStrategy, ModelPolicy, ProviderKind, ProviderPool, RetryPolicy,
-    SecretString,
+    Endpoint, EndpointCapabilities, LoadBalancingStrategy, ModelPolicy, ProviderKind, ProviderPool,
+    RetryPolicy, SecretString,
 };
 
 use crate::error::PoolLookupResult;
@@ -85,6 +85,7 @@ pub fn build_env_pool(
             },
             enabled: true,
             max_concurrency: None,
+            capabilities: EndpointCapabilities::default(),
             metadata: std::collections::HashMap::new(),
         }],
         load_balancing: LoadBalancingStrategy::RoundRobin,

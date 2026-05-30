@@ -3,6 +3,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::capabilities::EndpointCapabilities;
 use crate::retry::{LoadBalancingStrategy, RetryPolicy};
 
 pub type PoolId = String;
@@ -88,6 +89,8 @@ pub struct Endpoint {
     /// value, regardless of the adaptive limit. `None` means no additional cap beyond the global
     /// AIMD configuration.
     pub max_concurrency: Option<usize>,
+    #[serde(default)]
+    pub capabilities: EndpointCapabilities,
     pub metadata: HashMap<String, String>,
 }
 

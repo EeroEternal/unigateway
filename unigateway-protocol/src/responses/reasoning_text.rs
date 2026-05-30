@@ -12,6 +12,17 @@ pub const ANTHROPIC_REASONING_TEXT_FORMAT_KEY: &str = "unigateway.anthropic_reas
 pub const ANTHROPIC_REASONING_TEXT_FORMAT_XML_THINK_TAG: &str =
     REASONING_TEXT_ENCODING_XML_THINK_TAG;
 
+pub(crate) fn anthropic_thinking_output_policy(
+    metadata: &HashMap<String, String>,
+) -> unigateway_core::AnthropicThinkingOutputPolicy {
+    metadata
+        .get(unigateway_core::ANTHROPIC_THINKING_OUTPUT_KEY)
+        .and_then(|value| {
+            unigateway_core::AnthropicThinkingOutputPolicy::from_metadata_value(value)
+        })
+        .unwrap_or(unigateway_core::AnthropicThinkingOutputPolicy::OmitThinking)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReasoningTextEncoding {
     XmlThinkTag,

@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 
 use super::{AnthropicDriver, build_chat_request};
 use crate::GatewayError;
+use crate::capabilities::EndpointCapabilities;
 use crate::drivers::{DriverEndpointContext, ProviderDriver};
 use crate::pool::{ModelPolicy, ProviderKind, SecretString};
 use crate::request::{
@@ -64,6 +65,7 @@ fn endpoint() -> DriverEndpointContext {
         base_url: "https://api.anthropic.com/v1/".to_string(),
         api_key: SecretString::new("sk-ant"),
         model_policy: ModelPolicy::default(),
+        capabilities: EndpointCapabilities::default(),
         metadata: HashMap::from([("pool_id".to_string(), "beta".to_string())]),
     }
 }
@@ -71,7 +73,7 @@ fn endpoint() -> DriverEndpointContext {
 #[test]
 fn build_chat_request_moves_system_messages_to_top_level_field() {
     let request = build_chat_request(
-        &endpoint(),
+        &mut endpoint(),
         &ProxyChatRequest {
             model: "claude-3-5-sonnet".to_string(),
             messages: vec![
@@ -125,7 +127,7 @@ fn build_chat_request_moves_system_messages_to_top_level_field() {
 #[test]
 fn build_chat_request_preserves_structured_image_blocks_without_raw_messages() {
     let request = build_chat_request(
-        &endpoint(),
+        &mut endpoint(),
         &ProxyChatRequest {
             model: "claude-3-5-sonnet".to_string(),
             messages: vec![Message::from_blocks(
@@ -238,7 +240,7 @@ fn build_chat_request_converts_openai_raw_messages_to_anthropic_messages() {
     request.set_client_protocol(ClientProtocol::OpenAiChat);
     request.mark_openai_raw_messages();
 
-    let request = build_chat_request(&endpoint(), &request).expect("anthropic request");
+    let request = build_chat_request(&mut endpoint(), &request).expect("anthropic request");
 
     let body: serde_json::Value =
         serde_json::from_slice(&request.body.expect("body")).expect("json body");
@@ -330,7 +332,7 @@ fn build_chat_request_preserves_anthropic_raw_messages() {
     }]);
 
     let request = build_chat_request(
-        &endpoint(),
+        &mut endpoint(),
         &ProxyChatRequest {
             model: "claude-3-5-sonnet".to_string(),
             messages: Vec::new(),
@@ -379,7 +381,7 @@ fn build_chat_request_preserves_anthropic_raw_messages() {
 #[test]
 fn build_chat_request_rejects_placeholder_signature_in_anthropic_raw_messages() {
     let error = build_chat_request(
-        &endpoint(),
+        &mut endpoint(),
         &ProxyChatRequest {
             model: "claude-3-5-sonnet".to_string(),
             messages: Vec::new(),
@@ -417,7 +419,7 @@ fn build_chat_request_rejects_placeholder_signature_in_anthropic_raw_messages() 
 #[test]
 fn build_chat_request_merges_anthropic_extra_without_overriding_core_fields() {
     let request = build_chat_request(
-        &endpoint(),
+        &mut endpoint(),
         &ProxyChatRequest {
             model: "claude-opus-4-6".to_string(),
             messages: vec![crate::request::Message::text(MessageRole::User, "hello")],
@@ -611,7 +613,7 @@ fn build_chat_request_drops_top_p_when_both_temperature_and_top_p_present() {
     // Regression test: even if extra re-introduces top_p, the defensive check
     // after the extra merge must remove it when temperature is also present.
     let request = build_chat_request(
-        &endpoint(),
+        &mut endpoint(),
         &ProxyChatRequest {
             model: "claude-3-5-sonnet".to_string(),
             messages: vec![Message::text(MessageRole::User, "hello")],

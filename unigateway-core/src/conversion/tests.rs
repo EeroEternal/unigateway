@@ -8,10 +8,12 @@ use super::{
     anthropic_tool_choice_to_openai_tool_choice, anthropic_tools_to_openai_tools,
     apply_openai_tool_call_delta_update, content_blocks_to_anthropic,
     content_blocks_to_anthropic_request, flush_openai_tool_call_stop_update,
-    openai_message_to_anthropic_content_blocks, openai_message_to_content_blocks,
+    openai_message_to_anthropic_content_blocks,
+    openai_message_to_anthropic_content_blocks_with_policy, openai_message_to_content_blocks,
     openai_messages_to_anthropic_messages, openai_tool_choice_to_anthropic_tool_choice,
     openai_tools_to_anthropic_tools, validate_anthropic_request_messages,
 };
+use crate::capabilities::AnthropicThinkingOutputPolicy;
 use crate::request::{ContentBlock, THINKING_SIGNATURE_PLACEHOLDER_VALUE};
 
 #[test]
@@ -609,19 +611,22 @@ fn anthropic_messages_convert_to_openai_messages() {
 
 #[test]
 fn openai_message_downstream_blocks_include_thinking_and_tool_use() {
-    let blocks = openai_message_to_anthropic_content_blocks(&json!({
-        "role": "assistant",
-        "reasoning_content": "need weather first",
-        "content": "I'll call a tool",
-        "tool_calls": [{
-            "id": "call_1",
-            "type": "function",
-            "function": {
-                "name": "lookup_weather",
-                "arguments": "{\"city\":\"Paris\"}"
-            }
-        }]
-    }));
+    let blocks = openai_message_to_anthropic_content_blocks_with_policy(
+        &json!({
+            "role": "assistant",
+            "reasoning_content": "need weather first",
+            "content": "I'll call a tool",
+            "tool_calls": [{
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": "lookup_weather",
+                    "arguments": "{\"city\":\"Paris\"}"
+                }
+            }]
+        }),
+        AnthropicThinkingOutputPolicy::PlaceholderThinking,
+    );
 
     assert_eq!(
         blocks[0].get("type").and_then(Value::as_str),

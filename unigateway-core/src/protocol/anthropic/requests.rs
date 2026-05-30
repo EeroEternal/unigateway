@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 
+use crate::conversion::{UpstreamToolChoiceProtocol, resolve_upstream_tool_choice};
 use crate::drivers::DriverEndpointContext;
 use crate::error::GatewayError;
 use crate::request::openai_messages_to_anthropic_messages;
@@ -13,7 +14,7 @@ use crate::request::{
 use crate::transport::TransportRequest;
 
 pub fn build_chat_request(
-    endpoint: &DriverEndpointContext,
+    endpoint: &mut DriverEndpointContext,
     request: &ProxyChatRequest,
 ) -> Result<TransportRequest, GatewayError> {
     let mut system_parts = Vec::new();
@@ -83,7 +84,7 @@ pub fn build_chat_request(
     if let Some(tools) = anthropic_tools(request)? {
         payload.insert("tools".to_string(), tools);
     }
-    if let Some(tool_choice) = anthropic_tool_choice(request)? {
+    if let Some(tool_choice) = anthropic_tool_choice(endpoint, request, payload.get("tools"))? {
         payload.insert("tool_choice".to_string(), tool_choice);
     }
     for (key, value) in request.extra.clone() {
@@ -131,12 +132,34 @@ fn anthropic_tools(request: &ProxyChatRequest) -> Result<Option<Value>, GatewayE
     Ok(request.tools.clone())
 }
 
-fn anthropic_tool_choice(request: &ProxyChatRequest) -> Result<Option<Value>, GatewayError> {
-    if !is_openai_chat_request(request) {
-        return Ok(request.tool_choice.clone());
-    }
+fn anthropic_tool_choice(
+    endpoint: &mut DriverEndpointContext,
+    request: &ProxyChatRequest,
+    tools: Option<&Value>,
+) -> Result<Option<Value>, GatewayError> {
+    let converted = if !is_openai_chat_request(request) {
+        request.tool_choice.clone()
+    } else {
+        openai_tool_choice_to_anthropic_tool_choice(request.tool_choice.clone())?
+    };
 
-    openai_tool_choice_to_anthropic_tool_choice(request.tool_choice.clone())
+    Ok(apply_anthropic_upstream_tool_choice(
+        endpoint, converted, tools,
+    ))
+}
+
+fn apply_anthropic_upstream_tool_choice(
+    endpoint: &mut DriverEndpointContext,
+    tool_choice: Option<Value>,
+    tools: Option<&Value>,
+) -> Option<Value> {
+    resolve_upstream_tool_choice(
+        &mut endpoint.metadata,
+        tool_choice,
+        tools,
+        &endpoint.capabilities.tool_calling(),
+        UpstreamToolChoiceProtocol::Anthropic,
+    )
 }
 
 fn is_openai_chat_request(request: &ProxyChatRequest) -> bool {

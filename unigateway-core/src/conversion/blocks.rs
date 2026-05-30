@@ -1,5 +1,6 @@
 use serde_json::{Value, json};
 
+use crate::capabilities::AnthropicThinkingOutputPolicy;
 use crate::error::GatewayError;
 use crate::request::{ContentBlock, THINKING_SIGNATURE_PLACEHOLDER_VALUE};
 
@@ -174,10 +175,22 @@ pub fn anthropic_content_to_blocks(content: &Value) -> Result<Vec<ContentBlock>,
 }
 
 pub fn openai_message_to_anthropic_content_blocks(message: &Value) -> Vec<Value> {
+    openai_message_to_anthropic_content_blocks_with_policy(
+        message,
+        AnthropicThinkingOutputPolicy::OmitThinking,
+    )
+}
+
+pub fn openai_message_to_anthropic_content_blocks_with_policy(
+    message: &Value,
+    policy: AnthropicThinkingOutputPolicy,
+) -> Vec<Value> {
+    let thinking_signature = thinking_signature_for_policy(message, policy);
     openai_message_to_anthropic_content_blocks_with_signature(
         message,
-        Some(THINKING_SIGNATURE_PLACEHOLDER_VALUE),
+        thinking_signature.as_deref(),
         false,
+        should_emit_thinking_block(message, policy),
     )
     .unwrap_or_default()
 }
@@ -185,20 +198,60 @@ pub fn openai_message_to_anthropic_content_blocks(message: &Value) -> Vec<Value>
 pub(crate) fn openai_message_to_anthropic_request_content_blocks(
     message: &Value,
 ) -> Result<Vec<Value>, GatewayError> {
-    openai_message_to_anthropic_content_blocks_with_signature(message, None, true)
+    openai_message_to_anthropic_content_blocks_with_signature(message, None, true, false)
+}
+
+fn should_emit_thinking_block(message: &Value, policy: AnthropicThinkingOutputPolicy) -> bool {
+    let has_thinking = message
+        .get("reasoning_content")
+        .or_else(|| message.get("thinking"))
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.is_empty());
+
+    if !has_thinking {
+        return false;
+    }
+
+    match policy {
+        AnthropicThinkingOutputPolicy::OmitThinking => false,
+        AnthropicThinkingOutputPolicy::PlaceholderThinking => true,
+        AnthropicThinkingOutputPolicy::Structured => message
+            .get("signature")
+            .and_then(Value::as_str)
+            .is_some_and(|signature| !is_placeholder_thinking_signature(signature)),
+    }
+}
+
+fn thinking_signature_for_policy(
+    message: &Value,
+    policy: AnthropicThinkingOutputPolicy,
+) -> Option<String> {
+    match policy {
+        AnthropicThinkingOutputPolicy::PlaceholderThinking => {
+            Some(THINKING_SIGNATURE_PLACEHOLDER_VALUE.to_string())
+        }
+        AnthropicThinkingOutputPolicy::Structured => message
+            .get("signature")
+            .and_then(Value::as_str)
+            .filter(|signature| !is_placeholder_thinking_signature(signature))
+            .map(str::to_string),
+        AnthropicThinkingOutputPolicy::OmitThinking => None,
+    }
 }
 
 fn openai_message_to_anthropic_content_blocks_with_signature(
     message: &Value,
     thinking_signature: Option<&str>,
     strict: bool,
+    include_thinking: bool,
 ) -> Result<Vec<Value>, GatewayError> {
     let mut content_blocks = Vec::new();
 
-    if let Some(thinking) = message
-        .get("reasoning_content")
-        .or_else(|| message.get("thinking"))
-        .and_then(Value::as_str)
+    if include_thinking
+        && let Some(thinking) = message
+            .get("reasoning_content")
+            .or_else(|| message.get("thinking"))
+            .and_then(Value::as_str)
     {
         let mut block = serde_json::Map::from_iter([
             ("type".to_string(), Value::String("thinking".to_string())),

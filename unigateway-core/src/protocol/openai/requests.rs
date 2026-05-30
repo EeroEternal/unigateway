@@ -1,5 +1,6 @@
 use serde_json::{Value, json};
 
+use crate::conversion::{UpstreamToolChoiceProtocol, resolve_upstream_tool_choice};
 use crate::drivers::DriverEndpointContext;
 use crate::error::GatewayError;
 use crate::request::{
@@ -11,7 +12,7 @@ use crate::transport::TransportRequest;
 use std::collections::HashMap;
 
 pub fn build_chat_request(
-    endpoint: &DriverEndpointContext,
+    endpoint: &mut DriverEndpointContext,
     request: &ProxyChatRequest,
 ) -> Result<TransportRequest, GatewayError> {
     let mut payload = serde_json::Map::from_iter([
@@ -44,8 +45,11 @@ pub fn build_chat_request(
     if let Some(tools) = anthropic_tools_to_openai_tools(request.tools.clone()) {
         payload.insert("tools".to_string(), tools);
     }
+    let openai_tools = payload.get("tools");
+    let openai_tool_choice =
+        anthropic_tool_choice_to_openai_tool_choice(request.tool_choice.clone())?;
     if let Some(tool_choice) =
-        anthropic_tool_choice_to_openai_tool_choice(request.tool_choice.clone())?
+        apply_openai_upstream_tool_choice(endpoint, openai_tool_choice, openai_tools)
     {
         payload.insert("tool_choice".to_string(), tool_choice);
     }
@@ -267,7 +271,7 @@ fn openai_image_content_block(source: &Value, detail: Option<&str>) -> Value {
 }
 
 pub fn build_responses_request(
-    endpoint: &DriverEndpointContext,
+    endpoint: &mut DriverEndpointContext,
     request: &ProxyResponsesRequest,
 ) -> Result<TransportRequest, GatewayError> {
     let mut payload = serde_json::Map::from_iter([
@@ -296,7 +300,11 @@ pub fn build_responses_request(
     if let Some(tools) = request.tools.clone() {
         payload.insert("tools".to_string(), tools);
     }
-    if let Some(tool_choice) = request.tool_choice.clone() {
+    if let Some(tool_choice) = apply_openai_upstream_tool_choice(
+        endpoint,
+        request.tool_choice.clone(),
+        payload.get("tools"),
+    ) {
         payload.insert("tool_choice".to_string(), tool_choice);
     }
     if let Some(previous_response_id) = request.previous_response_id.clone() {
@@ -380,6 +388,20 @@ fn openai_role(role: MessageRole) -> &'static str {
 
 fn join_url(base_url: &str, path: &str) -> String {
     format!("{}/{}", base_url.trim_end_matches('/'), path)
+}
+
+fn apply_openai_upstream_tool_choice(
+    endpoint: &mut DriverEndpointContext,
+    tool_choice: Option<Value>,
+    tools: Option<&Value>,
+) -> Option<Value> {
+    resolve_upstream_tool_choice(
+        &mut endpoint.metadata,
+        tool_choice,
+        tools,
+        &endpoint.capabilities.tool_calling(),
+        UpstreamToolChoiceProtocol::OpenAi,
+    )
 }
 
 #[cfg(test)]
