@@ -28,6 +28,8 @@ pub mod request;
 #[allow(missing_docs)]
 pub mod response;
 #[allow(missing_docs)]
+pub mod responses_retry;
+#[allow(missing_docs)]
 pub mod retry;
 #[allow(missing_docs)]
 pub mod routing;
@@ -35,8 +37,13 @@ pub mod routing;
 pub mod transport;
 
 pub use capabilities::{
-    AnthropicThinkingOutputPolicy, EndpointCapabilities, ReasoningCapabilities,
+    AnthropicThinkingOutputPolicy, EndpointCapabilities,
+    OPENAI_CHAT_TOOLS_WITH_REASONING_EFFORT_KEY, OPENAI_RESPONSES_OPTIONAL_TOOLS_RETRY_KEY,
+    OPENAI_RESPONSES_TOOLS_WITH_REASONING_KEY, OpenAiApiSurfaceCapabilities, ReasoningCapabilities,
     ToolCallingCapabilities, ToolChoiceDowngradeTarget, ToolChoiceMode,
+};
+pub use conversion::{
+    normalize_proxy_responses_request, proxy_responses_request_uses_tools_and_reasoning,
 };
 pub use drivers::{DriverEndpointContext, DriverRegistry, ProviderDriver};
 pub use engine::{UniGatewayEngine, UniGatewayEngineBuilder};
@@ -76,4 +83,5 @@ pub use response::{
     ResponsesEvent, ResponsesFinal, StreamKind, StreamOutcome, StreamReport, StreamingResponse,
     TokenUsage,
 };
+pub use responses_retry::should_retry_responses_without_tools;
 pub use retry::{BackoffPolicy, LoadBalancingStrategy, RetryCondition, RetryPolicy};

@@ -1,5 +1,6 @@
 mod blocks;
 mod messages;
+mod responses_fields;
 mod tool_calls;
 mod tool_choice_normalize;
 mod tools;
@@ -18,6 +19,9 @@ pub use blocks::{
 pub use messages::{
     anthropic_messages_to_openai_messages, openai_messages_to_anthropic_messages,
     validate_anthropic_request_messages,
+};
+pub use responses_fields::{
+    normalize_proxy_responses_request, proxy_responses_request_uses_tools_and_reasoning,
 };
 pub use tool_calls::{
     AnthropicInputJsonDelta, AnthropicToolUseStart, OpenAiToolCallDeltaUpdate,

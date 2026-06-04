@@ -4,6 +4,8 @@ mod requests;
 mod streaming;
 
 #[cfg(test)]
+mod responses_tool_loop_tests;
+#[cfg(test)]
 mod tests;
 
 pub use driver::OpenAiCompatibleDriver;

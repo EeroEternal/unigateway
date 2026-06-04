@@ -19,6 +19,10 @@ pub use responses::{
     render_openai_embeddings_response, render_openai_responses_session,
     render_openai_responses_stream_from_completed,
 };
+pub use unigateway_core::{
+    OpenAiApiSurfaceCapabilities, normalize_proxy_responses_request,
+    proxy_responses_request_uses_tools_and_reasoning, should_retry_responses_without_tools,
+};
 
 pub mod testing {
     pub use crate::responses::{

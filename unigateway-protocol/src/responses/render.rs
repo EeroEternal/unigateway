@@ -120,20 +120,20 @@ pub fn render_openai_responses_session(
     match session {
         ProxySession::Completed(result) => {
             let raw = result.response.raw;
-            let body = if raw.is_object() {
+            let mut body = if raw.is_object() {
                 raw
             } else {
                 serde_json::json!({
                     "id": result.report.request_id,
                     "object": "response",
                     "output_text": result.response.output_text,
-                    "usage": result.report.usage.as_ref().map(|usage| serde_json::json!({
-                        "input_tokens": usage.input_tokens,
-                        "output_tokens": usage.output_tokens,
-                        "total_tokens": usage.total_tokens,
-                    })),
                 })
             };
+            if let Some(usage) = result.report.usage.as_ref()
+                && let Some(object) = body.as_object_mut()
+            {
+                object.insert("usage".to_string(), responses_usage_payload(usage));
+            }
             ProtocolHttpResponse::ok_json(body)
         }
         ProxySession::Streaming(streaming) => {
@@ -195,10 +195,20 @@ pub fn render_openai_responses_stream_from_completed(
                 .unwrap_or_default()
                 .to_string();
             let text = result.response.output_text.unwrap_or_default();
-            let usage = raw
-                .get("usage")
-                .cloned()
-                .unwrap_or_else(|| responses_usage_payload(result.report.usage.as_ref()));
+            let usage = raw.get("usage").cloned().unwrap_or_else(|| {
+                result
+                    .report
+                    .usage
+                    .as_ref()
+                    .map(responses_usage_payload)
+                    .unwrap_or_else(|| {
+                        serde_json::json!({
+                            "input_tokens": 0,
+                            "output_tokens": 0,
+                            "total_tokens": 0,
+                        })
+                    })
+            });
 
             let mut chunks: Vec<Result<Bytes, io::Error>> = Vec::new();
 
@@ -440,10 +450,26 @@ fn openai_usage_to_anthropic(usage: Option<&serde_json::Value>) -> Option<serde_
     Some(anthropic_usage)
 }
 
-fn responses_usage_payload(usage: Option<&TokenUsage>) -> serde_json::Value {
-    serde_json::json!({
-        "input_tokens": usage.and_then(|usage| usage.input_tokens).unwrap_or(0),
-        "output_tokens": usage.and_then(|usage| usage.output_tokens).unwrap_or(0),
-        "total_tokens": usage.and_then(|usage| usage.total_tokens).unwrap_or(0),
-    })
+fn responses_usage_payload(usage: &TokenUsage) -> serde_json::Value {
+    let mut object = serde_json::Map::from_iter([
+        (
+            "input_tokens".to_string(),
+            serde_json::json!(usage.input_tokens.unwrap_or(0)),
+        ),
+        (
+            "output_tokens".to_string(),
+            serde_json::json!(usage.output_tokens.unwrap_or(0)),
+        ),
+        (
+            "total_tokens".to_string(),
+            serde_json::json!(usage.total_tokens.unwrap_or(0)),
+        ),
+    ]);
+    if let Some(reasoning_tokens) = usage.reasoning_tokens {
+        object.insert(
+            "output_tokens_details".to_string(),
+            serde_json::json!({ "reasoning_tokens": reasoning_tokens }),
+        );
+    }
+    serde_json::Value::Object(object)
 }

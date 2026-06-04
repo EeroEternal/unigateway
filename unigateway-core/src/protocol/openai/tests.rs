@@ -77,6 +77,48 @@ fn endpoint() -> DriverEndpointContext {
 }
 
 #[test]
+fn build_chat_request_forwards_http_header_metadata() {
+    let mut endpoint = endpoint();
+    endpoint.metadata.insert(
+        "http_header.HTTP-Referer".to_string(),
+        "https://example.com".to_string(),
+    );
+    endpoint
+        .metadata
+        .insert("http_header.X-Title".to_string(), "Test App".to_string());
+
+    let request = build_chat_request(
+        &mut endpoint,
+        &ProxyChatRequest {
+            model: "gpt-4o-mini".to_string(),
+            messages: vec![Message::text(MessageRole::User, "hello")],
+            system: None,
+            tools: None,
+            tool_choice: None,
+            raw_messages: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: None,
+            stop_sequences: None,
+            stream: false,
+            extra: HashMap::new(),
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("chat request");
+
+    assert_eq!(
+        request.headers.get("HTTP-Referer").map(String::as_str),
+        Some("https://example.com")
+    );
+    assert_eq!(
+        request.headers.get("X-Title").map(String::as_str),
+        Some("Test App")
+    );
+}
+
+#[test]
 fn build_chat_request_maps_model_and_url() {
     let request = build_chat_request(
         &mut endpoint(),
@@ -541,6 +583,7 @@ fn build_chat_request_memtensor_style_downgrades_named_function_to_required() {
         api_key: SecretString::new("sk-test"),
         model_policy: ModelPolicy::default(),
         capabilities: EndpointCapabilities {
+            openai_api_surface: None,
             tool_calling: Some(ToolCallingCapabilities::memtensor_style()),
             reasoning: None,
         },
@@ -585,6 +628,44 @@ fn build_chat_request_memtensor_style_downgrades_named_function_to_required() {
 }
 
 #[test]
+fn build_responses_request_maps_reasoning_effort_with_tools() {
+    let request = build_responses_request(
+        &mut endpoint(),
+        &ProxyResponsesRequest {
+            model: "gpt-5.5".to_string(),
+            input: Some(json!([{"role": "user", "content": "hello"}])),
+            instructions: None,
+            temperature: None,
+            top_p: None,
+            max_output_tokens: None,
+            stream: false,
+            tools: Some(json!([{
+                "type": "function",
+                "name": "lookup_weather",
+                "parameters": {"type": "object", "properties": {}}
+            }])),
+            tool_choice: Some(json!("auto")),
+            reasoning: None,
+            previous_response_id: None,
+            request_metadata: None,
+            extra: HashMap::from([("reasoning_effort".to_string(), json!("high"))]),
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("responses request");
+
+    let body: Value = serde_json::from_slice(&request.body.expect("body")).expect("json body");
+    assert!(body.get("tools").and_then(Value::as_array).is_some());
+    assert_eq!(
+        body.get("reasoning")
+            .and_then(|value| value.get("effort"))
+            .and_then(Value::as_str),
+        Some("high")
+    );
+    assert!(body.get("reasoning_effort").is_none());
+}
+
+#[test]
 fn build_responses_request_forwards_supported_optional_fields() {
     let request = build_responses_request(
         &mut endpoint(),
@@ -609,6 +690,7 @@ fn build_responses_request_forwards_supported_optional_fields() {
                 }
             }])),
             tool_choice: Some(json!("auto")),
+            reasoning: None,
             previous_response_id: Some("resp_prev".to_string()),
             request_metadata: Some(json!({"trace_id": "abc"})),
             extra: HashMap::from([("reasoning".to_string(), json!({"effort": "high"}))]),
@@ -678,6 +760,28 @@ fn build_embeddings_request_preserves_encoding_format() {
         body.get("encoding_format").and_then(Value::as_str),
         Some("float")
     );
+}
+
+#[test]
+fn parse_responses_response_reads_reasoning_tokens() {
+    let (_, usage) = parse_responses_response(
+        &serde_json::to_vec(&json!({
+            "id": "resp_1",
+            "output_text": "hello",
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 8,
+                "total_tokens": 18,
+                "output_tokens_details": {
+                    "reasoning_tokens": 3
+                }
+            }
+        }))
+        .expect("response body"),
+    )
+    .expect("parse response");
+
+    assert_eq!(usage.and_then(|usage| usage.reasoning_tokens), Some(3));
 }
 
 #[test]
@@ -823,6 +927,7 @@ async fn openai_driver_executes_non_streaming_operations() {
                 stream: false,
                 tools: None,
                 tool_choice: None,
+                reasoning: None,
                 previous_response_id: None,
                 request_metadata: None,
                 extra: HashMap::new(),
@@ -993,6 +1098,7 @@ async fn openai_driver_executes_streaming_responses() {
                 stream: true,
                 tools: None,
                 tool_choice: None,
+                reasoning: None,
                 previous_response_id: None,
                 request_metadata: None,
                 extra: HashMap::new(),
@@ -1063,6 +1169,7 @@ async fn openai_driver_streaming_responses_completion_survives_dropped_stream() 
                 stream: true,
                 tools: None,
                 tool_choice: None,
+                reasoning: None,
                 previous_response_id: None,
                 request_metadata: None,
                 extra: HashMap::new(),

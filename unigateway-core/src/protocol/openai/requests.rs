@@ -1,6 +1,8 @@
 use serde_json::{Value, json};
 
-use crate::conversion::{UpstreamToolChoiceProtocol, resolve_upstream_tool_choice};
+use crate::conversion::{
+    UpstreamToolChoiceProtocol, normalize_proxy_responses_request, resolve_upstream_tool_choice,
+};
 use crate::drivers::DriverEndpointContext;
 use crate::error::GatewayError;
 use crate::request::{
@@ -274,6 +276,9 @@ pub fn build_responses_request(
     endpoint: &mut DriverEndpointContext,
     request: &ProxyResponsesRequest,
 ) -> Result<TransportRequest, GatewayError> {
+    let mut request = request.clone();
+    normalize_proxy_responses_request(&mut request);
+
     let mut payload = serde_json::Map::from_iter([
         (
             "model".to_string(),
@@ -312,6 +317,9 @@ pub fn build_responses_request(
             "previous_response_id".to_string(),
             Value::String(previous_response_id),
         );
+    }
+    if let Some(reasoning) = request.reasoning.clone() {
+        payload.insert("reasoning".to_string(), reasoning);
     }
     if let Some(request_metadata) = request.request_metadata.clone() {
         payload.insert("metadata".to_string(), request_metadata);
@@ -358,13 +366,24 @@ pub fn build_embeddings_request(
 }
 
 fn openai_headers(endpoint: &DriverEndpointContext) -> HashMap<String, String> {
-    HashMap::from([
+    let mut headers = HashMap::from([
         (
             "authorization".to_string(),
             format!("Bearer {}", endpoint.api_key.expose_secret()),
         ),
         ("content-type".to_string(), "application/json".to_string()),
-    ])
+    ]);
+
+    for (key, value) in &endpoint.metadata {
+        let Some(header_name) = key.strip_prefix("http_header.") else {
+            continue;
+        };
+        if !value.is_empty() {
+            headers.insert(header_name.to_string(), value.clone());
+        }
+    }
+
+    headers
 }
 
 fn resolved_model(endpoint: &DriverEndpointContext, requested_model: &str) -> String {

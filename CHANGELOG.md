@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.3.0]
+
+### Added
+
+* **OpenAI Responses API (gpt-5.5 tools + reasoning)**: `ProxyResponsesRequest.reasoning`, `normalize_proxy_responses_request` maps Chat-style `reasoning_effort` to Responses `reasoning`; `build_responses_request` renders tools, reasoning, and structured `input` without flattening tool-loop items.
+* **`OpenAiApiSurfaceCapabilities`**: per-model defaults for gpt-5.4 vs gpt-5.5 (chat vs responses surfaces) with `unigateway.openai.*` metadata keys for embedders.
+* **Responses retry policy**: `should_retry_responses_without_tools` refuses tool-stripping when tools+reasoning are required or upstream directs callers to `/v1/responses`.
+* **`TokenUsage.reasoning_tokens`**: parsed from Responses usage for billing/reporting; OpenAI responses renderer injects normalized usage into completed JSON bodies.
+* **Optional upstream HTTP headers**: endpoint metadata keys `http_header.*` (e.g. OpenRouter `HTTP-Referer`, `X-Title`) forwarded on OpenAI-compatible requests.
+* **Live upstream test**: `unigateway-core/tests/live_openai_responses_upstream.rs` (`#[ignore]`, `OPENROUTER_API_KEY` / `OPENAI_API_KEY`).
+* **Regression tests**: Responses tool-loop (non-stream + stream, single/double round), engine hooks `RequestKind::Responses`, protocol `reasoning_effort` mapping.
+
+### Changed
+
+* **Host Responses compat**: tool-stripping retry is capability- and error-aware instead of retrying on any failure when tools are present.
+
 ## [2.2.0]
 
 ### Added

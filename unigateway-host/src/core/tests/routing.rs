@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use unigateway_core::{
     Endpoint, EndpointCapabilities, EndpointRef, ExecutionPlan, ExecutionTarget, GatewayError,
-    ModelPolicy, ProviderKind, ProxyResponsesRequest, SecretString,
+    ModelPolicy, OpenAiApiSurfaceCapabilities, ProviderKind, ProxyResponsesRequest, SecretString,
+    should_retry_responses_without_tools,
 };
 
 use super::super::dispatch::{should_preserve_stream_error, without_response_tools};
@@ -62,6 +63,7 @@ fn responses_tool_stripping_clears_tool_fields_only() {
         stream: true,
         tools: Some(serde_json::json!([])),
         tool_choice: Some(serde_json::json!("auto")),
+        reasoning: None,
         previous_response_id: Some("resp_prev".to_string()),
         request_metadata: Some(serde_json::json!({"trace_id": "abc"})),
         extra: std::collections::HashMap::new(),
@@ -72,6 +74,36 @@ fn responses_tool_stripping_clears_tool_fields_only() {
     assert!(request.tool_choice.is_none());
     assert_eq!(request.instructions.as_deref(), Some("be terse"));
     assert_eq!(request.previous_response_id.as_deref(), Some("resp_prev"));
+}
+
+#[test]
+fn gpt55_responses_does_not_retry_without_tools_when_reasoning_and_tools_present() {
+    let request = ProxyResponsesRequest {
+        model: "gpt-5.5".to_string(),
+        input: None,
+        instructions: None,
+        temperature: None,
+        top_p: None,
+        max_output_tokens: None,
+        stream: false,
+        tools: Some(serde_json::json!([])),
+        tool_choice: None,
+        reasoning: Some(serde_json::json!({"effort": "low"})),
+        previous_response_id: None,
+        request_metadata: None,
+        extra: HashMap::new(),
+        metadata: HashMap::new(),
+    };
+    let error = GatewayError::UpstreamHttp {
+        status: 500,
+        body: Some("upstream failed".to_string()),
+        endpoint_id: "ep".to_string(),
+    };
+    let surface = OpenAiApiSurfaceCapabilities::resolve_for_model("gpt-5.5", None);
+
+    assert!(!should_retry_responses_without_tools(
+        &request, &error, &surface
+    ));
 }
 
 #[test]

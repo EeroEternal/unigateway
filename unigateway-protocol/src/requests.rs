@@ -7,7 +7,7 @@ use unigateway_core::{
     ClientProtocol, ContentBlock, Message as CoreMessage, MessageRole, ProxyChatRequest,
     ProxyEmbeddingsRequest, ProxyResponsesRequest, ThinkingSignatureStatus,
     anthropic_content_to_blocks, is_placeholder_thinking_signature,
-    openai_message_to_content_blocks,
+    normalize_proxy_responses_request, openai_message_to_content_blocks,
 };
 
 pub const ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY: &str = "unigateway.requested_model_alias";
@@ -70,7 +70,7 @@ pub fn openai_payload_to_responses_request(
     let request = serde_json::from_value::<IncomingResponsesRequest>(payload.clone())
         .map_err(|error| anyhow!("failed to parse responses request: {error}"))?;
 
-    Ok(ProxyResponsesRequest {
+    let mut proxy = ProxyResponsesRequest {
         model: request.model.unwrap_or_else(|| default_model.to_string()),
         input: request.input,
         instructions: request.instructions,
@@ -80,11 +80,14 @@ pub fn openai_payload_to_responses_request(
         stream: request.stream.unwrap_or(false),
         tools: request.tools,
         tool_choice: request.tool_choice,
+        reasoning: request.reasoning,
         previous_response_id: request.previous_response_id,
         request_metadata: request.request_metadata,
         extra: filtered_response_extra(request.extra),
         metadata: HashMap::new(),
-    })
+    };
+    normalize_proxy_responses_request(&mut proxy);
+    Ok(proxy)
 }
 
 /// Translates an Anthropic-compatible JSON payload into a core `ProxyChatRequest`.
@@ -409,6 +412,8 @@ struct IncomingResponsesRequest {
     #[serde(default)]
     tool_choice: Option<Value>,
     #[serde(default)]
+    reasoning: Option<Value>,
+    #[serde(default)]
     previous_response_id: Option<String>,
     #[serde(default, rename = "metadata")]
     request_metadata: Option<Value>,
@@ -561,6 +566,49 @@ mod tests {
     }
 
     #[test]
+    fn responses_request_maps_reasoning_effort_to_reasoning() {
+        let req = openai_payload_to_responses_request(
+            &json!({
+                "model": "gpt-5.5",
+                "input": [{"role": "user", "content": "hello"}],
+                "tools": [{"type": "function", "name": "lookup"}],
+                "reasoning_effort": "low"
+            }),
+            "gpt-5.5",
+        )
+        .expect("request");
+
+        assert_eq!(req.reasoning, Some(json!({"effort": "low"})));
+        assert!(!req.extra.contains_key("reasoning_effort"));
+    }
+
+    #[test]
+    fn responses_request_preserves_function_call_output_input_items() {
+        let req = openai_payload_to_responses_request(
+            &json!({
+                "model": "gpt-5.5",
+                "input": [
+                    {"type": "function_call", "call_id": "call_1", "name": "lookup", "arguments": "{}"},
+                    {"type": "function_call_output", "call_id": "call_1", "output": "sunny"}
+                ]
+            }),
+            "gpt-5.5",
+        )
+        .expect("request");
+
+        let input = req.input.expect("input");
+        let items = input.as_array().expect("input array");
+        assert_eq!(
+            items[0].get("type").and_then(Value::as_str),
+            Some("function_call")
+        );
+        assert_eq!(
+            items[1].get("type").and_then(Value::as_str),
+            Some("function_call_output")
+        );
+    }
+
+    #[test]
     fn responses_extra_filter_strips_gateway_routing_hints_only() {
         let filtered = openai_payload_to_responses_request(
             &json!({
@@ -574,7 +622,8 @@ mod tests {
         )
         .expect("request");
 
-        assert!(filtered.extra.contains_key("reasoning"));
+        assert_eq!(filtered.reasoning, Some(json!({"effort": "high"})));
+        assert!(!filtered.extra.contains_key("reasoning"));
         assert!(!filtered.extra.contains_key("target_provider"));
         assert!(!filtered.extra.contains_key("provider"));
     }

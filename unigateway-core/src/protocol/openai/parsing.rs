@@ -67,6 +67,7 @@ pub(super) fn parse_openai_usage(raw: &Value) -> Option<TokenUsage> {
         input_tokens: usage.get("prompt_tokens").and_then(Value::as_u64),
         output_tokens: usage.get("completion_tokens").and_then(Value::as_u64),
         total_tokens: usage.get("total_tokens").and_then(Value::as_u64),
+        reasoning_tokens: None,
     })
 }
 
@@ -100,6 +101,12 @@ pub(super) fn parse_responses_usage(raw: &Value) -> Option<TokenUsage> {
         .and_then(|response| response.get("usage"))
         .or_else(|| raw.get("usage"))?;
 
+    let reasoning_tokens = usage
+        .get("output_tokens_details")
+        .and_then(|details| details.get("reasoning_tokens"))
+        .or_else(|| usage.get("reasoning_tokens"))
+        .and_then(Value::as_u64);
+
     Some(TokenUsage {
         input_tokens: usage
             .get("input_tokens")
@@ -110,5 +117,6 @@ pub(super) fn parse_responses_usage(raw: &Value) -> Option<TokenUsage> {
             .or_else(|| usage.get("completion_tokens"))
             .and_then(Value::as_u64),
         total_tokens: usage.get("total_tokens").and_then(Value::as_u64),
+        reasoning_tokens,
     })
 }

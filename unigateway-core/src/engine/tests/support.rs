@@ -107,6 +107,7 @@ pub(super) fn responses_request(stream: bool) -> ProxyResponsesRequest {
         stream,
         tools: None,
         tool_choice: None,
+        reasoning: None,
         previous_response_id: None,
         request_metadata: None,
         extra: HashMap::new(),

@@ -806,3 +806,71 @@ async fn openai_renderer_streaming_anthropic_thinking_blocks() {
         _ => panic!("expected sse body"),
     }
 }
+
+#[test]
+fn openai_responses_renderer_preserves_function_call_body_and_reasoning_usage() {
+    use std::collections::HashMap;
+
+    use unigateway_core::{
+        CompletedResponse, ProviderKind, ProxySession, RequestKind, RequestReport, ResponsesFinal,
+        TokenUsage,
+    };
+
+    use super::render_openai_responses_session;
+
+    let raw = json!({
+        "id": "resp_tool_1",
+        "object": "response",
+        "status": "completed",
+        "output": [{
+            "type": "function_call",
+            "call_id": "call_1",
+            "name": "get_weather",
+            "arguments": "{\"city\":\"SF\"}"
+        }]
+    });
+
+    let http = render_openai_responses_session(ProxySession::Completed(CompletedResponse {
+        response: ResponsesFinal {
+            output_text: None,
+            raw,
+        },
+        report: RequestReport {
+            request_id: "req_tool_1".to_string(),
+            correlation_id: "req_tool_1".to_string(),
+            pool_id: Some("pool".to_string()),
+            selected_endpoint_id: "ep".to_string(),
+            selected_provider: ProviderKind::OpenAiCompatible,
+            kind: RequestKind::Responses,
+            attempts: vec![],
+            usage: Some(TokenUsage {
+                input_tokens: Some(20),
+                output_tokens: Some(8),
+                total_tokens: Some(28),
+                reasoning_tokens: Some(3),
+            }),
+            latency_ms: 5,
+            started_at: std::time::SystemTime::UNIX_EPOCH,
+            finished_at: std::time::SystemTime::UNIX_EPOCH,
+            error_kind: None,
+            stream: None,
+            metadata: HashMap::new(),
+        },
+    }));
+
+    let (_, body) = http.into_parts();
+    let body = match body {
+        crate::ProtocolResponseBody::Json(value) => value,
+        _ => panic!("expected json body"),
+    };
+
+    assert_eq!(
+        body.pointer("/output/0/type").and_then(|v| v.as_str()),
+        Some("function_call")
+    );
+    assert_eq!(
+        body.pointer("/usage/output_tokens_details/reasoning_tokens")
+            .and_then(|v| v.as_u64()),
+        Some(3)
+    );
+}
