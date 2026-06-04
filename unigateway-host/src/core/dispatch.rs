@@ -129,10 +129,6 @@ pub(super) fn without_response_tools(request: ProxyResponsesRequest) -> ProxyRes
     }
 }
 
-pub(super) fn should_retry_responses_without_tools(request: &ProxyResponsesRequest) -> bool {
-    request.tools.is_some() || request.tool_choice.is_some()
-}
-
 pub(super) fn should_preserve_stream_error(
     stream_error: &GatewayError,
     fallback_error: &GatewayError,

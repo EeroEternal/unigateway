@@ -1,4 +1,7 @@
-use unigateway_core::{ExecutionTarget, GatewayError, ProviderPool, ProxyResponsesRequest};
+use unigateway_core::{
+    ExecutionTarget, GatewayError, OpenAiApiSurfaceCapabilities, ProviderKind, ProviderPool,
+    ProxyResponsesRequest, should_retry_responses_without_tools,
+};
 use unigateway_protocol::{
     ProtocolHttpResponse, render_openai_responses_session,
     render_openai_responses_stream_from_completed,
@@ -7,10 +10,8 @@ use unigateway_protocol::{
 use crate::error::{HostError, HostResult};
 use crate::host::HostContext;
 
-use super::dispatch::{
-    should_preserve_stream_error, should_retry_responses_without_tools, without_response_tools,
-};
-use super::targeting::build_openai_compatible_target;
+use super::dispatch::{should_preserve_stream_error, without_response_tools};
+use super::targeting::{build_openai_compatible_target, endpoint_matches_hint};
 
 pub(super) async fn execute_openai_responses_via_core(
     host: &HostContext<'_>,
@@ -21,10 +22,12 @@ pub(super) async fn execute_openai_responses_via_core(
     let target = build_openai_compatible_target(&pool.endpoints, &pool.pool_id, hint)
         .map_err(HostError::targeting)?;
 
+    let api_surface = resolve_openai_api_surface_for_request(pool, hint, &request.model);
+
     let response =
         match execute_openai_responses_with_compat(host, target.clone(), request.clone()).await {
             Ok(response) => response,
-            Err(_) if should_retry_responses_without_tools(&request) => {
+            Err(error) if should_retry_responses_without_tools(&request, &error, &api_surface) => {
                 execute_openai_responses_with_compat(host, target, without_response_tools(request))
                     .await
                     .map_err(HostError::core)?
@@ -71,4 +74,25 @@ async fn execute_openai_responses_with_compat(
         .proxy_responses(request, target)
         .await
         .map(render_openai_responses_session)
+}
+
+fn resolve_openai_api_surface_for_request(
+    pool: &ProviderPool,
+    hint: Option<&str>,
+    model: &str,
+) -> OpenAiApiSurfaceCapabilities {
+    let endpoint = pool
+        .endpoints
+        .iter()
+        .filter(|endpoint| endpoint.enabled)
+        .filter(|endpoint| endpoint.provider_kind == ProviderKind::OpenAiCompatible)
+        .find(|endpoint| {
+            hint.map(|hint| endpoint_matches_hint(endpoint, hint))
+                .unwrap_or(true)
+        });
+
+    OpenAiApiSurfaceCapabilities::resolve_for_model(
+        model,
+        endpoint.and_then(|endpoint| endpoint.capabilities.openai_api_surface()),
+    )
 }

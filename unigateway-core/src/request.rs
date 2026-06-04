@@ -261,6 +261,8 @@ pub struct ProxyResponsesRequest {
     pub stream: bool,
     pub tools: Option<serde_json::Value>,
     pub tool_choice: Option<serde_json::Value>,
+    /// OpenAI Responses API `reasoning` object (e.g. `{"effort": "low"}`).
+    pub reasoning: Option<serde_json::Value>,
     pub previous_response_id: Option<String>,
     pub request_metadata: Option<serde_json::Value>,
     pub extra: HashMap<String, serde_json::Value>,

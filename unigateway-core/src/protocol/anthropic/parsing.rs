@@ -38,6 +38,7 @@ pub fn parse_chat_response(
 pub(super) fn parse_anthropic_usage(raw: &Value) -> Option<TokenUsage> {
     let usage = raw.get("usage")?;
     Some(TokenUsage {
+        reasoning_tokens: None,
         input_tokens: usage.get("input_tokens").and_then(Value::as_u64),
         output_tokens: usage.get("output_tokens").and_then(Value::as_u64),
         total_tokens: match (
