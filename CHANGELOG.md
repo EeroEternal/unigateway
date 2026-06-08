@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.3.1]
+
+### Changed
+
+* **OpenAI Chat Completions output token fields**: when the client explicitly sends `max_completion_tokens`, upstream requests emit only that field and omit `max_tokens` (including conflicting values in `extra`). Clients that send only `max_tokens` continue to forward `max_tokens` unchanged; UniGateway does not auto-map legacy `max_tokens` to `max_completion_tokens`.
+
 ## [2.3.0]
 
 ### Added
