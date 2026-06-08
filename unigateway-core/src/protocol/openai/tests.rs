@@ -354,11 +354,104 @@ fn build_chat_request_merges_extra_without_overriding_core_fields() {
         body.get("max_completion_tokens").and_then(Value::as_u64),
         Some(1024)
     );
-    assert_eq!(body.get("max_tokens").and_then(Value::as_u64), Some(32));
+    assert!(body.get("max_tokens").is_none());
     assert_eq!(
         body.get("model").and_then(Value::as_str),
         Some("mapped-model")
     );
+}
+
+#[test]
+fn build_chat_request_uses_max_completion_tokens_when_client_provides_it() {
+    let request = build_chat_request(
+        &mut endpoint(),
+        &ProxyChatRequest {
+            model: "gpt-5.4-pro".to_string(),
+            messages: vec![Message::text(MessageRole::User, "hello")],
+            system: None,
+            tools: None,
+            tool_choice: None,
+            raw_messages: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: Some(1024),
+            stop_sequences: None,
+            stream: false,
+            extra: HashMap::from([("max_completion_tokens".to_string(), json!(1024))]),
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("chat request");
+
+    let body: Value = serde_json::from_slice(&request.body.expect("body")).expect("json body");
+    assert_eq!(
+        body.get("max_completion_tokens").and_then(Value::as_u64),
+        Some(1024)
+    );
+    assert!(body.get("max_tokens").is_none());
+}
+
+#[test]
+fn build_chat_request_preserves_explicit_max_completion_tokens_over_max_tokens() {
+    let request = build_chat_request(
+        &mut endpoint(),
+        &ProxyChatRequest {
+            model: "gpt-5.4-pro".to_string(),
+            messages: vec![Message::text(MessageRole::User, "hello")],
+            system: None,
+            tools: None,
+            tool_choice: None,
+            raw_messages: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: Some(1024),
+            stop_sequences: None,
+            stream: false,
+            extra: HashMap::from([("max_completion_tokens".to_string(), json!(2048))]),
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("chat request");
+
+    let body: Value = serde_json::from_slice(&request.body.expect("body")).expect("json body");
+    assert_eq!(
+        body.get("max_completion_tokens").and_then(Value::as_u64),
+        Some(2048)
+    );
+    assert!(body.get("max_tokens").is_none());
+}
+
+#[test]
+fn build_chat_request_forwards_max_tokens_when_client_provides_only_max_tokens() {
+    let mut endpoint = endpoint();
+    endpoint.model_policy.default_model = None;
+
+    let request = build_chat_request(
+        &mut endpoint,
+        &ProxyChatRequest {
+            model: "gpt-5.4-pro".to_string(),
+            messages: vec![Message::text(MessageRole::User, "hello")],
+            system: None,
+            tools: None,
+            tool_choice: None,
+            raw_messages: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: Some(1024),
+            stop_sequences: None,
+            stream: false,
+            extra: HashMap::new(),
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("chat request");
+
+    let body: Value = serde_json::from_slice(&request.body.expect("body")).expect("json body");
+    assert_eq!(body.get("max_tokens").and_then(Value::as_u64), Some(1024));
+    assert!(body.get("max_completion_tokens").is_none());
 }
 
 #[test]

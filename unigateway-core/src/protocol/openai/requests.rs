@@ -38,9 +38,7 @@ pub fn build_chat_request(
     if let Some(top_k) = request.top_k {
         payload.insert("top_k".to_string(), json!(top_k));
     }
-    if let Some(max_tokens) = request.max_tokens {
-        payload.insert("max_tokens".to_string(), json!(max_tokens));
-    }
+    apply_openai_chat_output_token_limit(&mut payload, request);
     if let Some(stop) = request.stop_sequences.clone() {
         payload.insert("stop".to_string(), stop);
     }
@@ -85,6 +83,9 @@ pub fn build_chat_request(
     }
 
     for (key, value) in request.extra.clone() {
+        if key == "max_tokens" && request.extra.contains_key("max_completion_tokens") {
+            continue;
+        }
         payload.entry(key).or_insert(value);
     }
 
@@ -394,6 +395,19 @@ fn resolved_model(endpoint: &DriverEndpointContext, requested_model: &str) -> St
         .cloned()
         .or_else(|| endpoint.model_policy.default_model.clone())
         .unwrap_or_else(|| requested_model.to_string())
+}
+
+fn apply_openai_chat_output_token_limit(
+    payload: &mut serde_json::Map<String, Value>,
+    request: &ProxyChatRequest,
+) {
+    if request.extra.contains_key("max_completion_tokens") {
+        return;
+    }
+
+    if let Some(max_tokens) = request.max_tokens {
+        payload.insert("max_tokens".to_string(), json!(max_tokens));
+    }
 }
 
 fn openai_role(role: MessageRole) -> &'static str {
