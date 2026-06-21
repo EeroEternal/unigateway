@@ -1,11 +1,13 @@
+use std::collections::{BTreeMap, HashSet};
+
 use anyhow::Result;
 
 use super::{
     ApiKeyEntry, BindingEntry, GatewayConfigFile, GatewayState, ModeView, ProviderEntry,
-    ProviderModelOptions, ProviderView, ServiceEntry, build_mode_views, default_round_robin,
+    ProviderModelOptions, ProviderView, ServiceEntry, ServiceModel, build_mode_views,
+    default_round_robin,
 };
 use crate::routing::normalize_base_url;
-use std::collections::BTreeMap;
 
 fn non_empty_string(value: &str) -> Option<String> {
     if value.is_empty() {
@@ -169,6 +171,80 @@ impl GatewayState {
                 is_enabled: p.is_enabled,
             })
             .collect()
+    }
+
+    /// Returns the structured model catalog for a service.
+    ///
+    /// Provider order follows binding priority (ascending). Aliases within a
+    /// provider come from trimmed `model_mapping` keys (lexicographically sorted)
+    /// followed by `default_model` if it is non-empty and not already present.
+    pub async fn list_service_models(&self, service_id: &str) -> Vec<ServiceModel> {
+        let providers = self.select_all_providers_for_service(service_id, "").await;
+        let mut result = Vec::new();
+        for provider in providers {
+            let mut mapping = BTreeMap::new();
+
+            if let Some(raw) = provider.model_mapping.as_deref() {
+                let trimmed = raw.trim();
+                if trimmed.starts_with('{')
+                    && let Ok(parsed) = serde_json::from_str::<BTreeMap<String, String>>(trimmed)
+                {
+                    mapping = parsed
+                        .into_iter()
+                        .map(|(k, v)| (k.trim().to_string(), v))
+                        .collect();
+                }
+            }
+
+            let mut seen_aliases = HashSet::new();
+            let mut aliases: Vec<String> = Vec::new();
+
+            for key in mapping.keys() {
+                let alias = key.trim();
+                if !alias.is_empty() && seen_aliases.insert(alias.to_string()) {
+                    aliases.push(alias.to_string());
+                }
+            }
+            aliases.sort();
+
+            if let Some(default) = provider.default_model.as_deref() {
+                let default = default.trim();
+                if !default.is_empty() && seen_aliases.insert(default.to_string()) {
+                    aliases.push(default.to_string());
+                }
+            }
+
+            for alias in aliases {
+                let canonical = mapping.get(&alias).cloned();
+                result.push(ServiceModel {
+                    id: format!("{}/{}", provider.name, alias),
+                    alias,
+                    canonical,
+                    owned_by: provider.name.clone(),
+                });
+            }
+        }
+        result
+    }
+
+    /// Returns a flat, expanded, deduplicated list of `(id, owned_by)` pairs
+    /// suitable for emitting an OpenAI-compatible `/v1/models` response.
+    ///
+    /// Deduplication happens on the final expanded id set (composite + bare alias).
+    /// The first occurrence is retained.
+    pub async fn list_service_model_ids(&self, service_id: &str) -> Vec<(String, String)> {
+        let models = self.list_service_models(service_id).await;
+        let mut seen = HashSet::new();
+        let mut result = Vec::new();
+        for model in models {
+            for id in model.routing_ids() {
+                let id = id.to_string();
+                if seen.insert(id.clone()) {
+                    result.push((id, model.owned_by.clone()));
+                }
+            }
+        }
+        result
     }
 
     pub async fn update_provider_by_name(
@@ -710,6 +786,62 @@ mod tests {
             missing_delete
                 .to_string()
                 .contains("provider 'missing' not found")
+        );
+    }
+
+    #[tokio::test]
+    async fn list_service_models_trims_mapping_keys_and_sorts_aliases() {
+        use crate::ProviderModelOptions;
+
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        state.create_service("svc", "Service").await;
+        let provider_id = state
+            .create_provider_with_models(
+                "alpha",
+                "openai",
+                "moonshot:global",
+                None,
+                "sk-alpha",
+                ProviderModelOptions {
+                    default_model: Some("moonshot-v1-8k"),
+                    model_mapping: Some(r#"{" zzz ":"z-model"," aaa ":"a-model"}"#),
+                },
+            )
+            .await;
+        state
+            .bind_provider_to_service("svc", provider_id)
+            .await
+            .expect("bind provider");
+
+        let models = state.list_service_models("svc").await;
+        assert_eq!(models.len(), 3);
+
+        // Aliases are trimmed and sorted lexicographically; default_model appended last.
+        assert_eq!(models[0].alias, "aaa");
+        assert_eq!(models[0].canonical.as_deref(), Some("a-model"));
+        assert_eq!(models[1].alias, "zzz");
+        assert_eq!(models[1].canonical.as_deref(), Some("z-model"));
+        assert_eq!(models[2].alias, "moonshot-v1-8k");
+        assert_eq!(models[2].canonical, None);
+
+        // Flattened ids are deduplicated across expanded shapes.
+        let ids = state.list_service_model_ids("svc").await;
+        let id_values: Vec<&str> = ids.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(
+            id_values,
+            vec![
+                "alpha/aaa",
+                "aaa",
+                "alpha/zzz",
+                "zzz",
+                "alpha/moonshot-v1-8k",
+                "moonshot-v1-8k"
+            ]
         );
     }
 }
