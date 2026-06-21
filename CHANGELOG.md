@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.5.0]
+
+### Added
+
+* **`unigateway-config` `/v1/models` registry helpers**: added `ServiceModel`, `routing_ids_for`, `AuthError`, `GatewayState::list_service_models`, `GatewayState::list_service_model_ids`, and `GatewayState::authorize_readonly`. These provide deterministic, read-only access to a service's bound-provider model catalog with expanded-id deduplication and zero-quota key validation for OpenAI-compatible `/v1/models` implementations.
+* **`unigateway-protocol` OpenAI model object helper**: added `openai_model_object(id, owned_by)` for constructing standard `/v1/models` entries.
+* **`unigateway-sdk` optional `config` feature**: re-exports `unigateway_config as config` behind the `config` feature, letting SDK-only consumers reach the new registry helpers.
+
 ## [2.4.0]
 
 ### Added
