@@ -4,8 +4,8 @@ use anyhow::Result;
 
 use super::{
     ApiKeyEntry, AuthError, BindingEntry, GatewayApiKey, GatewayConfigFile, GatewayState, ModeView,
-    ProviderEntry, ProviderModelOptions, ProviderView, ServiceEntry, ServiceModel, build_mode_views,
-    default_round_robin,
+    ProviderEntry, ProviderModelOptions, ProviderView, ServiceEntry, ServiceModel,
+    build_mode_views, default_round_robin,
 };
 use crate::routing::normalize_base_url;
 
@@ -856,5 +856,239 @@ mod tests {
                 "moonshot-v1-8k"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn list_service_models_orders_providers_and_aliases() {
+        use crate::ProviderModelOptions;
+
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        state.create_service("svc", "Service").await;
+
+        let alpha_id = state
+            .create_provider_with_models(
+                "alpha",
+                "openai",
+                "moonshot:global",
+                None,
+                "sk-alpha",
+                ProviderModelOptions {
+                    default_model: Some("moonshot-v1-8k"),
+                    model_mapping: Some("{\"gpt-4\":\"moonshot-v1-8k\"}"),
+                },
+            )
+            .await;
+        let beta_id = state
+            .create_provider_with_models(
+                "beta",
+                "openai",
+                "moonshot:global",
+                None,
+                "sk-beta",
+                ProviderModelOptions {
+                    default_model: Some("moonshot-v1-32k"),
+                    model_mapping: Some("{\"gpt-4o\":\"moonshot-v1-32k\"}"),
+                },
+            )
+            .await;
+
+        state
+            .bind_provider_to_service_with_priority("svc", beta_id, 5)
+            .await
+            .expect("bind beta");
+        state
+            .bind_provider_to_service_with_priority("svc", alpha_id, 10)
+            .await
+            .expect("bind alpha");
+
+        let models = state.list_service_models("svc").await;
+        assert_eq!(models.len(), 4);
+
+        // Provider order: beta (prio 5) before alpha (prio 10).
+        assert_eq!(models[0].owned_by, "beta");
+        assert_eq!(models[0].id, "beta/gpt-4o");
+        assert_eq!(models[0].alias, "gpt-4o");
+        assert_eq!(models[0].canonical.as_deref(), Some("moonshot-v1-32k"));
+
+        assert_eq!(models[1].owned_by, "beta");
+        assert_eq!(models[1].id, "beta/moonshot-v1-32k");
+        assert_eq!(models[1].alias, "moonshot-v1-32k");
+        assert_eq!(models[1].canonical, None);
+
+        assert_eq!(models[2].owned_by, "alpha");
+        assert_eq!(models[2].id, "alpha/gpt-4");
+        assert_eq!(models[2].alias, "gpt-4");
+        assert_eq!(models[2].canonical.as_deref(), Some("moonshot-v1-8k"));
+
+        assert_eq!(models[3].owned_by, "alpha");
+        assert_eq!(models[3].id, "alpha/moonshot-v1-8k");
+        assert_eq!(models[3].alias, "moonshot-v1-8k");
+        assert_eq!(models[3].canonical, None);
+    }
+
+    #[tokio::test]
+    async fn list_service_models_keeps_default_model_when_mapping_malformed() {
+        use crate::ProviderModelOptions;
+
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        state.create_service("svc", "Service").await;
+        let provider_id = state
+            .create_provider_with_models(
+                "alpha",
+                "openai",
+                "moonshot:global",
+                None,
+                "sk-alpha",
+                ProviderModelOptions {
+                    default_model: Some("moonshot-v1-8k"),
+                    model_mapping: Some("not-json"),
+                },
+            )
+            .await;
+        state
+            .bind_provider_to_service("svc", provider_id)
+            .await
+            .expect("bind provider");
+
+        let models = state.list_service_models("svc").await;
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].alias, "moonshot-v1-8k");
+        assert_eq!(models[0].canonical, None);
+    }
+
+    #[tokio::test]
+    async fn list_service_model_ids_dedupes_expanded_ids() {
+        use crate::ProviderModelOptions;
+
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        state.create_service("svc", "Service").await;
+
+        let alpha_id = state
+            .create_provider_with_models(
+                "alpha",
+                "openai",
+                "moonshot:global",
+                None,
+                "sk-alpha",
+                ProviderModelOptions {
+                    default_model: None,
+                    model_mapping: Some("{\"gpt-4\":\"a-gpt-4\"}"),
+                },
+            )
+            .await;
+        let beta_id = state
+            .create_provider_with_models(
+                "beta",
+                "openai",
+                "moonshot:global",
+                None,
+                "sk-beta",
+                ProviderModelOptions {
+                    default_model: None,
+                    model_mapping: Some("{\"gpt-4\":\"b-gpt-4\"}"),
+                },
+            )
+            .await;
+
+        state
+            .bind_provider_to_service("svc", alpha_id)
+            .await
+            .expect("bind alpha");
+        state
+            .bind_provider_to_service("svc", beta_id)
+            .await
+            .expect("bind beta");
+
+        let ids = state.list_service_model_ids("svc").await;
+        let id_values: Vec<&str> = ids.iter().map(|(id, _)| id.as_str()).collect();
+
+        // Composite ids are unique; bare "gpt-4" appears only once (from alpha).
+        assert_eq!(id_values, vec!["alpha/gpt-4", "gpt-4", "beta/gpt-4"]);
+        assert_eq!(ids[1].1, "alpha");
+    }
+
+    #[tokio::test]
+    async fn authorize_readonly_does_not_consume_quota() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        state.create_service("svc", "Service").await;
+        state
+            .create_api_key("ugk_test_key", "svc", Some(100), None, None)
+            .await;
+
+        let before = state
+            .find_gateway_api_key("ugk_test_key")
+            .await
+            .unwrap()
+            .used_quota;
+
+        let key = state.authorize_readonly("ugk_test_key").await;
+        assert!(key.is_ok());
+
+        let after = state
+            .find_gateway_api_key("ugk_test_key")
+            .await
+            .unwrap()
+            .used_quota;
+        assert_eq!(before, after);
+    }
+
+    #[tokio::test]
+    async fn authorize_readonly_rejects_inactive_key() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        state.create_service("svc", "Service").await;
+        state
+            .create_api_key("ugk_inactive", "svc", None, None, None)
+            .await;
+        {
+            let mut guard = state.write_config().await;
+            let key = guard
+                .file
+                .api_keys
+                .iter_mut()
+                .find(|k| k.key == "ugk_inactive")
+                .expect("key exists");
+            key.is_active = false;
+            guard.dirty = false;
+        }
+
+        let result = state.authorize_readonly("ugk_inactive").await;
+        assert_eq!(result, Err(crate::AuthError::InactiveKey));
+    }
+
+    #[tokio::test]
+    async fn authorize_readonly_rejects_missing_key() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        let result = state.authorize_readonly("ugk_missing").await;
+        assert_eq!(result, Err(crate::AuthError::InvalidKey));
     }
 }

@@ -218,7 +218,7 @@ impl Default for ApiKeyEntry {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GatewayApiKey {
     pub key: String,
     pub service_id: String,
@@ -290,7 +290,7 @@ impl std::error::Error for AuthError {}
 
 #[cfg(test)]
 mod tests {
-    use super::{routing_ids_for, ServiceModel};
+    use super::{ServiceModel, routing_ids_for};
 
     #[test]
     fn routing_ids_for_returns_composite_then_alias() {
