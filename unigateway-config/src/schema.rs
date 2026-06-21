@@ -287,3 +287,25 @@ impl std::fmt::Display for AuthError {
 }
 
 impl std::error::Error for AuthError {}
+
+#[cfg(test)]
+mod tests {
+    use super::{routing_ids_for, ServiceModel};
+
+    #[test]
+    fn routing_ids_for_returns_composite_then_alias() {
+        let ids = routing_ids_for("alpha", "gpt-4o");
+        assert_eq!(ids, vec!["alpha/gpt-4o", "gpt-4o"]);
+    }
+
+    #[test]
+    fn service_model_routing_ids_returns_composite_then_alias() {
+        let model = ServiceModel {
+            id: "alpha/gpt-4o".to_string(),
+            alias: "gpt-4o".to_string(),
+            canonical: Some("gpt-4o-2024-08-06".to_string()),
+            owned_by: "alpha".to_string(),
+        };
+        assert_eq!(model.routing_ids(), vec!["alpha/gpt-4o", "gpt-4o"]);
+    }
+}
