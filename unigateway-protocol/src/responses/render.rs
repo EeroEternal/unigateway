@@ -473,3 +473,23 @@ fn responses_usage_payload(usage: &TokenUsage) -> serde_json::Value {
     }
     serde_json::Value::Object(object)
 }
+
+/// Builds an OpenAI-compatible `model` object.
+///
+/// Output shape:
+/// ```json
+/// {
+///   "id": "...",
+///   "object": "model",
+///   "created": 0,
+///   "owned_by": "..."
+/// }
+/// ```
+pub fn openai_model_object(id: &str, owned_by: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": id,
+        "object": "model",
+        "created": 0,
+        "owned_by": owned_by,
+    })
+}
