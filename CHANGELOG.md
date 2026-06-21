@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.4.0]
+
+### Added
+
+* **`unigateway-config` provider admin helpers**: added `ProviderView`, `GatewayState::list_provider_views`, `GatewayState::update_provider_by_name`, and `GatewayState::delete_provider_by_name`. These are neutral config primitives for listing, updating, and deleting providers by name, including automatic cleanup of dangling provider bindings on delete.
+
 ## [2.3.1]
 
 ### Changed

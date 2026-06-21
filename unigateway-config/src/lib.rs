@@ -18,7 +18,7 @@ pub use self::schema::ServiceProvider;
 use self::schema::default_round_robin;
 pub use self::schema::{
     ApiKeyEntry, BindingEntry, GatewayApiKey, GatewayConfigFile, ModeKey, ModeProvider, ModeView,
-    ProviderEntry, ProviderModelOptions, ServiceEntry, build_mode_views,
+    ProviderEntry, ProviderModelOptions, ProviderView, ServiceEntry, build_mode_views,
 };
 
 pub const MAX_QUEUE_PER_KEY: u64 = 100;
