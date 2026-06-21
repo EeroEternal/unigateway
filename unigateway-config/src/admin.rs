@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, HashSet};
 use anyhow::Result;
 
 use super::{
-    ApiKeyEntry, BindingEntry, GatewayConfigFile, GatewayState, ModeView, ProviderEntry,
-    ProviderModelOptions, ProviderView, ServiceEntry, ServiceModel, build_mode_views,
+    ApiKeyEntry, AuthError, BindingEntry, GatewayApiKey, GatewayConfigFile, GatewayState, ModeView,
+    ProviderEntry, ProviderModelOptions, ProviderView, ServiceEntry, ServiceModel, build_mode_views,
     default_round_robin,
 };
 use crate::routing::normalize_base_url;
@@ -245,6 +245,19 @@ impl GatewayState {
             }
         }
         result
+    }
+
+    /// Validates that an API key exists and is active without consuming quota
+    /// or acquiring runtime limits.
+    pub async fn authorize_readonly(&self, raw_key: &str) -> Result<GatewayApiKey, AuthError> {
+        let key = self
+            .find_gateway_api_key(raw_key)
+            .await
+            .ok_or(AuthError::InvalidKey)?;
+        if key.is_active != 1 {
+            return Err(AuthError::InactiveKey);
+        }
+        Ok(key)
     }
 
     pub async fn update_provider_by_name(
