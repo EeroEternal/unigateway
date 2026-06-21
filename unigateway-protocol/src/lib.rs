@@ -15,8 +15,8 @@ pub use responses::{
     REASONING_TEXT_ENCODING_KEY, REASONING_TEXT_ENCODING_XML_THINK_TAG,
 };
 pub use responses::{
-    AnthropicStreamAggregator, render_anthropic_chat_session, render_openai_chat_session,
-    render_openai_embeddings_response, render_openai_responses_session,
+    AnthropicStreamAggregator, openai_model_object, render_anthropic_chat_session,
+    render_openai_chat_session, render_openai_embeddings_response, render_openai_responses_session,
     render_openai_responses_stream_from_completed,
 };
 pub use unigateway_core::{
