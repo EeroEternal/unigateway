@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::AnthropicStreamAggregator;
+use super::{AnthropicStreamAggregator, openai_model_object};
 
 #[test]
 fn anthropic_stream_aggregator_rebuilds_thinking_signature_and_tool_use() {
@@ -873,4 +873,13 @@ fn openai_responses_renderer_preserves_function_call_body_and_reasoning_usage() 
             .and_then(|v| v.as_u64()),
         Some(3)
     );
+}
+
+#[test]
+fn openai_model_object_has_expected_shape() {
+    let value = openai_model_object("alpha/gpt-4o", "alpha");
+    assert_eq!(value["id"], "alpha/gpt-4o");
+    assert_eq!(value["object"], "model");
+    assert_eq!(value["created"], 0);
+    assert_eq!(value["owned_by"], "alpha");
 }

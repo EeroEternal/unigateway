@@ -17,8 +17,9 @@ use tokio::sync::{Mutex, MutexGuard, Notify, RwLock, RwLockReadGuard, RwLockWrit
 pub use self::schema::ServiceProvider;
 use self::schema::default_round_robin;
 pub use self::schema::{
-    ApiKeyEntry, BindingEntry, GatewayApiKey, GatewayConfigFile, ModeKey, ModeProvider, ModeView,
-    ProviderEntry, ProviderModelOptions, ProviderView, ServiceEntry, build_mode_views,
+    ApiKeyEntry, AuthError, BindingEntry, GatewayApiKey, GatewayConfigFile, ModeKey, ModeProvider,
+    ModeView, ProviderEntry, ProviderModelOptions, ProviderView, ServiceEntry, ServiceModel,
+    build_mode_views, routing_ids_for,
 };
 
 pub const MAX_QUEUE_PER_KEY: u64 = 100;

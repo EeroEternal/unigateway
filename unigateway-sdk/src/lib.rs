@@ -13,3 +13,6 @@ pub use unigateway_protocol as protocol;
 
 #[cfg(feature = "host")]
 pub use unigateway_host as host;
+
+#[cfg(feature = "config")]
+pub use unigateway_config as config;
