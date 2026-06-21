@@ -1,11 +1,13 @@
+use std::collections::{BTreeMap, HashSet};
+
 use anyhow::Result;
 
 use super::{
-    ApiKeyEntry, BindingEntry, GatewayConfigFile, GatewayState, ModeView, ProviderEntry,
-    ProviderModelOptions, ProviderView, ServiceEntry, build_mode_views, default_round_robin,
+    ApiKeyEntry, AuthError, BindingEntry, GatewayApiKey, GatewayConfigFile, GatewayState, ModeView,
+    ProviderEntry, ProviderModelOptions, ProviderView, ServiceEntry, ServiceModel,
+    build_mode_views, default_round_robin,
 };
 use crate::routing::normalize_base_url;
-use std::collections::BTreeMap;
 
 fn non_empty_string(value: &str) -> Option<String> {
     if value.is_empty() {
@@ -169,6 +171,93 @@ impl GatewayState {
                 is_enabled: p.is_enabled,
             })
             .collect()
+    }
+
+    /// Returns the structured model catalog for a service.
+    ///
+    /// Provider order follows binding priority (ascending). Aliases within a
+    /// provider come from trimmed `model_mapping` keys (lexicographically sorted)
+    /// followed by `default_model` if it is non-empty and not already present.
+    pub async fn list_service_models(&self, service_id: &str) -> Vec<ServiceModel> {
+        let providers = self.select_all_providers_for_service(service_id, "").await;
+        let mut result = Vec::new();
+        for provider in providers {
+            let mut mapping = BTreeMap::new();
+
+            if let Some(raw) = provider.model_mapping.as_deref() {
+                let trimmed = raw.trim();
+                if trimmed.starts_with('{')
+                    && let Ok(parsed) = serde_json::from_str::<BTreeMap<String, String>>(trimmed)
+                {
+                    mapping = parsed
+                        .into_iter()
+                        .map(|(k, v)| (k.trim().to_string(), v))
+                        .collect();
+                }
+            }
+
+            let mut seen_aliases = HashSet::new();
+            let mut aliases: Vec<String> = Vec::new();
+
+            for key in mapping.keys() {
+                let alias = key.trim();
+                if !alias.is_empty() && seen_aliases.insert(alias.to_string()) {
+                    aliases.push(alias.to_string());
+                }
+            }
+            aliases.sort();
+
+            if let Some(default) = provider.default_model.as_deref() {
+                let default = default.trim();
+                if !default.is_empty() && seen_aliases.insert(default.to_string()) {
+                    aliases.push(default.to_string());
+                }
+            }
+
+            for alias in aliases {
+                let canonical = mapping.get(&alias).cloned();
+                result.push(ServiceModel {
+                    id: format!("{}/{}", provider.name, alias),
+                    alias,
+                    canonical,
+                    owned_by: provider.name.clone(),
+                });
+            }
+        }
+        result
+    }
+
+    /// Returns a flat, expanded, deduplicated list of `(id, owned_by)` pairs
+    /// suitable for emitting an OpenAI-compatible `/v1/models` response.
+    ///
+    /// Deduplication happens on the final expanded id set (composite + bare alias).
+    /// The first occurrence is retained.
+    pub async fn list_service_model_ids(&self, service_id: &str) -> Vec<(String, String)> {
+        let models = self.list_service_models(service_id).await;
+        let mut seen = HashSet::new();
+        let mut result = Vec::new();
+        for model in models {
+            for id in model.routing_ids() {
+                let id = id.to_string();
+                if seen.insert(id.clone()) {
+                    result.push((id, model.owned_by.clone()));
+                }
+            }
+        }
+        result
+    }
+
+    /// Validates that an API key exists and is active without consuming quota
+    /// or acquiring runtime limits.
+    pub async fn authorize_readonly(&self, raw_key: &str) -> Result<GatewayApiKey, AuthError> {
+        let key = self
+            .find_gateway_api_key(raw_key)
+            .await
+            .ok_or(AuthError::InvalidKey)?;
+        if key.is_active != 1 {
+            return Err(AuthError::InactiveKey);
+        }
+        Ok(key)
     }
 
     pub async fn update_provider_by_name(
@@ -711,5 +800,295 @@ mod tests {
                 .to_string()
                 .contains("provider 'missing' not found")
         );
+    }
+
+    #[tokio::test]
+    async fn list_service_models_trims_mapping_keys_and_sorts_aliases() {
+        use crate::ProviderModelOptions;
+
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        state.create_service("svc", "Service").await;
+        let provider_id = state
+            .create_provider_with_models(
+                "alpha",
+                "openai",
+                "moonshot:global",
+                None,
+                "sk-alpha",
+                ProviderModelOptions {
+                    default_model: Some("moonshot-v1-8k"),
+                    model_mapping: Some(r#"{" zzz ":"z-model"," aaa ":"a-model"}"#),
+                },
+            )
+            .await;
+        state
+            .bind_provider_to_service("svc", provider_id)
+            .await
+            .expect("bind provider");
+
+        let models = state.list_service_models("svc").await;
+        assert_eq!(models.len(), 3);
+
+        // Aliases are trimmed and sorted lexicographically; default_model appended last.
+        assert_eq!(models[0].alias, "aaa");
+        assert_eq!(models[0].canonical.as_deref(), Some("a-model"));
+        assert_eq!(models[1].alias, "zzz");
+        assert_eq!(models[1].canonical.as_deref(), Some("z-model"));
+        assert_eq!(models[2].alias, "moonshot-v1-8k");
+        assert_eq!(models[2].canonical, None);
+
+        // Flattened ids are deduplicated across expanded shapes.
+        let ids = state.list_service_model_ids("svc").await;
+        let id_values: Vec<&str> = ids.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(
+            id_values,
+            vec![
+                "alpha/aaa",
+                "aaa",
+                "alpha/zzz",
+                "zzz",
+                "alpha/moonshot-v1-8k",
+                "moonshot-v1-8k"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn list_service_models_orders_providers_and_aliases() {
+        use crate::ProviderModelOptions;
+
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        state.create_service("svc", "Service").await;
+
+        let alpha_id = state
+            .create_provider_with_models(
+                "alpha",
+                "openai",
+                "moonshot:global",
+                None,
+                "sk-alpha",
+                ProviderModelOptions {
+                    default_model: Some("moonshot-v1-8k"),
+                    model_mapping: Some("{\"gpt-4\":\"moonshot-v1-8k\"}"),
+                },
+            )
+            .await;
+        let beta_id = state
+            .create_provider_with_models(
+                "beta",
+                "openai",
+                "moonshot:global",
+                None,
+                "sk-beta",
+                ProviderModelOptions {
+                    default_model: Some("moonshot-v1-32k"),
+                    model_mapping: Some("{\"gpt-4o\":\"moonshot-v1-32k\"}"),
+                },
+            )
+            .await;
+
+        state
+            .bind_provider_to_service_with_priority("svc", beta_id, 5)
+            .await
+            .expect("bind beta");
+        state
+            .bind_provider_to_service_with_priority("svc", alpha_id, 10)
+            .await
+            .expect("bind alpha");
+
+        let models = state.list_service_models("svc").await;
+        assert_eq!(models.len(), 4);
+
+        // Provider order: beta (prio 5) before alpha (prio 10).
+        assert_eq!(models[0].owned_by, "beta");
+        assert_eq!(models[0].id, "beta/gpt-4o");
+        assert_eq!(models[0].alias, "gpt-4o");
+        assert_eq!(models[0].canonical.as_deref(), Some("moonshot-v1-32k"));
+
+        assert_eq!(models[1].owned_by, "beta");
+        assert_eq!(models[1].id, "beta/moonshot-v1-32k");
+        assert_eq!(models[1].alias, "moonshot-v1-32k");
+        assert_eq!(models[1].canonical, None);
+
+        assert_eq!(models[2].owned_by, "alpha");
+        assert_eq!(models[2].id, "alpha/gpt-4");
+        assert_eq!(models[2].alias, "gpt-4");
+        assert_eq!(models[2].canonical.as_deref(), Some("moonshot-v1-8k"));
+
+        assert_eq!(models[3].owned_by, "alpha");
+        assert_eq!(models[3].id, "alpha/moonshot-v1-8k");
+        assert_eq!(models[3].alias, "moonshot-v1-8k");
+        assert_eq!(models[3].canonical, None);
+    }
+
+    #[tokio::test]
+    async fn list_service_models_keeps_default_model_when_mapping_malformed() {
+        use crate::ProviderModelOptions;
+
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        state.create_service("svc", "Service").await;
+        let provider_id = state
+            .create_provider_with_models(
+                "alpha",
+                "openai",
+                "moonshot:global",
+                None,
+                "sk-alpha",
+                ProviderModelOptions {
+                    default_model: Some("moonshot-v1-8k"),
+                    model_mapping: Some("not-json"),
+                },
+            )
+            .await;
+        state
+            .bind_provider_to_service("svc", provider_id)
+            .await
+            .expect("bind provider");
+
+        let models = state.list_service_models("svc").await;
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].alias, "moonshot-v1-8k");
+        assert_eq!(models[0].canonical, None);
+    }
+
+    #[tokio::test]
+    async fn list_service_model_ids_dedupes_expanded_ids() {
+        use crate::ProviderModelOptions;
+
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        state.create_service("svc", "Service").await;
+
+        let alpha_id = state
+            .create_provider_with_models(
+                "alpha",
+                "openai",
+                "moonshot:global",
+                None,
+                "sk-alpha",
+                ProviderModelOptions {
+                    default_model: None,
+                    model_mapping: Some("{\"gpt-4\":\"a-gpt-4\"}"),
+                },
+            )
+            .await;
+        let beta_id = state
+            .create_provider_with_models(
+                "beta",
+                "openai",
+                "moonshot:global",
+                None,
+                "sk-beta",
+                ProviderModelOptions {
+                    default_model: None,
+                    model_mapping: Some("{\"gpt-4\":\"b-gpt-4\"}"),
+                },
+            )
+            .await;
+
+        state
+            .bind_provider_to_service("svc", alpha_id)
+            .await
+            .expect("bind alpha");
+        state
+            .bind_provider_to_service("svc", beta_id)
+            .await
+            .expect("bind beta");
+
+        let ids = state.list_service_model_ids("svc").await;
+        let id_values: Vec<&str> = ids.iter().map(|(id, _)| id.as_str()).collect();
+
+        // Composite ids are unique; bare "gpt-4" appears only once (from alpha).
+        assert_eq!(id_values, vec!["alpha/gpt-4", "gpt-4", "beta/gpt-4"]);
+        assert_eq!(ids[1].1, "alpha");
+    }
+
+    #[tokio::test]
+    async fn authorize_readonly_does_not_consume_quota() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        state.create_service("svc", "Service").await;
+        state
+            .create_api_key("ugk_test_key", "svc", Some(100), None, None)
+            .await;
+
+        let before = state
+            .find_gateway_api_key("ugk_test_key")
+            .await
+            .unwrap()
+            .used_quota;
+
+        let key = state.authorize_readonly("ugk_test_key").await;
+        assert!(key.is_ok());
+
+        let after = state
+            .find_gateway_api_key("ugk_test_key")
+            .await
+            .unwrap()
+            .used_quota;
+        assert_eq!(before, after);
+    }
+
+    #[tokio::test]
+    async fn authorize_readonly_rejects_inactive_key() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        state.create_service("svc", "Service").await;
+        state
+            .create_api_key("ugk_inactive", "svc", None, None, None)
+            .await;
+        {
+            let mut guard = state.write_config().await;
+            let key = guard
+                .file
+                .api_keys
+                .iter_mut()
+                .find(|k| k.key == "ugk_inactive")
+                .expect("key exists");
+            key.is_active = false;
+            guard.dirty = false;
+        }
+
+        let result = state.authorize_readonly("ugk_inactive").await;
+        assert_eq!(result, Err(crate::AuthError::InactiveKey));
+    }
+
+    #[tokio::test]
+    async fn authorize_readonly_rejects_missing_key() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        let result = state.authorize_readonly("ugk_missing").await;
+        assert_eq!(result, Err(crate::AuthError::InvalidKey));
     }
 }

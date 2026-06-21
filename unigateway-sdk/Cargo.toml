@@ -13,12 +13,14 @@ categories = ["api-bindings"]
 [features]
 default = ["host"]
 embed = ["host"]
+config = ["dep:unigateway-config"]
 core = ["dep:unigateway-core"]
 protocol = ["core", "dep:unigateway-protocol"]
 host = ["protocol", "dep:unigateway-host"]
 testing = ["host", "unigateway-host/testing"]
 
 [dependencies]
+unigateway-config = { workspace = true, optional = true }
 unigateway-core = { workspace = true, optional = true }
 unigateway-protocol = { workspace = true, optional = true }
 unigateway-host = { workspace = true, optional = true }

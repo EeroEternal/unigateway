@@ -218,7 +218,7 @@ impl Default for ApiKeyEntry {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GatewayApiKey {
     pub key: String,
     pub service_id: String,
@@ -239,4 +239,73 @@ pub struct ServiceProvider {
     pub api_key: Option<String>,
     pub default_model: Option<String>,
     pub model_mapping: Option<String>,
+}
+
+/// A model exposed by a service's bound providers, suitable for OpenAI-compatible `/v1/models`.
+#[derive(Debug, Clone)]
+pub struct ServiceModel {
+    /// Primary routing id in `provider/alias` composite shape.
+    pub id: String,
+    /// Bare alias (matches `model_mapping` key or `default_model`).
+    pub alias: String,
+    /// Upstream canonical model name (`model_mapping` value), if different from alias.
+    pub canonical: Option<String>,
+    /// Provider name that owns this model; maps to OpenAI `owned_by`.
+    pub owned_by: String,
+}
+
+impl ServiceModel {
+    /// Returns all routing-acceptable ids for this model: composite and bare alias.
+    pub fn routing_ids(&self) -> Vec<&str> {
+        vec![self.id.as_str(), self.alias.as_str()]
+    }
+}
+
+/// Returns the routing-acceptable id shapes for a provider/alias pair.
+///
+/// Order: composite `provider/alias` first, then bare `alias`.
+pub fn routing_ids_for(provider: &str, alias: &str) -> Vec<String> {
+    vec![format!("{}/{}", provider, alias), alias.to_string()]
+}
+
+/// Read-only authorization error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuthError {
+    /// Key not found.
+    InvalidKey,
+    /// Key exists but is inactive.
+    InactiveKey,
+}
+
+impl std::fmt::Display for AuthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuthError::InvalidKey => write!(f, "invalid api key"),
+            AuthError::InactiveKey => write!(f, "inactive api key"),
+        }
+    }
+}
+
+impl std::error::Error for AuthError {}
+
+#[cfg(test)]
+mod tests {
+    use super::{ServiceModel, routing_ids_for};
+
+    #[test]
+    fn routing_ids_for_returns_composite_then_alias() {
+        let ids = routing_ids_for("alpha", "gpt-4o");
+        assert_eq!(ids, vec!["alpha/gpt-4o", "gpt-4o"]);
+    }
+
+    #[test]
+    fn service_model_routing_ids_returns_composite_then_alias() {
+        let model = ServiceModel {
+            id: "alpha/gpt-4o".to_string(),
+            alias: "gpt-4o".to_string(),
+            canonical: Some("gpt-4o-2024-08-06".to_string()),
+            owned_by: "alpha".to_string(),
+        };
+        assert_eq!(model.routing_ids(), vec!["alpha/gpt-4o", "gpt-4o"]);
+    }
 }
