@@ -2,9 +2,33 @@ use anyhow::Result;
 
 use super::{
     ApiKeyEntry, BindingEntry, GatewayConfigFile, GatewayState, ModeView, ProviderEntry,
-    ProviderModelOptions, ServiceEntry, build_mode_views, default_round_robin,
+    ProviderModelOptions, ProviderView, ServiceEntry, build_mode_views, default_round_robin,
 };
 use crate::routing::normalize_base_url;
+use std::collections::BTreeMap;
+
+fn non_empty_string(value: &str) -> Option<String> {
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn models_from_provider_entry(provider: &ProviderEntry) -> Vec<String> {
+    let trimmed = provider.model_mapping.trim();
+    if trimmed.is_empty() || !trimmed.starts_with('{') {
+        return Vec::new();
+    }
+    if let Ok(map) = serde_json::from_str::<BTreeMap<String, String>>(trimmed) {
+        map.keys()
+            .map(|alias| alias.trim().to_string())
+            .filter(|alias| !alias.is_empty())
+            .collect()
+    } else {
+        Vec::new()
+    }
+}
 
 impl GatewayState {
     pub async fn set_config_value(&self, key: &str, value: &str) -> Result<()> {
@@ -123,6 +147,84 @@ impl GatewayState {
             service.routing_strategy = routing_strategy.to_string();
             guard.dirty = true;
         }
+        self.request_core_sync().await;
+        Ok(())
+    }
+
+    pub async fn list_provider_views(&self) -> Vec<ProviderView> {
+        let guard = self.read_config().await;
+        guard
+            .file
+            .providers
+            .iter()
+            .enumerate()
+            .map(|(i, p)| ProviderView {
+                id: i as i64,
+                name: p.name.clone(),
+                provider_type: p.provider_type.clone(),
+                endpoint_id: non_empty_string(&p.endpoint_id),
+                base_url: non_empty_string(&p.base_url),
+                default_model: non_empty_string(&p.default_model),
+                models: models_from_provider_entry(p),
+                is_enabled: p.is_enabled,
+            })
+            .collect()
+    }
+
+    pub async fn update_provider_by_name(
+        &self,
+        name: &str,
+        base_url: Option<&str>,
+        api_key: Option<&str>,
+        default_model: Option<&str>,
+        model_mapping: Option<&str>,
+    ) -> Result<()> {
+        let mut guard = self.write_config().await;
+        let provider = guard
+            .file
+            .providers
+            .iter_mut()
+            .find(|p| p.name == name)
+            .ok_or_else(|| anyhow::anyhow!("provider '{}' not found", name))?;
+
+        if let Some(url) = base_url {
+            let endpoint_id = provider.endpoint_id.as_str();
+            let mut final_base_url = normalize_base_url(url);
+            if !endpoint_id.is_empty()
+                && let Some((_, endpoint)) = llm_providers::get_endpoint(endpoint_id)
+            {
+                let default_url = normalize_base_url(endpoint.base_url);
+                if final_base_url == default_url {
+                    final_base_url = String::new();
+                }
+            }
+            provider.base_url = final_base_url;
+        }
+        if let Some(key) = api_key {
+            provider.api_key = key.to_string();
+        }
+        if let Some(model) = default_model {
+            provider.default_model = model.to_string();
+        }
+        if let Some(mapping) = model_mapping {
+            provider.model_mapping = mapping.to_string();
+        }
+        guard.dirty = true;
+        drop(guard);
+        self.request_core_sync().await;
+        Ok(())
+    }
+
+    pub async fn delete_provider_by_name(&self, name: &str) -> Result<()> {
+        let mut guard = self.write_config().await;
+        let before = guard.file.providers.len();
+        guard.file.providers.retain(|p| p.name != name);
+        if guard.file.providers.len() == before {
+            anyhow::bail!("provider '{}' not found", name);
+        }
+        guard.file.bindings.retain(|b| b.provider_name != name);
+        guard.dirty = true;
+        drop(guard);
         self.request_core_sync().await;
         Ok(())
     }
@@ -493,6 +595,121 @@ mod tests {
             missing_key
                 .to_string()
                 .contains("api key 'ugk_missing' not found")
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_views_update_and_delete_by_name() {
+        use crate::ProviderModelOptions;
+
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(Path::new(&config_path))
+            .await
+            .expect("load state");
+
+        state.create_service("svc", "Service").await;
+
+        let alpha_id = state
+            .create_provider_with_models(
+                "alpha",
+                "openai",
+                "moonshot:global",
+                None,
+                "sk-alpha",
+                ProviderModelOptions {
+                    default_model: Some("moonshot-v1-8k"),
+                    model_mapping: Some("{\"gpt-4\":\"moonshot-v1-8k\"}"),
+                },
+            )
+            .await;
+        let _beta_id = state
+            .create_provider_with_models(
+                "beta",
+                "anthropic",
+                "",
+                Some("https://api.anthropic.com"),
+                "sk-beta",
+                ProviderModelOptions {
+                    default_model: None,
+                    model_mapping: None,
+                },
+            )
+            .await;
+
+        state
+            .bind_provider_to_service("svc", alpha_id)
+            .await
+            .expect("bind provider");
+
+        let views = state.list_provider_views().await;
+        assert_eq!(views.len(), 2);
+
+        let alpha = views
+            .iter()
+            .find(|v| v.name == "alpha")
+            .expect("alpha view present");
+        assert_eq!(alpha.id, 0);
+        assert_eq!(alpha.provider_type, "openai");
+        assert_eq!(alpha.endpoint_id.as_deref(), Some("moonshot:global"));
+        assert_eq!(alpha.base_url, None);
+        assert_eq!(alpha.default_model.as_deref(), Some("moonshot-v1-8k"));
+        assert_eq!(alpha.models, vec!["gpt-4"]);
+        assert!(alpha.is_enabled);
+
+        let beta = views
+            .iter()
+            .find(|v| v.name == "beta")
+            .expect("beta view present");
+        assert_eq!(beta.id, 1);
+        assert_eq!(beta.provider_type, "anthropic");
+        assert_eq!(beta.endpoint_id, None);
+        assert_eq!(beta.base_url.as_deref(), Some("https://api.anthropic.com/"));
+        assert_eq!(beta.default_model, None);
+        assert!(beta.models.is_empty());
+
+        state
+            .update_provider_by_name("alpha", None, None, Some("moonshot-v1-32k"), None)
+            .await
+            .expect("update provider");
+
+        let views = state.list_provider_views().await;
+        let alpha = views
+            .iter()
+            .find(|v| v.name == "alpha")
+            .expect("alpha view present");
+        assert_eq!(alpha.default_model.as_deref(), Some("moonshot-v1-32k"));
+
+        state
+            .delete_provider_by_name("alpha")
+            .await
+            .expect("delete provider");
+
+        let views = state.list_provider_views().await;
+        assert_eq!(views.len(), 1);
+        assert!(views.iter().all(|v| v.name != "alpha"));
+
+        let file = state.config_snapshot().await;
+        assert!(file.bindings.iter().all(|b| b.provider_name != "alpha"));
+
+        let missing_update = state
+            .update_provider_by_name("missing", None, None, Some("x"), None)
+            .await
+            .expect_err("update missing provider should fail");
+        assert!(
+            missing_update
+                .to_string()
+                .contains("provider 'missing' not found")
+        );
+
+        let missing_delete = state
+            .delete_provider_by_name("missing")
+            .await
+            .expect_err("delete missing provider should fail");
+        assert!(
+            missing_delete
+                .to_string()
+                .contains("provider 'missing' not found")
         );
     }
 }

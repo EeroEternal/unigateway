@@ -53,6 +53,18 @@ pub struct ProviderModelOptions<'a> {
     pub model_mapping: Option<&'a str>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderView {
+    pub id: i64,
+    pub name: String,
+    pub provider_type: String,
+    pub endpoint_id: Option<String>,
+    pub base_url: Option<String>,
+    pub default_model: Option<String>,
+    pub models: Vec<String>,
+    pub is_enabled: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BindingEntry {
     pub service_id: String,
