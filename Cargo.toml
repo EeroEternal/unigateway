@@ -20,10 +20,10 @@ serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tracing = "0.1"
 unigateway-core = { version = "2.4.0", path = "unigateway-core" }
-unigateway-config = { version = "2.4.0", path = "unigateway-config" }
+unigateway-config = { version = "2.5.0", path = "unigateway-config" }
 unigateway-host = { version = "2.4.0", path = "unigateway-host" }
-unigateway-protocol = { version = "2.4.0", path = "unigateway-protocol" }
-unigateway-sdk = { version = "2.4.0", path = "unigateway-sdk" }
+unigateway-protocol = { version = "2.5.0", path = "unigateway-protocol" }
+unigateway-sdk = { version = "2.5.0", path = "unigateway-sdk" }
 
 [profile.release]
 lto = "thin"
