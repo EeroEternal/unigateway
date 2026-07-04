@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.6.0]
+
+### Added
+
+* **sglang-lite local MoE backend support**: added `ProviderKind::SglangLite`, the `sglang-lite` driver (`DRIVER_ID = "sglang-lite"`), and the `sglang-lite` Cargo feature. UniGateway can now route to sglang-lite over its OpenAI-compatible HTTP surface, or spawn it as a local subprocess and wait for its health endpoint before routing.
+* **sglang-lite backend metadata keys**: `unigateway.sglang_lite.backend_mode`, `unigateway.sglang_lite.model_path`, `unigateway.sglang_lite.device`, `unigateway.sglang_lite.max_batch_size`, `unigateway.sglang_lite.python_env`, and subprocess-specific keys (`subprocess.command`, `subprocess.args`, `subprocess.startup_timeout_ms`, `subprocess.health_path`).
+* **sglang-lite capability defaults**: `LocalInferenceCapabilities` with `prefix_caching` lets local inference backends declare prefix-cache support without leaking provider-specific details into core abstractions.
+* **Cache hit metrics passthrough**: `TokenUsage` now includes `cache_hit_tokens`; OpenAI-compatible and Responses usage parsers read `cache_hit_tokens` from upstream responses, making sglang-lite cache efficiency available through `RequestReport.usage`.
+* **Documentation**: `docs/guide/sglang-lite.md` covers HTTP mode, subprocess mode, metadata keys, environment variables, and cache metrics consumption.
+
+### Changed
+
+* **OpenAI request headers skip empty `Authorization`**: local backends like sglang-lite that use an empty `api_key` no longer receive an empty `Authorization` header.
+* **Config projection carries provider metadata**: `ProviderEntry` and `ProviderModelOptions` now persist `metadata`, which is projected into `Endpoint.metadata` so drivers can read backend-specific configuration without API changes to generic structs.
+
 ## [2.5.0]
 
 ### Added

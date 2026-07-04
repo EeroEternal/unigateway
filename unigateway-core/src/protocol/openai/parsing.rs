@@ -68,6 +68,7 @@ pub(super) fn parse_openai_usage(raw: &Value) -> Option<TokenUsage> {
         output_tokens: usage.get("completion_tokens").and_then(Value::as_u64),
         total_tokens: usage.get("total_tokens").and_then(Value::as_u64),
         reasoning_tokens: None,
+        cache_hit_tokens: usage.get("cache_hit_tokens").and_then(Value::as_u64),
     })
 }
 
@@ -118,5 +119,62 @@ pub(super) fn parse_responses_usage(raw: &Value) -> Option<TokenUsage> {
             .and_then(Value::as_u64),
         total_tokens: usage.get("total_tokens").and_then(Value::as_u64),
         reasoning_tokens,
+        cache_hit_tokens: usage.get("cache_hit_tokens").and_then(Value::as_u64),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{parse_openai_usage, parse_responses_usage};
+
+    #[test]
+    fn parse_openai_usage_extracts_cache_hit_tokens() {
+        let raw = json!({
+            "usage": {
+                "prompt_tokens": 20,
+                "completion_tokens": 10,
+                "total_tokens": 30,
+                "cache_hit_tokens": 12
+            }
+        });
+
+        let usage = parse_openai_usage(&raw).expect("usage parsed");
+        assert_eq!(usage.input_tokens, Some(20));
+        assert_eq!(usage.output_tokens, Some(10));
+        assert_eq!(usage.total_tokens, Some(30));
+        assert_eq!(usage.cache_hit_tokens, Some(12));
+    }
+
+    #[test]
+    fn parse_responses_usage_extracts_cache_hit_tokens() {
+        let raw = json!({
+            "response": {
+                "usage": {
+                    "input_tokens": 20,
+                    "output_tokens": 10,
+                    "total_tokens": 30,
+                    "cache_hit_tokens": 12
+                }
+            }
+        });
+
+        let usage = parse_responses_usage(&raw).expect("usage parsed");
+        assert_eq!(usage.cache_hit_tokens, Some(12));
+    }
+
+    #[test]
+    fn parse_openai_usage_missing_cache_hit_tokens_defaults_to_none() {
+        let raw = json!({
+            "usage": {
+                "prompt_tokens": 5,
+                "completion_tokens": 3,
+                "total_tokens": 8
+            }
+        });
+
+        let usage = parse_openai_usage(&raw).expect("usage parsed");
+        assert_eq!(usage.cache_hit_tokens, None);
+    }
 }

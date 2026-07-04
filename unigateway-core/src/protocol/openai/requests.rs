@@ -367,13 +367,12 @@ pub fn build_embeddings_request(
 }
 
 fn openai_headers(endpoint: &DriverEndpointContext) -> HashMap<String, String> {
-    let mut headers = HashMap::from([
-        (
-            "authorization".to_string(),
-            format!("Bearer {}", endpoint.api_key.expose_secret()),
-        ),
-        ("content-type".to_string(), "application/json".to_string()),
-    ]);
+    let mut headers = HashMap::from([("content-type".to_string(), "application/json".to_string())]);
+
+    let api_key = endpoint.api_key.expose_secret();
+    if !api_key.is_empty() {
+        headers.insert("authorization".to_string(), format!("Bearer {api_key}"));
+    }
 
     for (key, value) in &endpoint.metadata {
         let Some(header_name) = key.strip_prefix("http_header.") else {

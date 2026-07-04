@@ -1,6 +1,6 @@
 [package]
 name = "unigateway-sdk"
-version = "2.5.0"
+version = "2.6.0"
 edition = "2024"
 rust-version = "1.92"
 description = "Thin facade crate for embedders using UniGateway core, protocol, and host libraries."
@@ -11,12 +11,13 @@ keywords = ["llm", "gateway", "sdk", "openai", "anthropic"]
 categories = ["api-bindings"]
 
 [features]
-default = ["host"]
+default = ["host", "sglang-lite"]
 embed = ["host"]
 config = ["dep:unigateway-config"]
 core = ["dep:unigateway-core"]
 protocol = ["core", "dep:unigateway-protocol"]
 host = ["protocol", "dep:unigateway-host"]
+sglang-lite = ["core", "unigateway-core/sglang-lite"]
 testing = ["host", "unigateway-host/testing"]
 
 [dependencies]
@@ -42,3 +43,7 @@ required-features = ["protocol"]
 [[example]]
 name = "anthropic_tools_probe"
 required-features = ["host"]
+
+[[example]]
+name = "sglang_lite_local"
+required-features = ["sglang-lite", "protocol"]

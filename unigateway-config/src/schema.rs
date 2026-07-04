@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -42,6 +44,8 @@ pub struct ProviderEntry {
     pub model_mapping: String,
     #[serde(default = "default_true")]
     pub is_enabled: bool,
+    #[serde(default)]
+    pub metadata: HashMap<String, String>,
 }
 
 fn default_true() -> bool {
@@ -51,6 +55,7 @@ fn default_true() -> bool {
 pub struct ProviderModelOptions<'a> {
     pub default_model: Option<&'a str>,
     pub model_mapping: Option<&'a str>,
+    pub metadata: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Serialize)]

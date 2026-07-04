@@ -365,6 +365,7 @@ impl GatewayState {
             ProviderModelOptions {
                 default_model: None,
                 model_mapping,
+                metadata: None,
             },
         )
         .await
@@ -403,6 +404,7 @@ impl GatewayState {
                 default_model: model_options.default_model.unwrap_or("").to_string(),
                 model_mapping: model_options.model_mapping.unwrap_or("").to_string(),
                 is_enabled: true,
+                metadata: model_options.metadata.unwrap_or_default(),
             };
             let idx = if let Some((i, p)) = guard
                 .file
@@ -709,6 +711,7 @@ mod tests {
                 ProviderModelOptions {
                     default_model: Some("moonshot-v1-8k"),
                     model_mapping: Some("{\"gpt-4\":\"moonshot-v1-8k\"}"),
+                    metadata: None,
                 },
             )
             .await;
@@ -722,6 +725,7 @@ mod tests {
                 ProviderModelOptions {
                     default_model: None,
                     model_mapping: None,
+                    metadata: None,
                 },
             )
             .await;
@@ -823,6 +827,7 @@ mod tests {
                 ProviderModelOptions {
                     default_model: Some("moonshot-v1-8k"),
                     model_mapping: Some(r#"{" zzz ":"z-model"," aaa ":"a-model"}"#),
+                    metadata: None,
                 },
             )
             .await;
@@ -880,6 +885,7 @@ mod tests {
                 ProviderModelOptions {
                     default_model: Some("moonshot-v1-8k"),
                     model_mapping: Some("{\"gpt-4\":\"moonshot-v1-8k\"}"),
+                    metadata: None,
                 },
             )
             .await;
@@ -893,6 +899,7 @@ mod tests {
                 ProviderModelOptions {
                     default_model: Some("moonshot-v1-32k"),
                     model_mapping: Some("{\"gpt-4o\":\"moonshot-v1-32k\"}"),
+                    metadata: None,
                 },
             )
             .await;
@@ -952,6 +959,7 @@ mod tests {
                 ProviderModelOptions {
                     default_model: Some("moonshot-v1-8k"),
                     model_mapping: Some("not-json"),
+                    metadata: None,
                 },
             )
             .await;
@@ -988,6 +996,7 @@ mod tests {
                 ProviderModelOptions {
                     default_model: None,
                     model_mapping: Some("{\"gpt-4\":\"a-gpt-4\"}"),
+                    metadata: None,
                 },
             )
             .await;
@@ -1001,6 +1010,7 @@ mod tests {
                 ProviderModelOptions {
                     default_model: None,
                     model_mapping: Some("{\"gpt-4\":\"b-gpt-4\"}"),
+                    metadata: None,
                 },
             )
             .await;

@@ -2,6 +2,9 @@ pub mod anthropic;
 pub mod openai;
 mod tool_choice_retry;
 
+#[cfg(feature = "sglang-lite")]
+pub mod sglang_lite;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
@@ -13,13 +16,28 @@ use crate::transport::HttpTransport;
 pub use anthropic::AnthropicDriver;
 pub use openai::OpenAiCompatibleDriver;
 
+#[cfg(feature = "sglang-lite")]
+pub use sglang_lite::SglangLiteDriver;
+
 static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 pub fn builtin_drivers(transport: Arc<dyn HttpTransport>) -> Vec<Arc<dyn crate::ProviderDriver>> {
-    vec![
+    #[cfg(feature = "sglang-lite")]
+    let mut drivers: Vec<Arc<dyn crate::ProviderDriver>> = vec![
+        Arc::new(OpenAiCompatibleDriver::new(transport.clone())),
+        Arc::new(AnthropicDriver::new(transport.clone())),
+    ];
+
+    #[cfg(feature = "sglang-lite")]
+    drivers.push(Arc::new(SglangLiteDriver::new(transport)));
+
+    #[cfg(not(feature = "sglang-lite"))]
+    let drivers: Vec<Arc<dyn crate::ProviderDriver>> = vec![
         Arc::new(OpenAiCompatibleDriver::new(transport.clone())),
         Arc::new(AnthropicDriver::new(transport)),
-    ]
+    ];
+
+    drivers
 }
 
 pub(crate) fn next_request_id() -> String {

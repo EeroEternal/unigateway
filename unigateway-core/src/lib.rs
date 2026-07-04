@@ -59,17 +59,18 @@ pub use pool::{
 };
 pub use registry::InMemoryDriverRegistry;
 pub use request::{
-    ANTHROPIC_THINKING_OUTPUT_KEY, CLIENT_PROTOCOL_KEY, ClientProtocol, ContentBlock, Message,
-    MessageRole, OPENAI_RAW_MESSAGES_KEY, ProxyChatRequest, ProxyEmbeddingsRequest,
-    ProxyResponsesRequest, StructuredMessage, THINKING_SIGNATURE_PLACEHOLDER_VALUE,
-    THINKING_SIGNATURE_STATUS_KEY, TOOL_CHOICE_FORCE_OVERRIDE_KEY, TOOL_CHOICE_NORMALIZED_KEY,
-    TOOL_CHOICE_ORIGINAL_KEY, TOOL_CHOICE_REACTIVE_RETRY_KEY, TOOL_CHOICE_REASON_KEY,
-    ThinkingSignatureStatus, ToolChoiceNormalization, UpstreamToolChoiceProtocol,
-    anthropic_content_to_blocks, anthropic_messages_to_openai_messages,
-    anthropic_tool_choice_to_openai_tool_choice, anthropic_tools_to_openai_tools,
-    apply_reactive_tool_choice_override, classify_anthropic_tool_choice,
-    classify_openai_tool_choice, content_blocks_to_anthropic, content_blocks_to_anthropic_request,
-    is_placeholder_thinking_signature, is_tool_choice_upstream_rejection, normalize_tool_choice,
+    ANTHROPIC_THINKING_OUTPUT_KEY, CLIENT_PROTOCOL_KEY, ClientProtocol, ContentBlock,
+    LOCAL_INFERENCE_PREFIX_CACHING_KEY, Message, MessageRole, OPENAI_RAW_MESSAGES_KEY,
+    ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest, StructuredMessage,
+    THINKING_SIGNATURE_PLACEHOLDER_VALUE, THINKING_SIGNATURE_STATUS_KEY,
+    TOOL_CHOICE_FORCE_OVERRIDE_KEY, TOOL_CHOICE_NORMALIZED_KEY, TOOL_CHOICE_ORIGINAL_KEY,
+    TOOL_CHOICE_REACTIVE_RETRY_KEY, TOOL_CHOICE_REASON_KEY, ThinkingSignatureStatus,
+    ToolChoiceNormalization, UpstreamToolChoiceProtocol, anthropic_content_to_blocks,
+    anthropic_messages_to_openai_messages, anthropic_tool_choice_to_openai_tool_choice,
+    anthropic_tools_to_openai_tools, apply_reactive_tool_choice_override,
+    classify_anthropic_tool_choice, classify_openai_tool_choice, content_blocks_to_anthropic,
+    content_blocks_to_anthropic_request, is_placeholder_thinking_signature,
+    is_tool_choice_upstream_rejection, normalize_tool_choice,
     openai_message_to_anthropic_content_blocks,
     openai_message_to_anthropic_content_blocks_with_policy, openai_message_to_content_blocks,
     openai_messages_to_anthropic_messages, openai_tool_choice_to_anthropic_tool_choice,
@@ -85,3 +86,11 @@ pub use response::{
 };
 pub use responses_retry::should_retry_responses_without_tools;
 pub use retry::{BackoffPolicy, LoadBalancingStrategy, RetryCondition, RetryPolicy};
+
+#[cfg(feature = "sglang-lite")]
+pub use protocol::sglang_lite::{
+    BACKEND_MODE_KEY, DEVICE_KEY, DRIVER_ID, MAX_BATCH_SIZE_KEY, MODEL_PATH_KEY, PYTHON_ENV_KEY,
+    SUBPROCESS_ARGS_KEY, SUBPROCESS_COMMAND_KEY, SUBPROCESS_HEALTH_PATH_KEY,
+    SUBPROCESS_STARTUP_TIMEOUT_MS_KEY, SglangLiteBackend, SglangLiteDriver,
+    SglangLiteSubprocessConfig,
+};

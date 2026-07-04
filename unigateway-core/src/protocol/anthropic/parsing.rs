@@ -48,5 +48,6 @@ pub(super) fn parse_anthropic_usage(raw: &Value) -> Option<TokenUsage> {
             (Some(input), Some(output)) => Some(input + output),
             _ => None,
         },
+        cache_hit_tokens: None,
     })
 }

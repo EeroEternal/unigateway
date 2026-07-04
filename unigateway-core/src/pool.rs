@@ -50,6 +50,7 @@ impl From<&str> for SecretString {
 pub enum ProviderKind {
     OpenAiCompatible,
     Anthropic,
+    SglangLite,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -848,6 +848,7 @@ fn openai_responses_renderer_preserves_function_call_body_and_reasoning_usage() 
                 output_tokens: Some(8),
                 total_tokens: Some(28),
                 reasoning_tokens: Some(3),
+                cache_hit_tokens: None,
             }),
             latency_ms: 5,
             started_at: std::time::SystemTime::UNIX_EPOCH,

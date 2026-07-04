@@ -33,6 +33,10 @@ pub(super) fn build_execution_target(
     }))
 }
 
+fn is_openai_compatible_kind(provider_kind: ProviderKind) -> bool {
+    provider_kind == ProviderKind::OpenAiCompatible || provider_kind == ProviderKind::SglangLite
+}
+
 pub(super) fn build_openai_compatible_target(
     endpoints: &[Endpoint],
     pool_id: &str,
@@ -41,7 +45,7 @@ pub(super) fn build_openai_compatible_target(
     let compatible_endpoints: Vec<&Endpoint> = endpoints
         .iter()
         .filter(|endpoint| endpoint.enabled)
-        .filter(|endpoint| endpoint.provider_kind == ProviderKind::OpenAiCompatible)
+        .filter(|endpoint| is_openai_compatible_kind(endpoint.provider_kind))
         .collect();
 
     if compatible_endpoints.is_empty() {

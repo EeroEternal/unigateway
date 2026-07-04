@@ -85,7 +85,10 @@ fn resolve_openai_api_surface_for_request(
         .endpoints
         .iter()
         .filter(|endpoint| endpoint.enabled)
-        .filter(|endpoint| endpoint.provider_kind == ProviderKind::OpenAiCompatible)
+        .filter(|endpoint| {
+            endpoint.provider_kind == ProviderKind::OpenAiCompatible
+                || endpoint.provider_kind == ProviderKind::SglangLite
+        })
         .find(|endpoint| {
             hint.map(|hint| endpoint_matches_hint(endpoint, hint))
                 .unwrap_or(true)
