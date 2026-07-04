@@ -22,6 +22,9 @@ pub const TOOL_CHOICE_REACTIVE_RETRY_KEY: &str = "unigateway.tool_choice.reactiv
 /// Metadata key for endpoint reasoning output compatibility policy.
 pub const ANTHROPIC_THINKING_OUTPUT_KEY: &str =
     "unigateway.capabilities.reasoning.anthropic_thinking_output";
+/// Metadata key indicating whether the selected backend supports prefix caching.
+pub const LOCAL_INFERENCE_PREFIX_CACHING_KEY: &str =
+    "unigateway.capabilities.local_inference.prefix_caching";
 /// Placeholder thinking signature used only for downstream protocol-shape compatibility.
 pub const THINKING_SIGNATURE_PLACEHOLDER_VALUE: &str = "EXTENDED_THINKING_PLACEHOLDER_SIG";
 

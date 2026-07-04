@@ -1115,6 +1115,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
+name = "signal-hook-registry"
+version = "1.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
+dependencies = [
+ "errno",
+ "libc",
+]
+
+[[package]]
 name = "siphasher"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1282,6 +1292,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",
@@ -1497,14 +1508,14 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "unigateway"
-version = "2.5.0"
+version = "2.6.0"
 dependencies = [
  "unigateway-sdk",
 ]
 
 [[package]]
 name = "unigateway-config"
-version = "2.5.0"
+version = "2.6.0"
 dependencies = [
  "anyhow",
  "llm_providers",
@@ -1519,7 +1530,7 @@ dependencies = [
 
 [[package]]
 name = "unigateway-core"
-version = "2.4.0"
+version = "2.6.0"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -1534,7 +1545,7 @@ dependencies = [
 
 [[package]]
 name = "unigateway-host"
-version = "2.4.0"
+version = "2.6.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1550,7 +1561,7 @@ dependencies = [
 
 [[package]]
 name = "unigateway-protocol"
-version = "2.5.0"
+version = "2.6.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1564,7 +1575,7 @@ dependencies = [
 
 [[package]]
 name = "unigateway-sdk"
-version = "2.5.0"
+version = "2.6.0"
 dependencies = [
  "anyhow",
  "axum",

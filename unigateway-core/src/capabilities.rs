@@ -110,6 +110,14 @@ pub const OPENAI_RESPONSES_TOOLS_WITH_REASONING_KEY: &str =
 pub const OPENAI_RESPONSES_OPTIONAL_TOOLS_RETRY_KEY: &str =
     "unigateway.openai.responses.optional_tools_failure_retry";
 
+/// Local inference backend capabilities (e.g. on-premise MoE engines).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalInferenceCapabilities {
+    /// Whether the backend can share prefix KV cache across requests.
+    #[serde(default = "default_true")]
+    pub prefix_caching: bool,
+}
+
 /// Endpoint-level capability declarations merged with driver defaults at dispatch time.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EndpointCapabilities {
@@ -119,6 +127,8 @@ pub struct EndpointCapabilities {
     pub reasoning: Option<ReasoningCapabilities>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub openai_api_surface: Option<OpenAiApiSurfaceCapabilities>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_inference: Option<LocalInferenceCapabilities>,
 }
 
 /// Anthropic downstream thinking block rendering policy for OpenAI-compatible upstreams.
@@ -247,10 +257,16 @@ impl EndpointCapabilities {
             .reasoning
             .clone()
             .or_else(|| Some(default_reasoning_for_driver(&endpoint.driver_id)));
+        let local_inference = endpoint
+            .capabilities
+            .local_inference
+            .clone()
+            .or_else(|| default_local_inference_for_driver(&endpoint.driver_id));
 
         Self {
             tool_calling,
             reasoning,
+            local_inference,
             openai_api_surface: endpoint.capabilities.openai_api_surface.clone(),
         }
     }
@@ -267,6 +283,12 @@ impl EndpointCapabilities {
             .unwrap_or_else(ReasoningCapabilities::openai_compatible_default)
     }
 
+    pub fn local_inference(&self) -> LocalInferenceCapabilities {
+        self.local_inference
+            .clone()
+            .unwrap_or_else(LocalInferenceCapabilities::openai_compatible_default)
+    }
+
     pub fn openai_api_surface(&self) -> Option<&OpenAiApiSurfaceCapabilities> {
         self.openai_api_surface.as_ref()
     }
@@ -278,6 +300,10 @@ impl EndpointCapabilities {
                 .anthropic_thinking_output
                 .as_metadata_value()
                 .to_string(),
+        );
+        metadata.insert(
+            crate::request::LOCAL_INFERENCE_PREFIX_CACHING_KEY.to_string(),
+            self.local_inference().prefix_caching.to_string(),
         );
         if let Some(surface) = self.openai_api_surface.as_ref() {
             inject_openai_api_surface_metadata(metadata, surface);
@@ -320,5 +346,79 @@ fn default_reasoning_for_driver(driver_id: &str) -> ReasoningCapabilities {
     match driver_id {
         "anthropic" => ReasoningCapabilities::anthropic_native_default(),
         _ => ReasoningCapabilities::openai_compatible_default(),
+    }
+}
+
+fn default_local_inference_for_driver(driver_id: &str) -> Option<LocalInferenceCapabilities> {
+    match driver_id {
+        "sglang-lite" => Some(LocalInferenceCapabilities::sglang_lite_default()),
+        _ => None,
+    }
+}
+
+impl LocalInferenceCapabilities {
+    /// Conservative default for HTTP-based backends without local KV sharing.
+    pub fn openai_compatible_default() -> Self {
+        Self {
+            prefix_caching: false,
+        }
+    }
+
+    /// Default for sglang-lite backends exposing Radix prefix caching.
+    pub fn sglang_lite_default() -> Self {
+        Self {
+            prefix_caching: true,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ProviderKind;
+    use crate::pool::{ModelPolicy, SecretString};
+
+    #[test]
+    fn sglang_lite_driver_defaults_declare_prefix_caching() {
+        let endpoint = Endpoint {
+            endpoint_id: "ep-sglang".to_string(),
+            provider_name: Some("sglang-local".to_string()),
+            source_endpoint_id: None,
+            provider_family: Some("sglang-lite".to_string()),
+            provider_kind: ProviderKind::SglangLite,
+            driver_id: "sglang-lite".to_string(),
+            base_url: "http://localhost:8000/v1/".to_string(),
+            api_key: SecretString::new(""),
+            model_policy: ModelPolicy::default(),
+            enabled: true,
+            max_concurrency: None,
+            capabilities: EndpointCapabilities::default(),
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let resolved = EndpointCapabilities::resolve_for_endpoint(&endpoint);
+        assert!(resolved.local_inference().prefix_caching);
+    }
+
+    #[test]
+    fn openai_compatible_driver_defaults_do_not_declare_prefix_caching() {
+        let endpoint = Endpoint {
+            endpoint_id: "ep-openai".to_string(),
+            provider_name: Some("openai".to_string()),
+            source_endpoint_id: None,
+            provider_family: Some("openai".to_string()),
+            provider_kind: ProviderKind::OpenAiCompatible,
+            driver_id: "openai-compatible".to_string(),
+            base_url: "https://api.openai.com/v1/".to_string(),
+            api_key: SecretString::new("sk-test"),
+            model_policy: ModelPolicy::default(),
+            enabled: true,
+            max_concurrency: None,
+            capabilities: EndpointCapabilities::default(),
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let resolved = EndpointCapabilities::resolve_for_endpoint(&endpoint);
+        assert!(!resolved.local_inference().prefix_caching);
     }
 }

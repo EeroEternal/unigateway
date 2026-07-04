@@ -388,7 +388,9 @@ pub fn anthropic_completed_chat_body(
 pub fn openai_completed_chat_body(
     result: CompletedResponse<ChatResponseFinal>,
 ) -> serde_json::Value {
-    if result.report.selected_provider == ProviderKind::OpenAiCompatible
+    let is_openai_compatible = result.report.selected_provider == ProviderKind::OpenAiCompatible
+        || result.report.selected_provider == ProviderKind::SglangLite;
+    if is_openai_compatible
         && result.response.raw.is_object()
         && result
             .response

@@ -679,6 +679,7 @@ fn build_chat_request_memtensor_style_downgrades_named_function_to_required() {
             openai_api_surface: None,
             tool_calling: Some(ToolCallingCapabilities::memtensor_style()),
             reasoning: None,
+            local_inference: None,
         },
         metadata: HashMap::new(),
     };

@@ -158,7 +158,7 @@ fn to_core_endpoint(
         ));
     }
 
-    if provider.api_key.trim().is_empty() {
+    if provider.provider_type != "sglang-lite" && provider.api_key.trim().is_empty() {
         return Err(anyhow!(
             "provider '{}' for service '{}' is missing api_key",
             provider.name,
@@ -192,13 +192,14 @@ fn to_core_endpoint(
         provider.name.clone()
     };
 
-    let metadata = HashMap::from([
+    let mut metadata = HashMap::from([
         (
             "source_provider_type".to_string(),
             provider.provider_type.clone(),
         ),
         ("binding_priority".to_string(), binding.priority.to_string()),
     ]);
+    metadata.extend(provider.metadata.clone());
 
     Ok(Endpoint {
         endpoint_id,
@@ -238,6 +239,7 @@ fn to_core_strategy(service: &ServiceEntry) -> Result<LoadBalancingStrategy> {
 fn to_provider_kind(provider: &ProviderEntry) -> ProviderKind {
     match provider.provider_type.as_str() {
         "anthropic" => ProviderKind::Anthropic,
+        "sglang-lite" => ProviderKind::SglangLite,
         _ => ProviderKind::OpenAiCompatible,
     }
 }
@@ -245,6 +247,7 @@ fn to_provider_kind(provider: &ProviderEntry) -> ProviderKind {
 fn to_driver_id(provider: &ProviderEntry) -> String {
     match provider.provider_type.as_str() {
         "anthropic" => "anthropic".to_string(),
+        "sglang-lite" => "sglang-lite".to_string(),
         _ => "openai-compatible".to_string(),
     }
 }
@@ -279,12 +282,15 @@ fn parse_model_mapping(raw: &str) -> HashMap<String, String> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use tempfile::tempdir;
     use unigateway_core::LoadBalancingStrategy;
+    use unigateway_core::ProviderKind;
     use unigateway_core::UniGatewayEngine;
 
     use super::{build_all_core_pools, build_core_pool_for_service, sync_core_pools};
-    use crate::GatewayState;
+    use crate::{GatewayState, ProviderModelOptions};
 
     #[tokio::test]
     async fn builds_core_pool_for_round_robin_service() {
@@ -447,5 +453,71 @@ mod tests {
 
         assert!(engine.get_pool("svc-ok").await.is_some());
         assert!(engine.get_pool("svc-legacy").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn build_core_pool_for_sglang_lite_provider() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+        let state = GatewayState::load(&config_path).await.expect("load state");
+
+        state.create_service("svc", "Service").await;
+        let metadata = HashMap::from([
+            (
+                "unigateway.sglang_lite.model_path".to_string(),
+                "/path/to/moe".to_string(),
+            ),
+            (
+                "unigateway.sglang_lite.device".to_string(),
+                "cuda".to_string(),
+            ),
+        ]);
+        let provider_id = state
+            .create_provider_with_models(
+                "sglang-local",
+                "sglang-lite",
+                "",
+                Some("http://127.0.0.1:8000"),
+                "",
+                ProviderModelOptions {
+                    default_model: None,
+                    model_mapping: None,
+                    metadata: Some(metadata),
+                },
+            )
+            .await;
+        state
+            .bind_provider_to_service("svc", provider_id)
+            .await
+            .expect("bind provider");
+
+        let pool = build_core_pool_for_service(&state, "svc")
+            .await
+            .expect("build core pool");
+
+        assert_eq!(pool.pool_id, "svc");
+        assert_eq!(pool.endpoints.len(), 1);
+        assert_eq!(pool.endpoints[0].driver_id, "sglang-lite");
+        assert_eq!(pool.endpoints[0].provider_kind, ProviderKind::SglangLite);
+        assert_eq!(pool.endpoints[0].base_url, "http://127.0.0.1:8000/");
+        assert_eq!(
+            pool.endpoints[0].api_key.expose_secret(),
+            "",
+            "sglang-lite allows empty api_key for local backends"
+        );
+        assert_eq!(
+            pool.endpoints[0]
+                .metadata
+                .get("unigateway.sglang_lite.model_path")
+                .map(String::as_str),
+            Some("/path/to/moe")
+        );
+        assert_eq!(
+            pool.endpoints[0]
+                .metadata
+                .get("unigateway.sglang_lite.device")
+                .map(String::as_str),
+            Some("cuda")
+        );
     }
 }

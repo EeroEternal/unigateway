@@ -26,7 +26,7 @@ Recommended path: depend on **`unigateway-sdk`** only. It re-exports `unigateway
 
 ```toml
 [dependencies]
-unigateway-sdk = "2.3"
+unigateway-sdk = "2.6"
 ```
 
 If you mix `unigateway-sdk` with direct `unigateway-core` / `unigateway-protocol` / `unigateway-host` crates, keep them on the **same release line**.
