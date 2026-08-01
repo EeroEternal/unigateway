@@ -9,7 +9,14 @@
 //! cargo test -p unigateway-core --test live_openai_responses_upstream -- --ignored --nocapture
 //! ```
 //!
-//! `OPENROUTER_API_KEY` is accepted as an alias for `OPENAI_API_KEY`.
+//! DeepSeek can be tested without additional endpoint overrides:
+//!
+//! ```bash
+//! DEEPSEEK_API_KEY=sk-... \
+//! cargo test -p unigateway-core --test live_openai_responses_upstream -- --ignored --nocapture
+//! ```
+//!
+//! `OPENROUTER_API_KEY` and `DEEPSEEK_API_KEY` are accepted as provider-specific aliases.
 //! Optional: `OPENROUTER_HTTP_REFERER`, `OPENROUTER_X_TITLE` (forwarded as HTTP headers).
 //!
 //! Skips automatically when no API key env var is set.
@@ -18,6 +25,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures_util::StreamExt;
 use serde_json::json;
 use unigateway_core::{
     Endpoint, EndpointCapabilities, ExecutionTarget, InMemoryDriverRegistry, ModelPolicy,
@@ -28,14 +36,51 @@ use unigateway_core::{
     transport::ReqwestHttpTransport,
 };
 
-fn live_api_key() -> Option<String> {
-    ["OPENAI_API_KEY", "OPENROUTER_API_KEY"]
-        .into_iter()
-        .find_map(|name| std::env::var(name).ok())
-        .filter(|key| !key.trim().is_empty())
+struct LiveSettings {
+    api_key: String,
+    base_url: String,
+    model: String,
+    provider_family: &'static str,
 }
 
-fn live_endpoint(api_key: String, model: &str) -> Endpoint {
+fn live_settings() -> Option<LiveSettings> {
+    let (api_key, default_base_url, default_model, provider_family) = [
+        (
+            "OPENAI_API_KEY",
+            "https://api.openai.com/v1",
+            "gpt-5.5",
+            "openai",
+        ),
+        (
+            "OPENROUTER_API_KEY",
+            "https://openrouter.ai/api/v1",
+            "openai/gpt-5.5",
+            "openrouter",
+        ),
+        (
+            "DEEPSEEK_API_KEY",
+            "https://api.deepseek.com",
+            "deepseek-v4-flash",
+            "deepseek",
+        ),
+    ]
+    .into_iter()
+    .find_map(|(name, base_url, model, family)| {
+        std::env::var(name)
+            .ok()
+            .filter(|key| !key.trim().is_empty())
+            .map(|key| (key, base_url, model, family))
+    })?;
+
+    Some(LiveSettings {
+        api_key,
+        base_url: std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| default_base_url.to_string()),
+        model: std::env::var("OPENAI_LIVE_MODEL").unwrap_or_else(|_| default_model.to_string()),
+        provider_family,
+    })
+}
+
+fn live_endpoint(settings: &LiveSettings) -> Endpoint {
     let mut metadata = HashMap::new();
     if let Ok(referer) = std::env::var("OPENROUTER_HTTP_REFERER") {
         metadata.insert("http_header.HTTP-Referer".to_string(), referer);
@@ -48,20 +93,22 @@ fn live_endpoint(api_key: String, model: &str) -> Endpoint {
         endpoint_id: "openai-live".to_string(),
         provider_name: Some("openai-live".to_string()),
         source_endpoint_id: None,
-        provider_family: Some("openai".to_string()),
+        provider_family: Some(settings.provider_family.to_string()),
         provider_kind: ProviderKind::OpenAiCompatible,
         driver_id: "openai-compatible".to_string(),
-        base_url: std::env::var("OPENAI_BASE_URL")
-            .unwrap_or_else(|_| "https://api.openai.com/v1".to_string()),
-        api_key: SecretString::new(api_key),
+        base_url: settings.base_url.clone(),
+        api_key: SecretString::new(settings.api_key.clone()),
         model_policy: ModelPolicy {
-            default_model: Some(model.to_string()),
+            default_model: Some(settings.model.clone()),
             model_mapping: HashMap::new(),
         },
         enabled: true,
         max_concurrency: None,
         capabilities: EndpointCapabilities {
-            openai_api_surface: Some(OpenAiApiSurfaceCapabilities::resolve_for_model(model, None)),
+            openai_api_surface: Some(OpenAiApiSurfaceCapabilities::resolve_for_model(
+                &settings.model,
+                None,
+            )),
             ..EndpointCapabilities::default()
         },
         metadata,
@@ -116,21 +163,7 @@ fn live_tool_request(model: &str, input: serde_json::Value) -> ProxyResponsesReq
     request
 }
 
-#[tokio::test]
-#[ignore = "live upstream: set OPENAI_API_KEY (optional OPENAI_LIVE_MODEL, default gpt-5.5)"]
-async fn live_responses_tools_and_reasoning_acceptance() {
-    let Some(api_key) = live_api_key() else {
-        eprintln!(
-            "skipping live_openai_responses_upstream: OPENAI_API_KEY / OPENROUTER_API_KEY not set"
-        );
-        return;
-    };
-
-    let model = std::env::var("OPENAI_LIVE_MODEL").unwrap_or_else(|_| "openai/gpt-5.5".to_string());
-    let base_url = std::env::var("OPENAI_BASE_URL")
-        .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
-    eprintln!("live upstream: base_url={base_url} model={model}");
-
+async fn live_engine(settings: &LiveSettings) -> UniGatewayEngine {
     let transport = Arc::new(ReqwestHttpTransport::default());
     let registry = Arc::new(InMemoryDriverRegistry::new());
     registry.register(Arc::new(OpenAiCompatibleDriver::new(transport)));
@@ -142,14 +175,30 @@ async fn live_responses_tools_and_reasoning_acceptance() {
         .expect("engine");
 
     engine
-        .upsert_pool(live_pool(live_endpoint(api_key, &model)))
+        .upsert_pool(live_pool(live_endpoint(settings)))
         .await
         .expect("upsert pool");
+    engine
+}
+
+#[tokio::test]
+#[ignore = "live upstream: set OPENAI_API_KEY, OPENROUTER_API_KEY, or DEEPSEEK_API_KEY"]
+async fn live_responses_tools_and_reasoning_acceptance() {
+    let Some(settings) = live_settings() else {
+        eprintln!("skipping live_openai_responses_upstream: no supported live API key env var set");
+        return;
+    };
+    eprintln!(
+        "live upstream: base_url={} model={}",
+        settings.base_url, settings.model
+    );
+
+    let engine = live_engine(&settings).await;
 
     let session = engine
         .proxy_responses(
             live_tool_request(
-                &model,
+                &settings.model,
                 json!([{
                     "role": "user",
                     "content": [{"type": "input_text", "text": "What's the weather in San Francisco?"}]
@@ -210,5 +259,79 @@ async fn live_responses_tools_and_reasoning_acceptance() {
         has_tool_or_text,
         "expected tool call or assistant output in response: {}",
         completed.response.raw
+    );
+}
+
+#[tokio::test]
+#[ignore = "live upstream: set OPENAI_API_KEY, OPENROUTER_API_KEY, or DEEPSEEK_API_KEY"]
+async fn live_responses_streaming_acceptance() {
+    let Some(settings) = live_settings() else {
+        eprintln!("skipping live_openai_responses_upstream: no supported live API key env var set");
+        return;
+    };
+    eprintln!(
+        "live upstream: base_url={} model={}",
+        settings.base_url, settings.model
+    );
+
+    let engine = live_engine(&settings).await;
+    let request = ProxyResponsesRequest {
+        model: settings.model,
+        input: Some(json!("Reply with exactly: pong")),
+        instructions: None,
+        temperature: None,
+        top_p: None,
+        max_output_tokens: Some(128),
+        stream: true,
+        tools: None,
+        tool_choice: None,
+        reasoning: Some(json!({"effort": "low"})),
+        previous_response_id: None,
+        request_metadata: None,
+        extra: HashMap::new(),
+        metadata: HashMap::new(),
+    };
+
+    let session = engine
+        .proxy_responses(
+            request,
+            ExecutionTarget::Pool {
+                pool_id: "live-openai".to_string(),
+            },
+        )
+        .await
+        .expect("live streaming responses request");
+    let ProxySession::Streaming(mut streaming) = session else {
+        panic!("expected streaming response");
+    };
+
+    let mut event_types = Vec::new();
+    while let Some(event) = streaming.stream.next().await {
+        event_types.push(event.expect("stream event").event_type);
+    }
+    let completed = streaming
+        .completion
+        .await
+        .expect("stream completion channel")
+        .expect("stream completion");
+
+    assert!(
+        event_types
+            .iter()
+            .any(|event_type| event_type == "response.completed"),
+        "expected response.completed event: {event_types:?}"
+    );
+    assert!(
+        completed.response.output_text.is_some(),
+        "expected output text in completed stream"
+    );
+    assert!(
+        completed.report.usage.as_ref().is_some_and(|usage| {
+            usage.input_tokens.is_some()
+                && usage.output_tokens.is_some()
+                && usage.reasoning_tokens.is_some()
+        }),
+        "stream usage should include input, output, and reasoning tokens: {:?}",
+        completed.report.usage
     );
 }
