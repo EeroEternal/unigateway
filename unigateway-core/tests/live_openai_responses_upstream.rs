@@ -278,10 +278,18 @@ async fn live_responses_streaming_acceptance() {
     let request = ProxyResponsesRequest {
         model: settings.model,
         input: Some(json!("Reply with exactly: pong")),
+        instructions: None,
+        temperature: None,
+        top_p: None,
         max_output_tokens: Some(128),
         stream: true,
+        tools: None,
+        tool_choice: None,
         reasoning: Some(json!({"effort": "low"})),
-        ..ProxyResponsesRequest::default()
+        previous_response_id: None,
+        request_metadata: None,
+        extra: HashMap::new(),
+        metadata: HashMap::new(),
     };
 
     let session = engine
