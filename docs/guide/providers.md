@@ -1,6 +1,6 @@
 ## Provider Configuration Examples
 
-Real-world examples of routing different LLM providers through UniGateway. All examples use the OpenAI-compatible downstream API (`/v1/chat/completions`, `/v1/embeddings`).
+Real-world examples of routing different LLM providers through UniGateway. The examples use OpenAI-compatible downstream APIs such as `/v1/chat/completions`, `/v1/responses`, and `/v1/embeddings`.
 
 ---
 
@@ -28,6 +28,25 @@ curl -X POST http://localhost:3210/v1/chat/completions \
     "messages": [{"role": "user", "content": "Hello"}]
   }'
 ```
+
+DeepSeek also supports the OpenAI Responses API with `deepseek-v4-flash`. The same provider
+configuration works because UniGateway appends `/responses` to the configured base URL:
+
+```bash
+curl -X POST http://localhost:3210/v1/responses \
+  -H "Authorization: Bearer ugk_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-v4-flash",
+    "input": "Hello",
+    "reasoning": {"effort": "low"},
+    "stream": true
+  }'
+```
+
+Both `https://api.deepseek.com` and `https://api.deepseek.com/v1` are valid upstream base URLs.
+At the time of writing, DeepSeek documents Responses API support for `deepseek-v4-flash`;
+check its current model compatibility before selecting another model.
 
 ---
 
