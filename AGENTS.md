@@ -112,3 +112,13 @@ cargo test --workspace
 ---
 
 维护者可随版本更新 MSRV、CI 命令与文档链接；代理以根 `Cargo.toml` 与 `.github/workflows` 为准。
+
+## Cursor Cloud specific instructions
+
+面向未来的 Cloud Agent：启动时 update script 已跑过（`cargo fetch`），工具链由 `rust-toolchain.toml` 固定为 `stable`（含 `rustfmt`、`clippy`）。构建 / 测试 / lint 命令见上文「构建与测试」，此处不重复。
+
+- 本仓库是**纯库 workspace，没有任何可长期运行的服务、`[[bin]]` 或 `main.rs`**。不要试图启动网关服务——HTTP/CLI 由宿主应用实现，不在本仓库内。
+- 想端到端「跑起来」时，用 `unigateway-sdk/examples/` 下的三个示例（`openai_passthrough`、`anthropic_tools_probe`、`sglang_lite_local`）。默认 feature（`host` + `sglang-lite`）已满足三者的 `required-features`。
+- `cargo test --workspace` 全部是自包含单元 / doc 测试（约 223 个），**不需要网络或密钥**；`unigateway-core/tests/live_openai_responses_upstream.rs` 是 `#[ignore]` 的 live 测试，缺 `OPENAI_API_KEY` 时自动跳过。
+- 无需真实 provider 也能验证代理链路：示例把上游 URL 拼成 `{UPSTREAM_BASE_URL}/chat/completions`（注意末尾会补 `/chat/completions`，示例默认值 `https://api.openai.com` 缺 `/v1`）。可起一个本地 mock OpenAI 服务器并设 `UPSTREAM_BASE_URL=http://127.0.0.1:<port>/v1`、`UPSTREAM_API_KEY=sk-mock`、`UPSTREAM_MODEL=<name>`，再 `cargo run -p unigateway-sdk --example openai_passthrough`（默认监听 `127.0.0.1:3210`），`POST /v1/chat/completions` 即可打通「协议解析 → 引擎路由 → 上游代理」。
+- `anthropic_tools_probe` 与 `sglang_lite_local` 需要真实 Anthropic key / 本地 sglang-lite 后端，缺失时会报错，属预期。
