@@ -94,10 +94,10 @@ pub use response::{
 pub use responses_retry::should_retry_responses_without_tools;
 pub use retry::{BackoffPolicy, LoadBalancingStrategy, RetryCondition, RetryPolicy};
 
-/// Stable re-export of the OpenAI-compatible chat request builder (conversion surface).
-pub use protocol::openai::build_chat_request as build_openai_chat_request;
 /// Stable re-export of the Anthropic chat request builder (conversion surface).
 pub use protocol::anthropic::build_chat_request as build_anthropic_chat_request;
+/// Stable re-export of the OpenAI-compatible chat request builder (conversion surface).
+pub use protocol::openai::build_chat_request as build_openai_chat_request;
 
 #[cfg(feature = "drivers")]
 pub use drivers::{DriverRegistry, ProviderDriver};
