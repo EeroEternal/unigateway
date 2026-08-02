@@ -15,6 +15,9 @@ use crate::transport::HttpTransport;
 
 pub mod backend;
 
+#[cfg(feature = "sglang-lite-grpc")]
+mod grpc;
+
 pub use backend::{
     BACKEND_MODE_KEY, SUBPROCESS_ARGS_KEY, SUBPROCESS_COMMAND_KEY, SUBPROCESS_HEALTH_PATH_KEY,
     SUBPROCESS_STARTUP_TIMEOUT_MS_KEY, SglangLiteBackend, SglangLiteSubprocess,
@@ -109,7 +112,30 @@ impl ProviderDriver for SglangLiteDriver {
                     *guard = Some(child);
                 }
             } else if backend == SglangLiteBackend::Grpc {
-                return Err(GatewayError::not_implemented("sglang-lite grpc"));
+                // gRPC support is defined in sglang-lite/proto/sglang_lite.proto
+                // and docs/sglang-lite-grpc-spec.md (P2 priority).
+                // See SglangLiteBackend::Grpc for the confirmed contract.
+                #[cfg(feature = "sglang-lite-grpc")]
+                {
+                    // Support subprocess start for gRPC if the subprocess.* metadata keys are present
+                    let mut guard = subprocess.lock().await;
+                    if guard.is_none()
+                        && let Ok(sub_cfg) = backend::SglangLiteSubprocessConfig::from_metadata(
+                            &endpoint.metadata,
+                            &endpoint.base_url,
+                        )
+                    {
+                        let child = grpc::spawn_and_wait_grpc_health(sub_cfg).await?;
+                        *guard = Some(child);
+                    }
+                    return grpc::execute_chat_grpc(endpoint, request).await;
+                }
+                #[cfg(not(feature = "sglang-lite-grpc"))]
+                {
+                    return Err(GatewayError::not_implemented(
+                        "sglang-lite grpc (compile with feature \"sglang-lite-grpc\" to enable the client skeleton)",
+                    ));
+                }
             }
 
             OpenAiCompatibleDriver::new(transport)
@@ -145,8 +171,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        BACKEND_MODE_KEY, DEVICE_KEY, MAX_BATCH_SIZE_KEY, MODEL_PATH_KEY, PYTHON_ENV_KEY,
-        SglangLiteDriver, SglangLiteOptions,
+        DEVICE_KEY, MAX_BATCH_SIZE_KEY, MODEL_PATH_KEY, PYTHON_ENV_KEY, SglangLiteDriver,
+        SglangLiteOptions,
     };
     use crate::capabilities::EndpointCapabilities;
     use crate::drivers::{DriverEndpointContext, ProviderDriver};
@@ -330,6 +356,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(feature = "sglang-lite-grpc"))]
     async fn execute_chat_returns_not_implemented_for_grpc_backend() {
         let transport = Arc::new(MockTransport {
             seen: Arc::new(Mutex::new(Vec::new())),
@@ -338,7 +365,7 @@ mod tests {
         let mut endpoint = endpoint();
         endpoint
             .metadata
-            .insert(BACKEND_MODE_KEY.to_string(), "grpc".to_string());
+            .insert(super::BACKEND_MODE_KEY.to_string(), "grpc".to_string());
 
         let request = ProxyChatRequest {
             model: "local-moe".to_string(),
@@ -364,7 +391,7 @@ mod tests {
         };
         assert!(
             error.to_string().contains("not implemented"),
-            "grpc backend should be reported as not implemented"
+            "grpc backend should be reported as not implemented (see sglang-lite proto + spec)"
         );
     }
 }

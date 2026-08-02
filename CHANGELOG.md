@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+* **Cache hit metrics in responses**: synthetic OpenAI `usage` (chat completions, embeddings) and OpenAI Responses `usage` now emit `cache_hit_tokens` when available in the internal `TokenUsage`. Combined with existing raw passthrough for sglang-lite (and openai-compatible), this makes prefix cache efficiency observable both in gateway client responses and in `RequestReport`.
+* **gRPC API contract confirmed**: `SglangLiteBackend::Grpc` and driver now carry detailed docs pointing to sglang-lite's `proto/sglang_lite.proto` and `docs/sglang-lite-grpc-spec.md`. Guide updated with status (P2, not implemented) and contract summary.
+* **gRPC client skeleton (optional)**: Added behind `sglang-lite-grpc` feature (pulls tonic + prost). Vendored proto + build.rs.
+  - Unary + streaming with proper mpsc + oneshot completion handle (drive task accumulates text/usage).
+  - Proto extended with Tool/FunctionDefinition/ToolCall/FunctionCall; request mapping for tools/tool_choice, message tool_calls/tool_call_id (basic).
+  - Subprocess spawn + gRPC Health RPC readiness wait supported (reuses guard, works when subprocess.* keys present with backend_mode=grpc).
+  - cache_hit_tokens passthrough preserved.
+  HTTP path unchanged. Enable with `unigateway-core/sglang-lite-grpc`.
+
 ## [2.6.0]
 
 ### Added
