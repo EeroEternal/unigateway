@@ -371,7 +371,7 @@ fn openai_completed_body_normalizes_anthropic_provider_output() {
                 output_tokens: Some(4),
                 total_tokens: Some(14),
                 reasoning_tokens: None,
-                cache_hit_tokens: None,
+                cache_hit_tokens: Some(2),
             }),
             latency_ms: 10,
             started_at: std::time::SystemTime::UNIX_EPOCH,
@@ -400,6 +400,12 @@ fn openai_completed_body_normalizes_anthropic_provider_output() {
             .and_then(|usage| usage.get("completion_tokens"))
             .and_then(Value::as_u64),
         Some(4)
+    );
+    assert_eq!(
+        body.get("usage")
+            .and_then(|usage| usage.get("cache_hit_tokens"))
+            .and_then(Value::as_u64),
+        Some(2)
     );
 }
 

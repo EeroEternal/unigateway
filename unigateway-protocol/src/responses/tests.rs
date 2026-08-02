@@ -848,7 +848,7 @@ fn openai_responses_renderer_preserves_function_call_body_and_reasoning_usage() 
                 output_tokens: Some(8),
                 total_tokens: Some(28),
                 reasoning_tokens: Some(3),
-                cache_hit_tokens: None,
+                cache_hit_tokens: Some(5),
             }),
             latency_ms: 5,
             started_at: std::time::SystemTime::UNIX_EPOCH,
@@ -873,6 +873,11 @@ fn openai_responses_renderer_preserves_function_call_body_and_reasoning_usage() 
         body.pointer("/usage/output_tokens_details/reasoning_tokens")
             .and_then(|v| v.as_u64()),
         Some(3)
+    );
+    assert_eq!(
+        body.pointer("/usage/cache_hit_tokens")
+            .and_then(|v| v.as_u64()),
+        Some(5)
     );
 }
 

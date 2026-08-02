@@ -18,6 +18,7 @@ core = ["dep:unigateway-core"]
 protocol = ["core", "dep:unigateway-protocol"]
 host = ["protocol", "dep:unigateway-host"]
 sglang-lite = ["core", "unigateway-core/sglang-lite"]
+sglang-lite-grpc = ["sglang-lite", "unigateway-core/sglang-lite-grpc"]
 testing = ["host", "unigateway-host/testing"]
 
 [dependencies]

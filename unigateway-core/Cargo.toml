@@ -10,6 +10,7 @@ repository = "https://github.com/EeroEternal/unigateway"
 [features]
 default = ["sglang-lite"]
 sglang-lite = []
+sglang-lite-grpc = ["sglang-lite", "dep:tonic", "dep:prost", "dep:tonic-build", "dep:tonic-health"]
 
 [dependencies]
 futures-core = "0.3"
@@ -21,3 +22,9 @@ serde_json.workspace = true
 thiserror = "1"
 tokio = { workspace = true, features = ["sync", "process"] }
 tokio-stream = "0.1"
+tonic = { workspace = true, optional = true, features = ["transport"] }
+prost = { workspace = true, optional = true }
+tonic-health = { workspace = true, optional = true }
+
+[build-dependencies]
+tonic-build = { workspace = true, optional = true }
