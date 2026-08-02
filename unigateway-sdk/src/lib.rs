@@ -4,11 +4,14 @@
 //! This crate intentionally does very little:
 //! it re-exports the underlying crates under stable namespaces and keeps
 //! feature selection/version alignment in one place.
+//!
+//! For self-managed HTTP (no in-process engine), enable
+//! `default-features = false, features = ["conversion"]`.
 
-#[cfg(feature = "core")]
+#[cfg(any(feature = "core", feature = "conversion"))]
 pub use unigateway_core as core;
 
-#[cfg(feature = "protocol")]
+#[cfg(any(feature = "protocol", feature = "conversion"))]
 pub use unigateway_protocol as protocol;
 
 #[cfg(feature = "host")]
