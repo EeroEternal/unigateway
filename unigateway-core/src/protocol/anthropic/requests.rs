@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde_json::{Value, json};
 
 use crate::conversion::{UpstreamToolChoiceProtocol, resolve_upstream_tool_choice};
-use crate::drivers::DriverEndpointContext;
+use crate::endpoint_context::DriverEndpointContext;
 use crate::error::GatewayError;
 use crate::request::openai_messages_to_anthropic_messages;
 use crate::request::{

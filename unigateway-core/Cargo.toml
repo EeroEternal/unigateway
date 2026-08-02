@@ -1,6 +1,6 @@
 [package]
 name = "unigateway-core"
-version = "2.6.0"
+version = "2.7.0"
 edition = "2024"
 rust-version = "1.92"
 license = "MIT"
@@ -8,15 +8,22 @@ description = "Core in-memory LLM proxy and scheduling engine for UniGateway"
 repository = "https://github.com/EeroEternal/unigateway"
 
 [features]
-default = ["sglang-lite"]
-sglang-lite = []
+default = ["engine", "sglang-lite"]
+# Documentation marker; conversion types (request builders, parsing, endpoint context) are always available.
+conversion = []
+# ProviderDriver / DriverRegistry and HTTP driver implementations.
+drivers = []
+# Full in-process engine: routing, retries, hooks, registry, feedback.
+engine = ["drivers", "dep:rand"]
+sglang-lite = ["drivers"]
 sglang-lite-grpc = ["sglang-lite", "dep:tonic", "dep:prost", "dep:tonic-build", "dep:tonic-health"]
 
 [dependencies]
 futures-core = "0.3"
 futures-util.workspace = true
-rand.workspace = true
+# Kept always-on for now: sglang-lite and transport share reqwest; making it optional is deferred.
 reqwest = { workspace = true, features = ["stream"] }
+rand = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror = "1"

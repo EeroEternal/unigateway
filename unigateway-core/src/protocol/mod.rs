@@ -1,26 +1,39 @@
 pub mod anthropic;
 pub mod openai;
+
+#[cfg(feature = "drivers")]
 mod tool_choice_retry;
 
 #[cfg(feature = "sglang-lite")]
 pub mod sglang_lite;
 
+#[cfg(feature = "drivers")]
 use std::sync::Arc;
+#[cfg(feature = "drivers")]
 use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(feature = "drivers")]
 use std::time::SystemTime;
 
+#[cfg(feature = "drivers")]
+use crate::endpoint_context::DriverEndpointContext;
+#[cfg(feature = "drivers")]
 use crate::pool::RequestId;
+#[cfg(feature = "drivers")]
 use crate::response::{AttemptReport, AttemptStatus, RequestKind, RequestReport, TokenUsage};
+#[cfg(feature = "drivers")]
 use crate::transport::HttpTransport;
-
+#[cfg(feature = "drivers")]
 pub use anthropic::AnthropicDriver;
+#[cfg(feature = "drivers")]
 pub use openai::OpenAiCompatibleDriver;
 
-#[cfg(feature = "sglang-lite")]
+#[cfg(all(feature = "drivers", feature = "sglang-lite"))]
 pub use sglang_lite::SglangLiteDriver;
 
+#[cfg(feature = "drivers")]
 static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
+#[cfg(feature = "drivers")]
 pub fn builtin_drivers(transport: Arc<dyn HttpTransport>) -> Vec<Arc<dyn crate::ProviderDriver>> {
     #[cfg(feature = "sglang-lite")]
     let mut drivers: Vec<Arc<dyn crate::ProviderDriver>> = vec![
@@ -40,10 +53,12 @@ pub fn builtin_drivers(transport: Arc<dyn HttpTransport>) -> Vec<Arc<dyn crate::
     drivers
 }
 
+#[cfg(feature = "drivers")]
 pub(crate) fn next_request_id() -> String {
     format!("req-{}", REQUEST_COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 
+#[cfg(feature = "drivers")]
 pub(crate) fn build_single_attempt_report(
     endpoint_id: &str,
     latency_ms: u64,
@@ -62,8 +77,9 @@ pub(crate) fn build_single_attempt_report(
     }
 }
 
+#[cfg(feature = "drivers")]
 pub(crate) fn build_request_report(
-    endpoint: &crate::DriverEndpointContext,
+    endpoint: &DriverEndpointContext,
     started_at: SystemTime,
     finished_at: SystemTime,
     usage: Option<TokenUsage>,
@@ -119,12 +135,14 @@ pub(crate) fn output_text_from_openai_message(value: &serde_json::Value) -> Opti
     }
 }
 
+#[cfg(feature = "drivers")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ParsedSseEvent {
     pub event: Option<String>,
     pub data: String,
 }
 
+#[cfg(feature = "drivers")]
 pub(crate) fn parse_sse_frame(frame_bytes: &[u8]) -> Option<ParsedSseEvent> {
     let frame = String::from_utf8_lossy(frame_bytes);
     let mut event = None;
@@ -156,6 +174,7 @@ pub(crate) fn parse_sse_frame(frame_bytes: &[u8]) -> Option<ParsedSseEvent> {
     }
 }
 
+#[cfg(feature = "drivers")]
 pub(crate) fn drain_sse_frames(buffer: &mut Vec<u8>) -> Vec<ParsedSseEvent> {
     let mut frames = Vec::new();
 
@@ -171,6 +190,7 @@ pub(crate) fn drain_sse_frames(buffer: &mut Vec<u8>) -> Vec<ParsedSseEvent> {
     frames
 }
 
+#[cfg(feature = "drivers")]
 fn find_sse_delimiter(buffer: &[u8]) -> Option<(usize, usize)> {
     if buffer.len() < 2 {
         return None;

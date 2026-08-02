@@ -333,7 +333,54 @@ let session = engine.proxy_responses(request, target).await?;
 
 ---
 
-## 5. Translating HTTP payloads (unigateway-protocol)
+## 5. Conversion-only embedder (self-managed HTTP)
+
+If your host already owns HTTP, pooling, and retries, depend on the conversion surface
+only — `UniGatewayEngine` is not linked:
+
+```toml
+[dependencies]
+unigateway-sdk = { version = "2.7", default-features = false, features = ["conversion"] }
+```
+
+This enables `unigateway_sdk::core` and `unigateway_sdk::protocol` with
+`unigateway-core` built as `--no-default-features` (no engine / routing / hooks).
+
+Typical flow:
+
+```rust
+use unigateway_sdk::core::{
+    DriverEndpointContext, ProxyChatRequest, ProviderKind, SecretString,
+};
+use unigateway_sdk::core::protocol::openai::build_chat_request;
+// or: use unigateway_sdk::core::build_openai_chat_request;
+use unigateway_sdk::protocol::{
+    openai_payload_to_chat_request, render_openai_chat_session,
+};
+
+let request: ProxyChatRequest = openai_payload_to_chat_request(&body, "gpt-4o-mini")?;
+
+let mut endpoint = DriverEndpointContext {
+    endpoint_id: "ep-1".into(),
+    provider_kind: ProviderKind::OpenAiCompatible,
+    base_url: "https://api.example.com".into(),
+    api_key: SecretString::new("sk-...".into()),
+    model_policy: Default::default(),
+    capabilities: Default::default(),
+    metadata: Default::default(),
+};
+
+let transport_request = build_chat_request(&mut endpoint, &request)?;
+// Send `transport_request` with your own HTTP client, then parse / render:
+// let session = /* ProxySession from your transport */;
+// let http = render_openai_chat_session(session, /* ... */)?;
+```
+
+Use `GatewayError::http_status()` when mapping failures into your HTTP layer.
+
+---
+
+## 6. Translating HTTP payloads (unigateway-protocol)
 
 When your HTTP handler receives a raw JSON body, use the helpers in
 `unigateway_sdk::protocol` to convert it into a typed core request:
@@ -359,7 +406,7 @@ normalised, and content can be either a string or an array of content blocks.
 
 ---
 
-## 6. Implementing the host contract
+## 7. Implementing the host contract
 
 If you use `unigateway_sdk::host`'s `HostContext` to drive the built-in request
 handlers, you only need to implement `PoolHost` on your application state and
@@ -447,7 +494,7 @@ Version compatibility:
 - Keep `unigateway-sdk`, `unigateway-host`, `unigateway-core`, and `unigateway-protocol` on the same minor version.
 - When in doubt, pin all of them to the exact same release.
 
-### 6a. Adapting `ProtocolHttpResponse` to axum
+### 7a. Adapting `ProtocolHttpResponse` to axum
 
 `unigateway-sdk` deliberately does not depend on a specific web framework, but the neutral
 response types are straightforward to adapt. For axum, a minimal adapter looks like this:
@@ -505,7 +552,7 @@ async fn handle_chat(body: serde_json::Value) -> anyhow::Result<String> {
 
 ---
 
-## 7. Common pitfalls
+## 8. Common pitfalls
 
 | Pitfall | Fix |
 |---|---|
@@ -518,12 +565,12 @@ async fn handle_chat(body: serde_json::Value) -> anyhow::Result<String> {
 
 ---
 
-## 8. Nebula integration patterns
+## 9. Nebula integration patterns
 
 Nebula is an inference orchestration platform that embeds UniGateway as its protocol
 execution engine. These patterns show how to integrate without modifying UniGateway core.
 
-### 8.1 External state awareness (reactive `PoolHost`)
+### 9.1 External state awareness (reactive `PoolHost`)
 
 By default, pools are loaded from TOML at startup. For production clusters where
 endpoint state (weight, circuit-breaker, load) changes frequently, implement
@@ -582,7 +629,7 @@ let host = HostContext::from_parts(&engine, &pool_cache);
 | Periodic poll | No push capability in control plane | Lag between state change and engine update |
 | Per-request pull | Strong consistency requirement | **Not recommended** — adds etcd RTT to every request |
 
-### 8.2 External routing (explicit `HostDispatchTarget`)
+### 9.2 External routing (explicit `HostDispatchTarget`)
 
 When Nebula's scheduler decides which endpoint should serve a request, skip
 UniGateway's built-in routing (`round_robin` / `random` / `fallback`). Instead,
@@ -613,7 +660,7 @@ When Nebula returns a **ranked list** of endpoints, fill `endpoints` in order an
 keep `load_balancing: RoundRobin` — UniGateway will respect the order you
 provided.
 
-### 8.3 Request/response modification via `GatewayHooks`
+### 9.3 Request/response modification via `GatewayHooks`
 
 `GatewayHooks` now supports pre-execution and streaming-chunk hooks
 (UniGateway ≥ 1.6.0). Implement these to inject headers, rewrite requests,
@@ -675,7 +722,7 @@ let engine = UniGatewayEngine::builder()
     .build()?;
 ```
 
-### 8.4 Runtime pool/endpoint updates (no restart)
+### 9.4 Runtime pool/endpoint updates (no restart)
 
 Production changes (disable an endpoint, adjust weight) must not require a
 process restart. Use the fine-grained engine APIs (added in UniGateway 1.6.0):
@@ -714,7 +761,7 @@ engine.update_pool_config(
 > **Tip:** call these methods from a Nebula control-plane watcher (e.g. etcd watch
 > callback), so pool state stays in sync without manual intervention.
 
-### 8.5 Integration checklist
+### 9.5 Integration checklist
 
 - [ ] `UniGatewayEngine::with_builtin_http_drivers()` or custom `DriverRegistry` configured
 - [ ] `GatewayHooks` implemented and attached (audit, tracing, header injection)

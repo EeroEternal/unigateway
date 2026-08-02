@@ -1,16 +1,16 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 
-use crate::capabilities::EndpointCapabilities;
 use crate::error::GatewayError;
-use crate::pool::{EndpointId, ModelPolicy, ProviderKind, SecretString};
+use crate::pool::ProviderKind;
 use crate::request::{ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest};
 use crate::response::{
     ChatResponseChunk, ChatResponseFinal, CompletedResponse, EmbeddingsResponse, ProxySession,
     ResponsesEvent, ResponsesFinal,
 };
+
+pub use crate::endpoint_context::DriverEndpointContext;
 
 /// Repository for looking up `ProviderDriver` implementations by their ID.
 pub trait DriverRegistry: Send + Sync + 'static {
@@ -50,23 +50,4 @@ pub trait ProviderDriver: Send + Sync + 'static {
         endpoint: DriverEndpointContext,
         request: ProxyEmbeddingsRequest,
     ) -> BoxFuture<'static, Result<CompletedResponse<EmbeddingsResponse>, GatewayError>>;
-}
-
-/// Context allocated dynamically and passed to a driver when performing a request.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DriverEndpointContext {
-    /// The unique endpoint ID handling the current dispatch
-    pub endpoint_id: EndpointId,
-    /// The canonical provider kind
-    pub provider_kind: ProviderKind,
-    /// The base URL mapped to this specific remote
-    pub base_url: String,
-    /// The authorization secret credential
-    pub api_key: SecretString,
-    /// Model renaming and fallback maps
-    pub model_policy: ModelPolicy,
-    /// Resolved endpoint capability declarations used during protocol rendering.
-    pub capabilities: EndpointCapabilities,
-    /// Arbitrary configuration attributes
-    pub metadata: HashMap<String, String>,
 }

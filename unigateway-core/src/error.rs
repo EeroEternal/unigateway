@@ -128,6 +128,25 @@ impl GatewayError {
         }
     }
 
+    /// Maps this error to an HTTP status code for embedders that self-manage HTTP.
+    ///
+    /// Prefer this over ad-hoc mapping when replacing connector-layer error types.
+    /// Upstream statuses are preserved; local/client errors map to 4xx; transport and
+    /// stream failures map to 502; saturation / no-endpoint map to 503.
+    pub fn http_status(&self) -> u16 {
+        match self.terminal_error() {
+            Self::UpstreamHttp { status, .. } => *status,
+            Self::InvalidRequest(_) => 400,
+            Self::PoolNotFound(_) | Self::EndpointNotFound(_) => 404,
+            Self::NotImplemented(_) => 501,
+            Self::Transport { .. } | Self::StreamAborted { .. } => 502,
+            Self::AllEndpointsSaturated { .. } | Self::NoAvailableEndpoint { .. } => 503,
+            Self::BuildError(_) => 500,
+            // Exhaustion is unwrapped via terminal_error(); this arm is defensive.
+            Self::AllAttemptsFailed { .. } => 502,
+        }
+    }
+
     /// Classifies the terminal error into a stable, host-consumable bucket.
     pub fn kind(&self) -> GatewayErrorKind {
         match self.terminal_error() {
