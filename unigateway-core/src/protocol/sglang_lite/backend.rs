@@ -30,7 +30,22 @@ pub enum SglangLiteBackend {
     Http,
     /// Spawn a local sglang-lite process and connect over HTTP.
     Subprocess(SglangLiteSubprocessConfig),
-    /// Reserved placeholder for future gRPC support.
+    /// gRPC backend (future / P2).
+    ///
+    /// The contract is defined in the sglang-lite repository:
+    /// - proto/sglang_lite.proto (package `sglang_lite`, service `SglangLiteService`)
+    /// - docs/sglang-lite-grpc-spec.md
+    ///
+    /// Key points from the confirmed spec:
+    /// - Uses standard `grpc.health.v1.Health` (via tonic-health) for readiness checks.
+    /// - `ChatCompletions` (unary) + `ChatCompletionsStream` (server streaming)
+    /// - `Embeddings`, `ListModels`
+    /// - `Usage` message includes `cache_hit_tokens`
+    /// - Default port 50051, no TLS/auth for local use.
+    /// - Error mapping via standard gRPC status codes.
+    ///
+    /// Currently returns `not_implemented`. When implementing, map
+    /// `ProxyChatRequest` <-> protobuf messages and use a gRPC transport.
     Grpc,
 }
 
@@ -71,7 +86,7 @@ pub struct SglangLiteSubprocessConfig {
 }
 
 impl SglangLiteSubprocessConfig {
-    fn from_metadata(
+    pub(crate) fn from_metadata(
         metadata: &HashMap<String, String>,
         base_url: &str,
     ) -> Result<Self, GatewayError> {

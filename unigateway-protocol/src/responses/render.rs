@@ -281,10 +281,15 @@ pub fn render_openai_embeddings_response(
         serde_json::json!({
             "object": "list",
             "data": [],
-            "usage": response.report.usage.as_ref().map(|usage| serde_json::json!({
-                "prompt_tokens": usage.input_tokens,
-                "total_tokens": usage.total_tokens,
-            })),
+            "usage": response.report.usage.as_ref().map(|usage| {
+                let mut u = serde_json::Map::new();
+                u.insert("prompt_tokens".to_string(), serde_json::json!(usage.input_tokens));
+                u.insert("total_tokens".to_string(), serde_json::json!(usage.total_tokens));
+                if let Some(v) = usage.cache_hit_tokens {
+                    u.insert("cache_hit_tokens".to_string(), serde_json::json!(v));
+                }
+                serde_json::Value::Object(u)
+            }),
         })
     };
 
@@ -418,11 +423,16 @@ pub fn openai_completed_chat_body(
             },
             "finish_reason": "stop",
         }],
-        "usage": result.report.usage.as_ref().map(|usage| serde_json::json!({
-            "prompt_tokens": usage.input_tokens,
-            "completion_tokens": usage.output_tokens,
-            "total_tokens": usage.total_tokens,
-        })),
+        "usage": result.report.usage.as_ref().map(|usage| {
+            let mut u = serde_json::Map::new();
+            u.insert("prompt_tokens".to_string(), serde_json::json!(usage.input_tokens));
+            u.insert("completion_tokens".to_string(), serde_json::json!(usage.output_tokens));
+            u.insert("total_tokens".to_string(), serde_json::json!(usage.total_tokens));
+            if let Some(v) = usage.cache_hit_tokens {
+                u.insert("cache_hit_tokens".to_string(), serde_json::json!(v));
+            }
+            serde_json::Value::Object(u)
+        }),
     })
 }
 
@@ -472,6 +482,9 @@ fn responses_usage_payload(usage: &TokenUsage) -> serde_json::Value {
             "output_tokens_details".to_string(),
             serde_json::json!({ "reasoning_tokens": reasoning_tokens }),
         );
+    }
+    if let Some(cache_hit) = usage.cache_hit_tokens {
+        object.insert("cache_hit_tokens".to_string(), serde_json::json!(cache_hit));
     }
     serde_json::Value::Object(object)
 }
