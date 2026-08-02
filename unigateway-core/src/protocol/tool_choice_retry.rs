@@ -5,7 +5,7 @@ use crate::conversion::{
     is_tool_choice_upstream_rejection, reactive_tool_choice_fallback,
     sent_tool_choice_from_metadata,
 };
-use crate::drivers::DriverEndpointContext;
+use crate::endpoint_context::DriverEndpointContext;
 use crate::error::GatewayError;
 use crate::request::{ProxyChatRequest, TOOL_CHOICE_REACTIVE_RETRY_KEY};
 use crate::transport::{StreamingTransportResponse, TransportRequest, TransportResponse};

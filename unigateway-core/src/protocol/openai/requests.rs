@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 use crate::conversion::{
     UpstreamToolChoiceProtocol, normalize_proxy_responses_request, resolve_upstream_tool_choice,
 };
-use crate::drivers::DriverEndpointContext;
+use crate::endpoint_context::DriverEndpointContext;
 use crate::error::GatewayError;
 use crate::request::{
     ContentBlock, Message, MessageRole, ProxyChatRequest, ProxyEmbeddingsRequest,
