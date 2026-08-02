@@ -1,6 +1,6 @@
 [package]
 name = "unigateway-sdk"
-version = "2.6.0"
+version = "2.7.0"
 edition = "2024"
 rust-version = "1.92"
 description = "Thin facade crate for embedders using UniGateway core, protocol, and host libraries."
@@ -14,11 +14,13 @@ categories = ["api-bindings"]
 default = ["host", "sglang-lite"]
 embed = ["host"]
 config = ["dep:unigateway-config"]
-core = ["dep:unigateway-core"]
+core = ["dep:unigateway-core", "unigateway-core/engine"]
 protocol = ["core", "dep:unigateway-protocol"]
 host = ["protocol", "dep:unigateway-host"]
 sglang-lite = ["core", "unigateway-core/sglang-lite"]
 sglang-lite-grpc = ["sglang-lite", "unigateway-core/sglang-lite-grpc"]
+# Conversion-only surface: request builders / parsers / render helpers without UniGatewayEngine.
+conversion = ["dep:unigateway-core", "dep:unigateway-protocol"]
 testing = ["host", "unigateway-host/testing"]
 
 [dependencies]

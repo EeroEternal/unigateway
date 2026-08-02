@@ -14,6 +14,20 @@ All notable changes to this project are documented in this file.
   - cache_hit_tokens passthrough preserved.
   HTTP path unchanged. Enable with `unigateway-core/sglang-lite-grpc`.
 
+## [2.7.0]
+
+### Added
+
+* **Conversion-only surface**: `unigateway-core` features `conversion` (marker), `drivers`, and `engine` (default with `sglang-lite`). `--no-default-features` keeps request builders, parsers, `DriverEndpointContext`, and transport types without linking `UniGatewayEngine`.
+* **`unigateway-sdk` `conversion` feature**: `default-features = false, features = ["conversion"]` re-exports `core` + `protocol` with `unigateway-core` built without the engine.
+* **`GatewayError::http_status`**: maps gateway errors to HTTP status codes for self-managed HTTP embedders.
+* **Stable builder re-exports**: `build_openai_chat_request` / `build_anthropic_chat_request` on `unigateway-core`.
+
+### Changed
+
+* **`unigateway-protocol` depends on `unigateway-core` with `default-features = false`** so conversion-only builds do not pull the engine through protocol.
+* **`DriverEndpointContext` moved** to `endpoint_context` (always compiled); `ProviderDriver` / `DriverRegistry` remain behind the `drivers` feature.
+
 ## [2.6.0]
 
 ### Added
