@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.8.0]
+
 ### Added
 
 * **Anthropic → OpenAI chat response conversion (Tier A)**: `anthropic_message_to_openai_chat_completion`, `anthropic_content_to_openai_assistant_message`, and related helpers in `unigateway-core::conversion` map Anthropic `message` payloads (text, thinking, `tool_use`, usage, `stop_reason`) to OpenAI `chat.completion` shapes.
@@ -13,6 +15,7 @@ All notable changes to this project are documented in this file.
 
 * **`openai_completed_chat_body`**: detects Anthropic upstream message payloads and renders full OpenAI chat completions instead of falling back to plain `output_text` only.
 
+## [2.7.0]
 
 ### Added
 * **sglang-lite gRPC client skeleton (optional)**: `sglang-lite-grpc` feature (tonic + prost), vendored proto + build.rs; unary/streaming chat, tool mapping basics, subprocess + gRPC Health readiness; HTTP path unchanged.
