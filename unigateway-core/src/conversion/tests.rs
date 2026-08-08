@@ -1014,3 +1014,113 @@ fn tool_call_delta_update_strips_empty_object_prefix() {
         Some("{\"city\":\"Paris\"}")
     );
 }
+
+#[test]
+fn anthropic_message_converts_to_openai_chat_completion_with_tool_use() {
+    use super::{
+        anthropic_message_to_openai_chat_completion, map_anthropic_stop_reason_to_finish_reason,
+    };
+
+    assert_eq!(
+        map_anthropic_stop_reason_to_finish_reason("tool_use"),
+        "tool_calls"
+    );
+    assert_eq!(
+        map_anthropic_stop_reason_to_finish_reason("end_turn"),
+        "stop"
+    );
+
+    let body = anthropic_message_to_openai_chat_completion(
+        &json!({
+            "id": "msg_123",
+            "type": "message",
+            "model": "claude-3-5-sonnet",
+            "content": [
+                {"type": "text", "text": "I'll check the weather"},
+                {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "lookup_weather",
+                    "input": {"city": "Paris"}
+                }
+            ],
+            "stop_reason": "tool_use",
+            "usage": {"input_tokens": 9, "output_tokens": 3}
+        }),
+        "req_1",
+        Some("claude-3-5-sonnet"),
+        None,
+    )
+    .expect("conversion");
+
+    assert_eq!(
+        body.get("object").and_then(Value::as_str),
+        Some("chat.completion")
+    );
+    assert_eq!(body.get("id").and_then(Value::as_str), Some("123"));
+
+    let message = body
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .expect("message");
+    assert_eq!(
+        message.get("content").and_then(Value::as_str),
+        Some("I'll check the weather")
+    );
+    assert_eq!(
+        message
+            .get("tool_calls")
+            .and_then(Value::as_array)
+            .and_then(|calls| calls.first())
+            .and_then(|call| call.get("function"))
+            .and_then(|function| function.get("name"))
+            .and_then(Value::as_str),
+        Some("lookup_weather")
+    );
+    assert_eq!(
+        body.get("choices")
+            .and_then(Value::as_array)
+            .and_then(|choices| choices.first())
+            .and_then(|choice| choice.get("finish_reason"))
+            .and_then(Value::as_str),
+        Some("tool_calls")
+    );
+}
+
+#[test]
+fn anthropic_message_converts_to_openai_chat_completion_with_thinking() {
+    use super::anthropic_message_to_openai_chat_completion;
+
+    let body = anthropic_message_to_openai_chat_completion(
+        &json!({
+            "type": "message",
+            "content": [
+                {"type": "thinking", "thinking": "plan first", "signature": "sig"},
+                {"type": "text", "text": "final answer"}
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5}
+        }),
+        "req_2",
+        None,
+        None,
+    )
+    .expect("conversion");
+
+    let message = body
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .expect("message");
+    assert_eq!(
+        message.get("reasoning_content").and_then(Value::as_str),
+        Some("plan first")
+    );
+    assert_eq!(
+        message.get("content").and_then(Value::as_str),
+        Some("final answer")
+    );
+}

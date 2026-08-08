@@ -6,7 +6,10 @@ use tokio::sync::mpsc;
 use unigateway_core::{
     ChatResponseChunk, ChatResponseFinal, CompletedResponse, EmbeddingsResponse, ProviderKind,
     ProxySession, ResponsesEvent, ResponsesFinal, StreamingResponse, TokenUsage,
-    conversion::openai_message_to_anthropic_content_blocks_with_policy,
+    conversion::{
+        anthropic_message_to_openai_chat_completion, is_anthropic_message_raw,
+        openai_message_to_anthropic_content_blocks_with_policy,
+    },
 };
 
 use crate::{ProtocolHttpResponse, anthropic_requested_model_alias_or};
@@ -411,15 +414,31 @@ pub fn openai_completed_chat_body(
         );
     }
 
+    if is_anthropic_message_raw(&result.response.raw) {
+        return anthropic_message_to_openai_chat_completion(
+            &result.response.raw,
+            result.report.request_id.as_str(),
+            result.response.model.as_deref(),
+            result.report.usage.as_ref(),
+        )
+        .unwrap_or_else(|_| fallback_openai_completed_chat_body(&result));
+    }
+
+    fallback_openai_completed_chat_body(&result)
+}
+
+fn fallback_openai_completed_chat_body(
+    result: &CompletedResponse<ChatResponseFinal>,
+) -> serde_json::Value {
     serde_json::json!({
         "id": result.report.request_id,
         "object": "chat.completion",
-        "model": result.response.model.unwrap_or_default(),
+        "model": result.response.model.as_deref().unwrap_or_default(),
         "choices": [{
             "index": 0,
             "message": {
                 "role": "assistant",
-                "content": result.response.output_text.unwrap_or_default(),
+                "content": result.response.output_text.as_deref().unwrap_or_default(),
             },
             "finish_reason": "stop",
         }],

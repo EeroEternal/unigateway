@@ -1,5 +1,6 @@
 mod blocks;
 mod messages;
+mod response;
 mod responses_fields;
 mod tool_calls;
 mod tool_choice_normalize;
@@ -19,6 +20,11 @@ pub use blocks::{
 pub use messages::{
     anthropic_messages_to_openai_messages, openai_messages_to_anthropic_messages,
     validate_anthropic_request_messages,
+};
+pub use response::{
+    anthropic_content_to_openai_assistant_message, anthropic_message_to_openai_chat_completion,
+    anthropic_usage_value_to_openai_usage, is_anthropic_message_raw,
+    map_anthropic_stop_reason_to_finish_reason,
 };
 pub use responses_fields::{
     normalize_proxy_responses_request, proxy_responses_request_uses_tools_and_reasoning,
