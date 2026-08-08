@@ -725,4 +725,78 @@ fn openai_response_body_includes_reasoning_content() {
         reasoning.is_some() || message.get("content").is_some(),
         "Reasoning content should be present or content should include reasoning"
     );
+    assert_eq!(
+        message.get("reasoning_content").and_then(Value::as_str),
+        Some("Let me analyze this...")
+    );
+    assert_eq!(
+        message.get("content").and_then(Value::as_str),
+        Some("The answer is 42")
+    );
+}
+
+#[test]
+fn openai_completed_body_converts_anthropic_tool_use_to_tool_calls() {
+    let body = openai_completed_chat_body(CompletedResponse {
+        response: ChatResponseFinal {
+            model: Some("claude-3-5-sonnet".to_string()),
+            output_text: Some("I'll call a tool".to_string()),
+            raw: serde_json::json!({
+                "id": "msg_tool_1",
+                "type": "message",
+                "content": [
+                    {"type": "text", "text": "I'll call a tool"},
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_1",
+                        "name": "lookup_weather",
+                        "input": {"city": "Paris"}
+                    }
+                ],
+                "stop_reason": "tool_use",
+                "usage": {"input_tokens": 9, "output_tokens": 3}
+            }),
+        },
+        report: RequestReport {
+            request_id: "req_tool_1".to_string(),
+            correlation_id: "req_tool_1".to_string(),
+            pool_id: Some("svc".to_string()),
+            selected_endpoint_id: "anthropic-main".to_string(),
+            selected_provider: unigateway_core::ProviderKind::Anthropic,
+            kind: RequestKind::Chat,
+            attempts: Vec::new(),
+            usage: None,
+            latency_ms: 10,
+            started_at: std::time::SystemTime::UNIX_EPOCH,
+            finished_at: std::time::SystemTime::UNIX_EPOCH,
+            error_kind: None,
+            stream: None,
+            metadata: HashMap::new(),
+        },
+    });
+
+    let message = body
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .expect("message");
+    assert_eq!(
+        message
+            .get("tool_calls")
+            .and_then(Value::as_array)
+            .and_then(|calls| calls.first())
+            .and_then(|call| call.get("function"))
+            .and_then(|function| function.get("arguments"))
+            .and_then(Value::as_str),
+        Some("{\"city\":\"Paris\"}")
+    );
+    assert_eq!(
+        body.get("choices")
+            .and_then(Value::as_array)
+            .and_then(|choices| choices.first())
+            .and_then(|choice| choice.get("finish_reason"))
+            .and_then(Value::as_str),
+        Some("tool_calls")
+    );
 }

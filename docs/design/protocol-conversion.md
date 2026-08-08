@@ -221,6 +221,8 @@ Anthropic client -> OpenAI-compatible upstream
 
 OpenAI client -> Anthropic upstream
   Supported for system, text, tool_calls, tool results, tools, and tool_choice conversion.
+  Completed and streaming Anthropic responses are rendered back to OpenAI chat.completion
+  shapes, including tool_use, thinking, usage, and stop_reason mapping.
 
 OpenAI Responses API -> OpenAI-compatible upstream
   Supported by the OpenAI-compatible driver.

@@ -1,11 +1,17 @@
 use std::collections::BTreeMap;
 
 use bytes::Bytes;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use unigateway_core::ChatResponseChunk;
+use unigateway_core::conversion::map_anthropic_stop_reason_to_finish_reason;
 
 use super::reasoning_text::{ReasoningTextChunk, ReasoningTextEncoding, ReasoningTextStreamParser};
+
+#[derive(Debug, Default)]
+struct PendingAnthropicToolUse {
+    openai_index: usize,
+}
 
 #[derive(Default)]
 pub struct OpenAiChatStreamAdapter {
@@ -13,6 +19,9 @@ pub struct OpenAiChatStreamAdapter {
     pub(crate) sent_role_chunk: bool,
     reasoning_text_encoding: Option<ReasoningTextEncoding>,
     reasoning_text_parsers: BTreeMap<usize, ReasoningTextStreamParser>,
+    pending_tool_uses: BTreeMap<usize, PendingAnthropicToolUse>,
+    next_openai_tool_index: usize,
+    stop_reason: Option<String>,
 }
 
 impl OpenAiChatStreamAdapter {
@@ -90,9 +99,44 @@ pub fn openai_sse_chunks_from_chat_chunk(
             vec![openai_chat_sse_bytes(
                 request_id,
                 adapter.model.as_deref().unwrap_or_default(),
-                serde_json::json!({"role": "assistant"}),
+                json!({"role": "assistant"}),
                 None,
             )]
+        }
+        "content_block_start" => {
+            let Some(content_block) = chunk.raw.get("content_block") else {
+                return Vec::new();
+            };
+            if content_block.get("type").and_then(Value::as_str) != Some("tool_use") {
+                return Vec::new();
+            }
+
+            let anthropic_index = chunk
+                .raw
+                .get("index")
+                .and_then(Value::as_u64)
+                .map(|index| index as usize)
+                .unwrap_or(adapter.next_openai_tool_index);
+
+            let openai_index = adapter.next_openai_tool_index;
+            adapter.next_openai_tool_index += 1;
+
+            let id = content_block
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let name = content_block
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+
+            adapter
+                .pending_tool_uses
+                .insert(anthropic_index, PendingAnthropicToolUse { openai_index });
+
+            emit_openai_tool_call_start(request_id, adapter, openai_index, &id, &name)
         }
         "content_block_delta" => {
             let delta = chunk.raw.get("delta");
@@ -107,15 +151,56 @@ pub fn openai_sse_chunks_from_chat_chunk(
                 return emit_openai_thinking_delta(request_id, adapter, 0, thinking);
             }
 
+            if delta.and_then(|d| d.get("type")).and_then(Value::as_str) == Some("input_json_delta")
+            {
+                let anthropic_index = chunk
+                    .raw
+                    .get("index")
+                    .and_then(Value::as_u64)
+                    .map(|index| index as usize)
+                    .unwrap_or(0);
+                let partial_json = delta
+                    .and_then(|d| d.get("partial_json"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                return emit_openai_tool_call_arguments_delta(
+                    request_id,
+                    adapter,
+                    anthropic_index,
+                    partial_json,
+                );
+            }
+
+            Vec::new()
+        }
+        "message_delta" => {
+            if let Some(stop_reason) = chunk
+                .raw
+                .get("delta")
+                .and_then(|delta| delta.get("stop_reason"))
+                .and_then(Value::as_str)
+            {
+                adapter.stop_reason = Some(stop_reason.to_string());
+            }
             Vec::new()
         }
         "message_stop" => {
             let mut chunks = adapter.finish_reasoning_text(request_id);
+            let finish_reason = adapter
+                .stop_reason
+                .as_deref()
+                .map(map_anthropic_stop_reason_to_finish_reason)
+                .or(if adapter.pending_tool_uses.is_empty() {
+                    None
+                } else {
+                    Some("tool_calls")
+                })
+                .unwrap_or("stop");
             chunks.push(openai_chat_sse_bytes(
                 request_id,
                 adapter.model.as_deref().unwrap_or_default(),
-                serde_json::json!({}),
-                Some("stop"),
+                json!({}),
+                Some(finish_reason),
             ));
             chunks
         }
@@ -260,7 +345,7 @@ fn emit_openai_thinking_delta(
         chunks.push(openai_chat_sse_bytes(
             request_id,
             adapter.model.as_deref().unwrap_or_default(),
-            serde_json::json!({"role": "assistant"}),
+            json!({"role": "assistant"}),
             None,
         ));
     }
@@ -270,13 +355,83 @@ fn emit_openai_thinking_delta(
         request_id,
         &model,
         choice_index,
-        serde_json::json!({
+        json!({
             "reasoning_content": thinking,
             "thinking": thinking,
         }),
         None,
     ));
     chunks
+}
+
+fn emit_openai_tool_call_start(
+    request_id: &str,
+    adapter: &mut OpenAiChatStreamAdapter,
+    openai_index: usize,
+    id: &str,
+    name: &str,
+) -> Vec<Bytes> {
+    let mut chunks = Vec::new();
+    if !adapter.sent_role_chunk {
+        adapter.sent_role_chunk = true;
+        chunks.push(openai_chat_sse_bytes(
+            request_id,
+            adapter.model.as_deref().unwrap_or_default(),
+            json!({"role": "assistant"}),
+            None,
+        ));
+    }
+
+    chunks.push(openai_chat_sse_bytes_for_choice(
+        request_id,
+        adapter.model.as_deref().unwrap_or_default(),
+        0,
+        json!({
+            "tool_calls": [{
+                "index": openai_index,
+                "id": id,
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "arguments": "",
+                }
+            }]
+        }),
+        None,
+    ));
+    chunks
+}
+
+fn emit_openai_tool_call_arguments_delta(
+    request_id: &str,
+    adapter: &mut OpenAiChatStreamAdapter,
+    anthropic_index: usize,
+    partial_json: &str,
+) -> Vec<Bytes> {
+    if partial_json.is_empty() {
+        return Vec::new();
+    }
+
+    let openai_index = adapter
+        .pending_tool_uses
+        .get(&anthropic_index)
+        .map(|pending| pending.openai_index)
+        .unwrap_or(anthropic_index);
+
+    vec![openai_chat_sse_bytes_for_choice(
+        request_id,
+        adapter.model.as_deref().unwrap_or_default(),
+        0,
+        json!({
+            "tool_calls": [{
+                "index": openai_index,
+                "function": {
+                    "arguments": partial_json,
+                }
+            }]
+        }),
+        None,
+    )]
 }
 
 fn flush_reasoning_text_raw_choice(
