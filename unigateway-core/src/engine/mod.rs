@@ -8,7 +8,8 @@ use crate::drivers::{DriverEndpointContext, DriverRegistry, ProviderDriver};
 use crate::error::GatewayError;
 use crate::feedback::RoutingFeedbackProvider;
 use crate::hooks::{
-    AttemptFinishedEvent, AttemptSkippedEvent, AttemptStartedEvent, GatewayHooks, RequestStartedEvent,
+    AttemptFinishedEvent, AttemptSkippedEvent, AttemptStartedEvent, GatewayHooks,
+    RequestStartedEvent,
 };
 use crate::pool::{
     Endpoint, ExecutionTarget, PoolId, PoolSummary, ProviderKind, ProviderPool, RequestId,
