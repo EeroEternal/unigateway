@@ -211,6 +211,38 @@ pub(super) async fn emit_attempt_finished_hook(
     }
 }
 
+pub(super) fn build_aimd_capacity_skipped_event(
+    request_id: &str,
+    pool_id: Option<crate::pool::PoolId>,
+    endpoint: &crate::pool::Endpoint,
+    candidate_index: usize,
+    aimd: &crate::engine::AdaptiveConcurrency,
+    metadata: std::collections::HashMap<String, String>,
+) -> crate::hooks::AttemptSkippedEvent {
+    let aimd_snapshot = aimd.snapshot();
+    crate::hooks::AttemptSkippedEvent {
+        request_id: request_id.to_string(),
+        correlation_id: request_id.to_string(),
+        pool_id,
+        endpoint_id: endpoint.endpoint_id.clone(),
+        provider_kind: endpoint.provider_kind,
+        candidate_index,
+        reason: crate::hooks::AttemptSkipReason::AimdCapacity,
+        active_connections: aimd_snapshot.active_connections,
+        concurrency_limit: aimd.effective_limit(endpoint.max_concurrency),
+        metadata,
+    }
+}
+
+pub(super) async fn emit_attempt_skipped_hook(
+    hooks: Option<Arc<dyn GatewayHooks>>,
+    event: crate::hooks::AttemptSkippedEvent,
+) {
+    if let Some(hooks) = hooks {
+        hooks.on_attempt_skipped(event).await;
+    }
+}
+
 pub(super) async fn emit_request_finished_hook(
     hooks: Option<Arc<dyn GatewayHooks>>,
     report: RequestReport,

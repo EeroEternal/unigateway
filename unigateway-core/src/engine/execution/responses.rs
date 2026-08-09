@@ -6,9 +6,10 @@ use crate::request::ProxyResponsesRequest;
 use crate::response::{ProxySession, RequestKind, ResponsesEvent, ResponsesFinal, StreamKind};
 
 use super::super::reporting::{
-    StreamingAttemptContext, apply_retry_backoff, failed_attempt_event, failed_attempt_report,
-    new_shared_stream_state, should_retry_error, success_attempt_event, success_attempt_report,
-    with_completed_request_report, with_streaming_attempt_reports,
+    StreamingAttemptContext, apply_retry_backoff, build_aimd_capacity_skipped_event,
+    failed_attempt_event, failed_attempt_report, new_shared_stream_state, should_retry_error,
+    success_attempt_event, success_attempt_report, with_completed_request_report,
+    with_streaming_attempt_reports,
 };
 use super::super::{FailedRequestContext, UniGatewayEngine};
 use super::support::{execute_responses_attempt, observe_stream};
@@ -52,6 +53,23 @@ impl UniGatewayEngine {
                 Some(guard) => guard,
                 None => {
                     skipped_due_to_aimd += 1;
+                    let metadata = self
+                        .driver_context(
+                            snapshot.pool_id.clone(),
+                            endpoint.clone(),
+                            snapshot.metadata.clone(),
+                            request.metadata.clone(),
+                        )
+                        .metadata;
+                    self.emit_attempt_skipped(build_aimd_capacity_skipped_event(
+                        &request_id,
+                        snapshot.pool_id.clone(),
+                        &endpoint,
+                        attempt_index,
+                        &aimd,
+                        metadata,
+                    ))
+                    .await;
                     continue;
                 }
             };

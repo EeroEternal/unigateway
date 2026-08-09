@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.10.0]
+
+### Added
+
+* **`AttemptSkippedEvent`**: `GatewayHooks::on_attempt_skipped` fires when a resolved candidate is skipped before upstream execution, currently for AIMD/static capacity rejects (`AttemptSkipReason::AimdCapacity`). Events include `candidate_index`, `active_connections`, `concurrency_limit`, and merged metadata for host-side routing audit logs.
+
 ## [2.9.0]
 
 ### Changed

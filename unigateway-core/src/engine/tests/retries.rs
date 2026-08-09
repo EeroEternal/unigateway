@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::InMemoryDriverRegistry;
+use crate::hooks::AttemptSkipReason;
 use crate::pool::{EndpointRef, ExecutionPlan, ExecutionTarget};
 use crate::response::{AttemptStatus, ProxySession};
 use crate::retry::{BackoffPolicy, LoadBalancingStrategy, RetryCondition, RetryPolicy};
@@ -353,6 +354,73 @@ async fn aimd_saturation_yields_all_endpoints_saturated() {
     assert!(hook_recorder.state.started.lock().unwrap().is_empty());
     assert!(hook_recorder.state.finished.lock().unwrap().is_empty());
     assert!(hook_recorder.state.requests.lock().unwrap().is_empty());
+
+    let skipped = hook_recorder.state.skipped.lock().unwrap();
+    assert_eq!(skipped.len(), 1);
+    assert_eq!(skipped[0].endpoint_id, "alpha_only");
+    assert_eq!(skipped[0].reason, AttemptSkipReason::AimdCapacity);
+    assert_eq!(skipped[0].candidate_index, 0);
+    assert!(skipped[0].concurrency_limit > 0);
+    assert_eq!(skipped[0].active_connections, skipped[0].concurrency_limit);
+}
+
+#[tokio::test]
+async fn aimd_skip_emits_hook_before_fallback_candidate_succeeds() {
+    let registry = Arc::new(InMemoryDriverRegistry::new());
+    registry.register(Arc::new(BehaviorDriver {
+        chat: HashMap::from([
+            ("a".to_string(), TestBehavior::Success),
+            ("b".to_string(), TestBehavior::Success),
+        ]),
+        responses: HashMap::new(),
+    }));
+
+    let hook_recorder = HookRecorder::default();
+    let engine = UniGatewayEngine::builder()
+        .with_driver_registry(registry)
+        .with_hooks(Arc::new(hook_recorder.clone()))
+        .build()
+        .unwrap();
+
+    engine
+        .upsert_pool(pool(
+            "alpha",
+            LoadBalancingStrategy::Fallback,
+            vec![endpoint("a"), endpoint("b")],
+        ))
+        .await
+        .expect("upsert pool");
+
+    let aimd = engine.aimd_for_endpoint("a").await;
+    let mut guards = Vec::new();
+    while let Some(guard) = aimd.acquire(None) {
+        guards.push(guard);
+    }
+
+    let session = engine
+        .proxy_chat(
+            chat_request(false),
+            plan_with_candidates(vec!["a", "b"], None),
+        )
+        .await
+        .expect("proxy chat");
+
+    match session {
+        ProxySession::Completed(result) => {
+            assert_eq!(result.report.selected_endpoint_id, "b");
+        }
+        ProxySession::Streaming(_) => panic!("expected completed response"),
+    }
+
+    let skipped = hook_recorder.state.skipped.lock().unwrap();
+    assert_eq!(skipped.len(), 1);
+    assert_eq!(skipped[0].endpoint_id, "a");
+    assert_eq!(skipped[0].candidate_index, 0);
+    assert_eq!(skipped[0].reason, AttemptSkipReason::AimdCapacity);
+
+    let started = hook_recorder.state.started.lock().unwrap();
+    assert_eq!(started.len(), 1);
+    assert_eq!(started[0].endpoint_id, "b");
 }
 
 fn plan_with_candidates(

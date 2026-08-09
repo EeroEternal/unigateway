@@ -12,8 +12,8 @@ use crate::capabilities::EndpointCapabilities;
 use crate::drivers::{DriverEndpointContext, ProviderDriver};
 use crate::feedback::{RoutingFeedback, RoutingFeedbackProvider};
 use crate::hooks::{
-    AttemptFinishedEvent, AttemptStartedEvent, GatewayHooks, RequestStartedEvent, StreamChunkEvent,
-    StreamStartedEvent,
+    AttemptFinishedEvent, AttemptSkippedEvent, AttemptStartedEvent, GatewayHooks,
+    RequestStartedEvent, StreamChunkEvent, StreamStartedEvent,
 };
 use crate::pool::{Endpoint, ProviderKind, ProviderPool, SecretString};
 use crate::request::{ProxyChatRequest, ProxyEmbeddingsRequest, ProxyResponsesRequest};
@@ -235,6 +235,7 @@ pub(super) struct BehaviorDriver {
 pub(super) struct HookState {
     pub(super) request_started: std::sync::Mutex<Vec<RequestStartedEvent>>,
     pub(super) started: std::sync::Mutex<Vec<AttemptStartedEvent>>,
+    pub(super) skipped: std::sync::Mutex<Vec<AttemptSkippedEvent>>,
     pub(super) finished: std::sync::Mutex<Vec<AttemptFinishedEvent>>,
     pub(super) stream_started: std::sync::Mutex<Vec<StreamStartedEvent>>,
     pub(super) stream_chunks: std::sync::Mutex<Vec<StreamChunkEvent>>,
@@ -248,6 +249,7 @@ impl Default for HookState {
         Self {
             request_started: std::sync::Mutex::new(Vec::new()),
             started: std::sync::Mutex::new(Vec::new()),
+            skipped: std::sync::Mutex::new(Vec::new()),
             finished: std::sync::Mutex::new(Vec::new()),
             stream_started: std::sync::Mutex::new(Vec::new()),
             stream_chunks: std::sync::Mutex::new(Vec::new()),
@@ -279,6 +281,13 @@ impl GatewayHooks for HookRecorder {
         let state = self.state.clone();
         Box::pin(async move {
             state.started.lock().expect("started lock").push(event);
+        })
+    }
+
+    fn on_attempt_skipped(&self, event: AttemptSkippedEvent) -> BoxFuture<'static, ()> {
+        let state = self.state.clone();
+        Box::pin(async move {
+            state.skipped.lock().expect("skipped lock").push(event);
         })
     }
 

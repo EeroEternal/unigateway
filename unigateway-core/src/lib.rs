@@ -108,8 +108,8 @@ pub use engine::{UniGatewayEngine, UniGatewayEngineBuilder};
 pub use feedback::{EndpointSignal, RoutingFeedback, RoutingFeedbackProvider};
 #[cfg(feature = "engine")]
 pub use hooks::{
-    AttemptFinishedEvent, AttemptStartedEvent, GatewayHooks, RequestStartedEvent, StreamChunkEvent,
-    StreamStartedEvent,
+    AttemptFinishedEvent, AttemptSkipReason, AttemptSkippedEvent, AttemptStartedEvent,
+    GatewayHooks, RequestStartedEvent, StreamChunkEvent, StreamStartedEvent,
 };
 #[cfg(feature = "engine")]
 pub use registry::InMemoryDriverRegistry;

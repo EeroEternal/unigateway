@@ -7,7 +7,9 @@ use crate::capabilities::EndpointCapabilities;
 use crate::drivers::{DriverEndpointContext, DriverRegistry, ProviderDriver};
 use crate::error::GatewayError;
 use crate::feedback::RoutingFeedbackProvider;
-use crate::hooks::{AttemptFinishedEvent, AttemptStartedEvent, GatewayHooks, RequestStartedEvent};
+use crate::hooks::{
+    AttemptFinishedEvent, AttemptSkippedEvent, AttemptStartedEvent, GatewayHooks, RequestStartedEvent,
+};
 use crate::pool::{
     Endpoint, ExecutionTarget, PoolId, PoolSummary, ProviderKind, ProviderPool, RequestId,
 };
@@ -219,6 +221,10 @@ impl UniGatewayEngine {
 
     async fn emit_attempt_finished(&self, event: AttemptFinishedEvent) {
         emit_attempt_finished_hook(self.inner.hooks.clone(), event).await;
+    }
+
+    async fn emit_attempt_skipped(&self, event: AttemptSkippedEvent) {
+        reporting::emit_attempt_skipped_hook(self.inner.hooks.clone(), event).await;
     }
 
     async fn emit_request_finished(&self, report: RequestReport) {
