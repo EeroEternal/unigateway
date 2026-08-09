@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::InMemoryDriverRegistry;
-use crate::pool::ExecutionTarget;
+use crate::pool::{EndpointRef, ExecutionPlan, ExecutionTarget};
 use crate::response::{AttemptStatus, ProxySession};
-use crate::retry::LoadBalancingStrategy;
+use crate::retry::{BackoffPolicy, LoadBalancingStrategy, RetryCondition, RetryPolicy};
 
 use super::super::UniGatewayEngine;
 use super::support::{
@@ -353,4 +353,197 @@ async fn aimd_saturation_yields_all_endpoints_saturated() {
     assert!(hook_recorder.state.started.lock().unwrap().is_empty());
     assert!(hook_recorder.state.finished.lock().unwrap().is_empty());
     assert!(hook_recorder.state.requests.lock().unwrap().is_empty());
+}
+
+fn plan_with_candidates(
+    candidates: Vec<&str>,
+    retry_policy_override: Option<RetryPolicy>,
+) -> ExecutionTarget {
+    ExecutionTarget::Plan(ExecutionPlan {
+        pool_id: Some("alpha".to_string()),
+        candidates: candidates
+            .into_iter()
+            .map(|endpoint_id| EndpointRef {
+                endpoint_id: endpoint_id.to_string(),
+            })
+            .collect(),
+        load_balancing_override: Some(LoadBalancingStrategy::Fallback),
+        retry_policy_override,
+        metadata: HashMap::new(),
+    })
+}
+
+#[tokio::test]
+async fn execution_plan_fallback_stays_within_candidates() {
+    let registry = Arc::new(InMemoryDriverRegistry::new());
+    registry.register(Arc::new(BehaviorDriver {
+        chat: HashMap::from([
+            ("a".to_string(), TestBehavior::Upstream500),
+            ("b".to_string(), TestBehavior::Success),
+            ("c".to_string(), TestBehavior::Success),
+        ]),
+        responses: HashMap::new(),
+    }));
+
+    let engine = UniGatewayEngine::builder()
+        .with_driver_registry(registry)
+        .with_routing_feedback_provider(Arc::new(super::support::StaticFeedbackProvider {
+            by_pool: HashMap::from([(
+                "alpha".to_string(),
+                crate::feedback::RoutingFeedback {
+                    endpoint_signals: HashMap::from([(
+                        "c".to_string(),
+                        crate::feedback::EndpointSignal {
+                            score: Some(100.0),
+                            excluded: false,
+                            cooldown_until: None,
+                            recent_error_rate: None,
+                        },
+                    )]),
+                },
+            )]),
+        }))
+        .build()
+        .unwrap();
+    engine
+        .upsert_pool(pool(
+            "alpha",
+            LoadBalancingStrategy::Fallback,
+            vec![endpoint("a"), endpoint("b"), endpoint("c")],
+        ))
+        .await
+        .expect("upsert pool");
+
+    let session = engine
+        .proxy_chat(
+            chat_request(false),
+            plan_with_candidates(vec!["a", "b"], None),
+        )
+        .await
+        .expect("proxy chat");
+
+    match session {
+        ProxySession::Completed(result) => {
+            assert_eq!(result.report.selected_endpoint_id, "b");
+            assert_eq!(result.report.attempts.len(), 2);
+            assert!(
+                result
+                    .report
+                    .attempts
+                    .iter()
+                    .all(|attempt| attempt.endpoint_id == "a" || attempt.endpoint_id == "b")
+            );
+        }
+        ProxySession::Streaming(_) => panic!("expected completed response"),
+    }
+}
+
+#[tokio::test]
+async fn execution_plan_excludes_endpoints_outside_plan() {
+    let registry = Arc::new(InMemoryDriverRegistry::new());
+    registry.register(Arc::new(BehaviorDriver {
+        chat: HashMap::from([
+            ("a".to_string(), TestBehavior::Upstream500),
+            ("b".to_string(), TestBehavior::Success),
+            ("c".to_string(), TestBehavior::Success),
+        ]),
+        responses: HashMap::new(),
+    }));
+
+    let engine = UniGatewayEngine::builder()
+        .with_driver_registry(registry)
+        .build()
+        .unwrap();
+    engine
+        .upsert_pool(pool(
+            "alpha",
+            LoadBalancingStrategy::Fallback,
+            vec![endpoint("a"), endpoint("b"), endpoint("c")],
+        ))
+        .await
+        .expect("upsert pool");
+
+    let snapshot = engine
+        .execution_snapshot(&plan_with_candidates(vec!["a", "b"], None))
+        .await
+        .expect("plan snapshot");
+
+    assert_eq!(snapshot.endpoints.len(), 2);
+    assert!(
+        snapshot
+            .endpoints
+            .iter()
+            .all(|endpoint| endpoint.endpoint_id == "a" || endpoint.endpoint_id == "b")
+    );
+}
+
+#[tokio::test]
+async fn execution_plan_retry_policy_override_limits_attempts() {
+    let registry = Arc::new(InMemoryDriverRegistry::new());
+    registry.register(Arc::new(BehaviorDriver {
+        chat: HashMap::from([
+            ("a".to_string(), TestBehavior::Upstream500),
+            ("b".to_string(), TestBehavior::Success),
+        ]),
+        responses: HashMap::new(),
+    }));
+
+    let engine = UniGatewayEngine::builder()
+        .with_driver_registry(registry)
+        .build()
+        .unwrap();
+    engine
+        .upsert_pool(pool(
+            "alpha",
+            LoadBalancingStrategy::Fallback,
+            vec![endpoint("a"), endpoint("b")],
+        ))
+        .await
+        .expect("upsert pool");
+
+    let limited = plan_with_candidates(
+        vec!["a", "b"],
+        Some(RetryPolicy {
+            max_attempts: 1,
+            per_attempt_timeout: None,
+            retry_on: vec![RetryCondition::HttpStatus(500)],
+            backoff: BackoffPolicy::None,
+            stop_after_stream_started: true,
+        }),
+    );
+
+    let result = engine.proxy_chat(chat_request(false), limited).await;
+    match result {
+        Err(crate::error::GatewayError::AllAttemptsFailed { attempts, .. }) => {
+            assert_eq!(attempts.len(), 1);
+            assert_eq!(attempts[0].endpoint_id, "a");
+        }
+        Err(_) => panic!("expected AllAttemptsFailed"),
+        Ok(_) => panic!("expected single failed attempt, got success"),
+    }
+
+    let session = engine
+        .proxy_chat(
+            chat_request(false),
+            plan_with_candidates(
+                vec!["a", "b"],
+                Some(RetryPolicy {
+                    max_attempts: 2,
+                    per_attempt_timeout: None,
+                    retry_on: vec![RetryCondition::HttpStatus(500)],
+                    backoff: BackoffPolicy::None,
+                    stop_after_stream_started: true,
+                }),
+            ),
+        )
+        .await
+        .expect("proxy chat with override max_attempts=2");
+
+    match session {
+        ProxySession::Completed(result) => {
+            assert_eq!(result.report.selected_endpoint_id, "b");
+            assert_eq!(result.report.attempts.len(), 2);
+        }
+        ProxySession::Streaming(_) => panic!("expected completed response"),
+    }
 }

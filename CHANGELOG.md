@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.9.0]
+
+### Changed
+
+* **`ExecutionTarget::Plan` authoritative execution**: `build_plan_snapshot` no longer applies pool-level `RoutingFeedbackProvider` reordering or suppression. Plan candidates and their order are preserved; UniGateway only handles capacity limits, retry, fallback within the plan, and execution reporting. `ExecutionTarget::Pool` feedback behavior is unchanged.
+
 ## [2.8.0]
 
 ### Added
