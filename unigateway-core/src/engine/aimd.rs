@@ -61,6 +61,14 @@ impl AdaptiveConcurrency {
         }
     }
 
+    pub fn effective_limit(&self, hard_limit: Option<usize>) -> usize {
+        let mut limit = self.current_limit.load(Ordering::Relaxed);
+        if let Some(hard) = hard_limit {
+            limit = limit.min(hard);
+        }
+        limit
+    }
+
     fn now_ms() -> u64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)

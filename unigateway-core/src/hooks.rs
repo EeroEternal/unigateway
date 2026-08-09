@@ -52,6 +52,11 @@ pub trait GatewayHooks: Send + Sync + 'static {
     /// Fired immediately after an upstream driver execution returns, successfully or not.
     fn on_attempt_finished(&self, event: AttemptFinishedEvent) -> BoxFuture<'static, ()>;
 
+    /// Fired when a resolved candidate is skipped before upstream execution begins.
+    fn on_attempt_skipped(&self, _event: AttemptSkippedEvent) -> BoxFuture<'static, ()> {
+        Box::pin(async {})
+    }
+
     /// Fired when the proxy session completes, successfully or fatally.
     fn on_request_finished(&self, report: RequestReport) -> BoxFuture<'static, ()>;
 
@@ -115,6 +120,38 @@ pub struct AttemptStartedEvent {
     /// (includes this attempt).
     pub active_attempts_at_start: usize,
     /// Metadata inherited from the service/provider configurations
+    pub metadata: HashMap<String, String>,
+}
+
+/// Why a resolved candidate was skipped before upstream execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttemptSkipReason {
+    /// Adaptive concurrency or endpoint static capacity rejected the acquire.
+    AimdCapacity,
+}
+
+/// Snapshot emitted when a candidate is skipped before upstream driver execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttemptSkippedEvent {
+    /// The unique request transaction ID.
+    pub request_id: RequestId,
+    /// Stable correlation identifier; currently identical to `request_id`.
+    pub correlation_id: RequestId,
+    /// The local pool ID serving this request.
+    pub pool_id: Option<PoolId>,
+    /// The skipped endpoint ID.
+    pub endpoint_id: EndpointId,
+    /// Provider kind backing the skipped endpoint.
+    pub provider_kind: ProviderKind,
+    /// Zero-based index of this endpoint in the resolved candidate list for this request.
+    pub candidate_index: usize,
+    /// Why the candidate was skipped.
+    pub reason: AttemptSkipReason,
+    /// Active concurrent attempts on this endpoint when the skip was recorded.
+    pub active_connections: usize,
+    /// Effective concurrency limit that rejected the acquire.
+    pub concurrency_limit: usize,
+    /// Metadata inherited from pool, endpoint, and request configuration.
     pub metadata: HashMap<String, String>,
 }
 
