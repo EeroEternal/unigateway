@@ -97,13 +97,9 @@ pub(crate) fn build_execution_snapshot(
                 selection_key: format!("pool:{}", pool.pool_id),
             })
         }
-        ExecutionTarget::Plan(plan) => build_plan_snapshot(
-            pools,
-            plan,
-            default_retry_policy,
-            default_timeout,
-            feedback_provider,
-        ),
+        ExecutionTarget::Plan(plan) => {
+            build_plan_snapshot(pools, plan, default_retry_policy, default_timeout)
+        }
     }
 }
 
@@ -112,7 +108,6 @@ fn build_plan_snapshot(
     plan: &crate::pool::ExecutionPlan,
     default_retry_policy: &RetryPolicy,
     default_timeout: Option<Duration>,
-    feedback_provider: Option<&std::sync::Arc<dyn RoutingFeedbackProvider>>,
 ) -> Result<ExecutionSnapshot, GatewayError> {
     let (pool_id, endpoints, inherited_strategy, inherited_retry) = if let Some(pool_id) =
         &plan.pool_id
@@ -189,8 +184,6 @@ fn build_plan_snapshot(
                 .join(",")
         )
     };
-
-    let endpoints = apply_routing_feedback(pool_id.as_deref(), endpoints, feedback_provider);
 
     Ok(ExecutionSnapshot {
         pool_id,

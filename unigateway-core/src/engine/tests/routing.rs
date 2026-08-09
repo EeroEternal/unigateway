@@ -268,3 +268,126 @@ async fn score_ordered_strictly_follows_feedback_scores() {
     assert_eq!(endpoints[0].endpoint_id, "a");
     assert_eq!(endpoints[1].endpoint_id, "b");
 }
+
+fn alpha_feedback_reorders_endpoints() -> StaticFeedbackProvider {
+    StaticFeedbackProvider {
+        by_pool: HashMap::from([(
+            "alpha".to_string(),
+            RoutingFeedback {
+                endpoint_signals: HashMap::from([
+                    (
+                        "a".to_string(),
+                        EndpointSignal {
+                            score: Some(10.0),
+                            excluded: false,
+                            cooldown_until: None,
+                            recent_error_rate: None,
+                        },
+                    ),
+                    (
+                        "b".to_string(),
+                        EndpointSignal {
+                            score: Some(90.0),
+                            excluded: false,
+                            cooldown_until: None,
+                            recent_error_rate: None,
+                        },
+                    ),
+                    (
+                        "c".to_string(),
+                        EndpointSignal {
+                            score: Some(99.0),
+                            excluded: false,
+                            cooldown_until: None,
+                            recent_error_rate: None,
+                        },
+                    ),
+                ]),
+            },
+        )]),
+    }
+}
+
+fn engine_with_feedback(feedback: StaticFeedbackProvider) -> UniGatewayEngine {
+    UniGatewayEngine::builder()
+        .with_driver_registry(Arc::new(InMemoryDriverRegistry::new()))
+        .with_routing_feedback_provider(Arc::new(feedback))
+        .build()
+        .unwrap()
+}
+
+#[tokio::test]
+async fn execution_plan_preserves_candidate_order_despite_feedback() {
+    let engine = engine_with_feedback(alpha_feedback_reorders_endpoints());
+    engine
+        .upsert_pool(pool(
+            "alpha",
+            LoadBalancingStrategy::Fallback,
+            vec![endpoint("a"), endpoint("b"), endpoint("c")],
+        ))
+        .await
+        .expect("upsert pool");
+
+    let snapshot = engine
+        .execution_snapshot(&ExecutionTarget::Plan(ExecutionPlan {
+            pool_id: Some("alpha".to_string()),
+            candidates: vec![
+                EndpointRef {
+                    endpoint_id: "a".to_string(),
+                },
+                EndpointRef {
+                    endpoint_id: "b".to_string(),
+                },
+            ],
+            load_balancing_override: Some(LoadBalancingStrategy::Fallback),
+            retry_policy_override: None,
+            metadata: HashMap::new(),
+        }))
+        .await
+        .expect("plan snapshot");
+
+    assert_eq!(snapshot.endpoints[0].endpoint_id, "a");
+    assert_eq!(snapshot.endpoints[1].endpoint_id, "b");
+}
+
+#[tokio::test]
+async fn execution_plan_score_ordered_and_fallback_preserve_plan_order() {
+    let engine = engine_with_feedback(alpha_feedback_reorders_endpoints());
+    engine
+        .upsert_pool(pool(
+            "alpha",
+            LoadBalancingStrategy::ScoreOrdered,
+            vec![endpoint("a"), endpoint("b")],
+        ))
+        .await
+        .expect("upsert pool");
+
+    for strategy in [
+        LoadBalancingStrategy::Fallback,
+        LoadBalancingStrategy::ScoreOrdered,
+    ] {
+        let snapshot = engine
+            .execution_snapshot(&ExecutionTarget::Plan(ExecutionPlan {
+                pool_id: Some("alpha".to_string()),
+                candidates: vec![
+                    EndpointRef {
+                        endpoint_id: "a".to_string(),
+                    },
+                    EndpointRef {
+                        endpoint_id: "b".to_string(),
+                    },
+                ],
+                load_balancing_override: Some(strategy.clone()),
+                retry_policy_override: None,
+                metadata: HashMap::new(),
+            }))
+            .await
+            .expect("plan snapshot");
+
+        let ordered = snapshot
+            .ordered_endpoints(&mut HashMap::new(), 10)
+            .expect("ordered endpoints");
+        assert_eq!(ordered[0].endpoint_id, "a", "strategy={strategy:?}");
+        assert_eq!(ordered[1].endpoint_id, "b", "strategy={strategy:?}");
+    }
+}
