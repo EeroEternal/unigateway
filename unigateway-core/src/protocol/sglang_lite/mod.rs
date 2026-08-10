@@ -239,6 +239,7 @@ mod tests {
             },
             capabilities: EndpointCapabilities::default(),
             metadata: HashMap::new(),
+            forward_metadata_as_headers: None,
         }
     }
 
@@ -271,6 +272,7 @@ mod tests {
             tools: None,
             tool_choice: None,
             raw_messages: None,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::new(),
         };
@@ -380,6 +382,7 @@ mod tests {
             tools: None,
             tool_choice: None,
             raw_messages: None,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::new(),
         };

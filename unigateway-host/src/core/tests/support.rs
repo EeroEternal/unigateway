@@ -43,6 +43,7 @@ pub(super) fn endpoint() -> Endpoint {
         max_concurrency: None,
         capabilities: EndpointCapabilities::default(),
         metadata: HashMap::new(),
+        forward_metadata_as_headers: None,
     }
 }
 
@@ -53,6 +54,7 @@ pub(super) fn pool_with_endpoint(pool_id: &str, endpoint: Endpoint) -> ProviderP
         load_balancing: LoadBalancingStrategy::RoundRobin,
         retry_policy: RetryPolicy::default(),
         metadata: HashMap::new(),
+        forward_metadata_as_headers: None,
     }
 }
 

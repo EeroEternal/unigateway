@@ -23,4 +23,6 @@ pub struct DriverEndpointContext {
     pub capabilities: EndpointCapabilities,
     /// Arbitrary configuration attributes
     pub metadata: HashMap<String, String>,
+    /// Resolved allowlist for forwarding request metadata to outbound HTTP headers.
+    pub forward_metadata_as_headers: Option<Vec<String>>,
 }

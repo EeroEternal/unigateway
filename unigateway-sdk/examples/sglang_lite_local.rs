@@ -72,6 +72,7 @@ async fn main() -> anyhow::Result<()> {
         max_concurrency: None,
         capabilities: EndpointCapabilities::default(),
         metadata,
+        forward_metadata_as_headers: None,
     };
 
     let pool = ProviderPool {
@@ -80,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
         load_balancing: LoadBalancingStrategy::RoundRobin,
         retry_policy: Default::default(),
         metadata: HashMap::new(),
+        forward_metadata_as_headers: None,
     };
 
     engine.upsert_pool(pool).await?;

@@ -87,6 +87,7 @@ pub fn build_env_pool(
             max_concurrency: None,
             capabilities: EndpointCapabilities::default(),
             metadata: std::collections::HashMap::new(),
+            forward_metadata_as_headers: None,
         }],
         load_balancing: LoadBalancingStrategy::RoundRobin,
         retry_policy: RetryPolicy::default(),
@@ -94,6 +95,7 @@ pub fn build_env_pool(
             "service_name".to_string(),
             format!("env-{provider_name}"),
         )]),
+        forward_metadata_as_headers: None,
     }
 }
 

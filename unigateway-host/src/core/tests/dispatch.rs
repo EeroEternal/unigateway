@@ -50,6 +50,7 @@ async fn dispatch_openai_request_to_anthropic_upstream_renders_openai_response()
             max_concurrency: None,
             capabilities: placeholder_thinking_capabilities(),
             metadata: HashMap::new(),
+            forward_metadata_as_headers: None,
         },
     );
     engine.upsert_pool(pool.clone()).await.expect("upsert pool");
@@ -165,6 +166,7 @@ async fn dispatch_anthropic_request_to_openai_upstream_renders_anthropic_respons
             max_concurrency: None,
             capabilities: placeholder_thinking_capabilities(),
             metadata: HashMap::new(),
+            forward_metadata_as_headers: None,
         },
     );
     engine.upsert_pool(pool.clone()).await.expect("upsert pool");
@@ -284,6 +286,7 @@ async fn dispatch_openai_stream_request_to_anthropic_upstream_renders_openai_sse
             max_concurrency: None,
             capabilities: placeholder_thinking_capabilities(),
             metadata: HashMap::new(),
+            forward_metadata_as_headers: None,
         },
     );
     engine.upsert_pool(pool.clone()).await.expect("upsert pool");
@@ -375,6 +378,7 @@ async fn dispatch_anthropic_stream_request_to_openai_upstream_renders_anthropic_
             max_concurrency: None,
             capabilities: placeholder_thinking_capabilities(),
             metadata: HashMap::new(),
+            forward_metadata_as_headers: None,
         },
     );
     engine.upsert_pool(pool.clone()).await.expect("upsert pool");
@@ -499,6 +503,7 @@ async fn dispatch_openai_request_with_xml_think_tag_metadata_renders_reasoning_c
             max_concurrency: None,
             capabilities: placeholder_thinking_capabilities(),
             metadata: HashMap::new(),
+            forward_metadata_as_headers: None,
         },
     );
     engine.upsert_pool(pool.clone()).await.expect("upsert pool");
@@ -594,6 +599,7 @@ async fn dispatch_anthropic_request_with_xml_think_tag_metadata_renders_thinking
             max_concurrency: None,
             capabilities: placeholder_thinking_capabilities(),
             metadata: HashMap::new(),
+            forward_metadata_as_headers: None,
         },
     );
     engine.upsert_pool(pool.clone()).await.expect("upsert pool");
@@ -736,6 +742,7 @@ async fn dispatch_openai_stream_request_with_xml_think_tag_metadata_renders_reas
             max_concurrency: None,
             capabilities: placeholder_thinking_capabilities(),
             metadata: HashMap::new(),
+            forward_metadata_as_headers: None,
         },
     );
     engine.upsert_pool(pool.clone()).await.expect("upsert pool");
@@ -860,6 +867,7 @@ async fn dispatch_anthropic_stream_request_with_xml_think_tag_metadata_renders_t
             max_concurrency: None,
             capabilities: placeholder_thinking_capabilities(),
             metadata: HashMap::new(),
+            forward_metadata_as_headers: None,
         },
     );
     engine.upsert_pool(pool.clone()).await.expect("upsert pool");

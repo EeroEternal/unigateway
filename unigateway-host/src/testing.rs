@@ -103,6 +103,7 @@ mod tests {
             load_balancing: LoadBalancingStrategy::RoundRobin,
             retry_policy: RetryPolicy::default(),
             metadata: HashMap::new(),
+            forward_metadata_as_headers: None,
         }
     }
 

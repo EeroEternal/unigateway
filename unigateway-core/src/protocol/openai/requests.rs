@@ -86,13 +86,16 @@ pub fn build_chat_request(
         if key == "max_tokens" && request.extra.contains_key("max_completion_tokens") {
             continue;
         }
+        if crate::request::is_gateway_only_field_key(&key) {
+            continue;
+        }
         payload.entry(key).or_insert(value);
     }
 
     TransportRequest::post_json(
         Some(endpoint.endpoint_id.clone()),
         join_url(&endpoint.base_url, "chat/completions"),
-        openai_headers(endpoint),
+        openai_headers(endpoint, &request.metadata),
         &Value::Object(payload),
         None,
     )
@@ -332,7 +335,7 @@ pub fn build_responses_request(
     TransportRequest::post_json(
         Some(endpoint.endpoint_id.clone()),
         join_url(&endpoint.base_url, "responses"),
-        openai_headers(endpoint),
+        openai_headers(endpoint, &request.metadata),
         &Value::Object(payload),
         None,
     )
@@ -360,13 +363,16 @@ pub fn build_embeddings_request(
     TransportRequest::post_json(
         Some(endpoint.endpoint_id.clone()),
         join_url(&endpoint.base_url, "embeddings"),
-        openai_headers(endpoint),
+        openai_headers(endpoint, &request.metadata),
         &Value::Object(payload),
         None,
     )
 }
 
-fn openai_headers(endpoint: &DriverEndpointContext) -> HashMap<String, String> {
+fn openai_headers(
+    endpoint: &DriverEndpointContext,
+    request_metadata: &HashMap<String, String>,
+) -> HashMap<String, String> {
     let mut headers = HashMap::from([("content-type".to_string(), "application/json".to_string())]);
 
     let api_key = endpoint.api_key.expose_secret();
@@ -382,6 +388,12 @@ fn openai_headers(endpoint: &DriverEndpointContext) -> HashMap<String, String> {
             headers.insert(header_name.to_string(), value.clone());
         }
     }
+
+    crate::metadata_headers::forward_metadata_as_http_headers(
+        &mut headers,
+        request_metadata,
+        endpoint.forward_metadata_as_headers.as_deref(),
+    );
 
     headers
 }
@@ -488,6 +500,7 @@ mod tests {
             system: None,
             tools: None,
             tool_choice: None,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
         };
         request.set_client_protocol(ClientProtocol::OpenAiChat);
@@ -529,6 +542,7 @@ mod tests {
             system: None,
             tools: None,
             tool_choice: None,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
         };
 
@@ -579,6 +593,7 @@ mod tests {
             system: None,
             tools: None,
             tool_choice: None,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
         };
 

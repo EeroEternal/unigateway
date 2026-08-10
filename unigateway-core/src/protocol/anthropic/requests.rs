@@ -88,6 +88,9 @@ pub fn build_chat_request(
         payload.insert("tool_choice".to_string(), tool_choice);
     }
     for (key, value) in request.extra.clone() {
+        if crate::request::is_gateway_only_field_key(&key) {
+            continue;
+        }
         payload.entry(key).or_insert(value);
     }
 
@@ -101,7 +104,7 @@ pub fn build_chat_request(
     TransportRequest::post_json(
         Some(endpoint.endpoint_id.clone()),
         join_url(&endpoint.base_url, "messages"),
-        anthropic_headers(endpoint),
+        anthropic_headers(endpoint, &request.metadata),
         &Value::Object(payload),
         None,
     )
@@ -174,15 +177,26 @@ fn anthropic_role(role: MessageRole) -> &'static str {
     }
 }
 
-fn anthropic_headers(endpoint: &DriverEndpointContext) -> HashMap<String, String> {
-    HashMap::from([
+fn anthropic_headers(
+    endpoint: &DriverEndpointContext,
+    request_metadata: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut headers = HashMap::from([
         (
             "x-api-key".to_string(),
             endpoint.api_key.expose_secret().to_string(),
         ),
         ("anthropic-version".to_string(), "2023-06-01".to_string()),
         ("content-type".to_string(), "application/json".to_string()),
-    ])
+    ]);
+
+    crate::metadata_headers::forward_metadata_as_http_headers(
+        &mut headers,
+        request_metadata,
+        endpoint.forward_metadata_as_headers.as_deref(),
+    );
+
+    headers
 }
 
 fn resolved_model(endpoint: &DriverEndpointContext, requested_model: &str) -> String {

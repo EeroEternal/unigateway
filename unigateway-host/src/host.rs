@@ -15,6 +15,7 @@ pub type HostFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// Future variants may represent states such as disabled, not configured, or temporarily
 /// unavailable pools, so external consumers should keep a fallback arm when matching.
 #[non_exhaustive]
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum PoolLookupOutcome {
     /// A concrete provider pool was resolved and can be dispatched immediately.
@@ -104,6 +105,7 @@ mod tests {
                     load_balancing: LoadBalancingStrategy::RoundRobin,
                     retry_policy: RetryPolicy::default(),
                     metadata: HashMap::new(),
+                    forward_metadata_as_headers: None,
                 }))
             })
         }

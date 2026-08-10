@@ -360,3 +360,92 @@ Nebula 作为推理编排平台，对 UniGateway 的集成需求如下：
 | 无重启更新端点状态 | 模式四 | etcd watch 触发 `engine.upsert_pool()` 或细粒度端点更新 |
 
 Nebula 不应修改 UniGateway 核心代码，所有集成均通过实现 trait 和调用公开 API 完成。
+
+---
+
+## 模式五：Host middleware（请求变更 / gateway 字段）
+
+`GatewayHooks` 用于观测 request/attempt 生命周期；若需要在 `proxy_chat` 之前**修改** `ProxyChatRequest`（例如 delta 组装、审计注入），使用 opt-in 的 host middleware：
+
+```rust
+use std::sync::Arc;
+use unigateway_host::{
+    ChatRequestMiddleware, HostContext, HostMiddleware, HostFuture, HostResult,
+    dispatch_request_with_middleware, HostDispatchTarget, HostProtocol, HostRequest,
+};
+
+struct DeltaMiddleware;
+
+impl ChatRequestMiddleware for DeltaMiddleware {
+    fn on_chat_request<'a>(
+        &'a self,
+        _ctx: &'a HostContext<'_>,
+        request: &'a mut ProxyChatRequest,
+        gateway_fields: &'a HashMap<String, Value>,
+    ) -> HostFuture<'a, HostResult<()>> {
+        Box::pin(async move {
+            if let Some(ctx) = gateway_fields.get("_session_context") {
+                // 读取 gateway_fields，组装 messages …
+                let _ = ctx;
+            }
+            Ok(())
+        })
+    }
+}
+
+let middleware = HostMiddleware::new().with_request(Arc::new(DeltaMiddleware));
+dispatch_request_with_middleware(
+    &context,
+    target,
+    HostProtocol::OpenAiChat,
+    None,
+    HostRequest::Chat(request),
+    Some(&middleware),
+)
+.await?;
+```
+
+推荐顺序：protocol parse →（可选 session 组装）→ middleware → `proxy_chat` → render。详见 [`embedder-neutral-extensions.md`](../design/embedder-neutral-extensions.md)。
+
+### 模式六：Metadata → HTTP header 转发（R3，opt-in）
+
+静态 outbound 头用 endpoint `metadata` 的 `http_header.*` 前缀（见 core OpenAI driver）。**Per-request** 头转发需配置 allowlist：
+
+```rust
+Endpoint {
+    // ...
+    forward_metadata_as_headers: Some(vec![
+        "X-Tenant-Id".to_string(),
+        "X-Custom-*".to_string(),
+    ]),
+    ..endpoint
+}
+```
+
+仅 `ProxyChatRequest.metadata` 中匹配 allowlist 的键会变为 outbound header；`unigateway.*` 默认不转发。Pool 级 allowlist 与 endpoint 合并。
+
+详见 [`protocol-conversion.md`](../design/protocol-conversion.md#outbound-http-headers)。
+
+### 模式七：Session prefix 参考实现（R5，opt-in）
+
+若 embedder 需要 publish / epoch / delta 组装，可使用可选 crate `unigateway-session`（非默认依赖）：
+
+```toml
+unigateway-sdk = { version = "2.10", features = ["host", "session"] }
+unigateway-session = { version = "2.10", features = ["http"] }
+```
+
+```rust
+use std::sync::Arc;
+use unigateway_session::{DeltaAssemblyMiddleware, MemorySessionStore};
+use unigateway_host::HostMiddleware;
+
+let store = Arc::new(MemorySessionStore::new());
+let middleware = HostMiddleware::new()
+    .with_request(Arc::new(DeltaAssemblyMiddleware::new(store.clone())));
+// 客户端 body: "_session_context": {"session_id":"s1","epoch":1,"delivery":"delta"}
+```
+
+`http` feature 提供 `POST/DELETE /v1/gateway/sessions/{id}/publish|delete` 路由，合并进 embedder 的 Axum app。自有 session 存储的产品可只用 R1+R2+R4，不必启用本 crate。
+
+详见 [`unigateway-session/README.md`](../../unigateway-session/README.md)。

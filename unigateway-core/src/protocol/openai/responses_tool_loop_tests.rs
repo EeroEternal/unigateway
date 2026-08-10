@@ -102,6 +102,7 @@ fn endpoint() -> DriverEndpointContext {
         },
         capabilities: EndpointCapabilities::default(),
         metadata: HashMap::new(),
+        forward_metadata_as_headers: None,
     }
 }
 

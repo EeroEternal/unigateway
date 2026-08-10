@@ -394,6 +394,7 @@ mod tests {
             max_concurrency: None,
             capabilities: EndpointCapabilities::default(),
             metadata: std::collections::HashMap::new(),
+            forward_metadata_as_headers: None,
         };
 
         let resolved = EndpointCapabilities::resolve_for_endpoint(&endpoint);
@@ -416,6 +417,7 @@ mod tests {
             max_concurrency: None,
             capabilities: EndpointCapabilities::default(),
             metadata: std::collections::HashMap::new(),
+            forward_metadata_as_headers: None,
         };
 
         let resolved = EndpointCapabilities::resolve_for_endpoint(&endpoint);

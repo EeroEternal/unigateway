@@ -17,6 +17,7 @@ pub(crate) struct ExecutionSnapshot {
     pub load_balancing: LoadBalancingStrategy,
     pub retry_policy: RetryPolicy,
     pub metadata: HashMap<String, String>,
+    pub forward_metadata_as_headers: Option<Vec<String>>,
     selection_key: String,
 }
 
@@ -94,6 +95,7 @@ pub(crate) fn build_execution_snapshot(
                     default_timeout,
                 ),
                 metadata: pool.metadata.clone(),
+                forward_metadata_as_headers: pool.forward_metadata_as_headers.clone(),
                 selection_key: format!("pool:{}", pool.pool_id),
             })
         }
@@ -185,12 +187,18 @@ fn build_plan_snapshot(
         )
     };
 
+    let forward_metadata_as_headers = pool_id
+        .as_ref()
+        .and_then(|id| pools.get(id))
+        .and_then(|pool| pool.forward_metadata_as_headers.clone());
+
     Ok(ExecutionSnapshot {
         pool_id,
         endpoints,
         load_balancing,
         retry_policy,
         metadata: plan.metadata.clone(),
+        forward_metadata_as_headers,
         selection_key,
     })
 }
