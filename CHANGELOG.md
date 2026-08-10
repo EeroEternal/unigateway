@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.10.2]
+
+### Added
+
+* **Unified cache-hit token normalization**: OpenAI-compatible and Responses usage parsers now map `prompt_tokens_details.cached_tokens`, `input_tokens_details.cached_tokens`, `prompt_cache_hit_tokens` (DeepSeek), and top-level `cached_tokens` (Qwen/DashScope) into `TokenUsage.cache_hit_tokens`, with explicit field priority and `Some(0)` for zero hits.
+
 ## [2.10.1]
 
 ### Fixed

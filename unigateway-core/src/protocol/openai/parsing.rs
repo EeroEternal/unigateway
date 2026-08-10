@@ -61,6 +61,38 @@ pub fn parse_embeddings_response(
     Ok((EmbeddingsResponse { raw }, usage))
 }
 
+/// Normalize upstream cache-hit token counts from heterogeneous OpenAI-compatible usage shapes.
+///
+/// Priority (first match wins; values are never summed):
+/// 1. `usage.cache_hit_tokens`
+/// 2. `usage.input_tokens_details.cached_tokens`
+/// 3. `usage.prompt_tokens_details.cached_tokens`
+/// 4. `usage.prompt_cache_hit_tokens`
+/// 5. `usage.cached_tokens`
+pub(super) fn parse_cache_hit_tokens(usage: &Value) -> Option<u64> {
+    if let Some(value) = usage.get("cache_hit_tokens").and_then(Value::as_u64) {
+        return Some(value);
+    }
+    if let Some(value) = usage
+        .get("input_tokens_details")
+        .and_then(|details| details.get("cached_tokens"))
+        .and_then(Value::as_u64)
+    {
+        return Some(value);
+    }
+    if let Some(value) = usage
+        .get("prompt_tokens_details")
+        .and_then(|details| details.get("cached_tokens"))
+        .and_then(Value::as_u64)
+    {
+        return Some(value);
+    }
+    if let Some(value) = usage.get("prompt_cache_hit_tokens").and_then(Value::as_u64) {
+        return Some(value);
+    }
+    usage.get("cached_tokens").and_then(Value::as_u64)
+}
+
 pub(super) fn parse_openai_usage(raw: &Value) -> Option<TokenUsage> {
     let usage = raw.get("usage")?;
     Some(TokenUsage {
@@ -68,7 +100,7 @@ pub(super) fn parse_openai_usage(raw: &Value) -> Option<TokenUsage> {
         output_tokens: usage.get("completion_tokens").and_then(Value::as_u64),
         total_tokens: usage.get("total_tokens").and_then(Value::as_u64),
         reasoning_tokens: None,
-        cache_hit_tokens: usage.get("cache_hit_tokens").and_then(Value::as_u64),
+        cache_hit_tokens: parse_cache_hit_tokens(usage),
     })
 }
 
@@ -119,7 +151,7 @@ pub(super) fn parse_responses_usage(raw: &Value) -> Option<TokenUsage> {
             .and_then(Value::as_u64),
         total_tokens: usage.get("total_tokens").and_then(Value::as_u64),
         reasoning_tokens,
-        cache_hit_tokens: usage.get("cache_hit_tokens").and_then(Value::as_u64),
+        cache_hit_tokens: parse_cache_hit_tokens(usage),
     })
 }
 
@@ -127,45 +159,113 @@ pub(super) fn parse_responses_usage(raw: &Value) -> Option<TokenUsage> {
 mod tests {
     use serde_json::json;
 
-    use super::{parse_openai_usage, parse_responses_usage};
+    use super::{parse_cache_hit_tokens, parse_openai_usage, parse_responses_usage};
 
     #[test]
-    fn parse_openai_usage_extracts_cache_hit_tokens() {
+    fn parses_openai_chat_cached_tokens() {
         let raw = json!({
             "usage": {
-                "prompt_tokens": 20,
-                "completion_tokens": 10,
-                "total_tokens": 30,
-                "cache_hit_tokens": 12
+                "prompt_tokens": 100,
+                "prompt_tokens_details": {
+                    "cached_tokens": 80
+                }
             }
         });
 
         let usage = parse_openai_usage(&raw).expect("usage parsed");
-        assert_eq!(usage.input_tokens, Some(20));
-        assert_eq!(usage.output_tokens, Some(10));
-        assert_eq!(usage.total_tokens, Some(30));
-        assert_eq!(usage.cache_hit_tokens, Some(12));
+        assert_eq!(usage.cache_hit_tokens, Some(80));
     }
 
     #[test]
-    fn parse_responses_usage_extracts_cache_hit_tokens() {
+    fn parses_openai_responses_cached_tokens() {
         let raw = json!({
-            "response": {
-                "usage": {
-                    "input_tokens": 20,
-                    "output_tokens": 10,
-                    "total_tokens": 30,
-                    "cache_hit_tokens": 12
+            "usage": {
+                "input_tokens": 100,
+                "input_tokens_details": {
+                    "cached_tokens": 80
                 }
             }
         });
 
         let usage = parse_responses_usage(&raw).expect("usage parsed");
+        assert_eq!(usage.cache_hit_tokens, Some(80));
+    }
+
+    #[test]
+    fn parses_nested_responses_usage_cached_tokens() {
+        let raw = json!({
+            "response": {
+                "usage": {
+                    "input_tokens": 100,
+                    "input_tokens_details": {
+                        "cached_tokens": 80
+                    }
+                }
+            }
+        });
+
+        let usage = parse_responses_usage(&raw).expect("usage parsed");
+        assert_eq!(usage.cache_hit_tokens, Some(80));
+    }
+
+    #[test]
+    fn parses_deepseek_prompt_cache_hit_tokens() {
+        let raw = json!({
+            "usage": {
+                "prompt_tokens": 100,
+                "prompt_cache_hit_tokens": 80,
+                "prompt_cache_miss_tokens": 20
+            }
+        });
+
+        let usage = parse_openai_usage(&raw).expect("usage parsed");
+        assert_eq!(usage.cache_hit_tokens, Some(80));
+    }
+
+    #[test]
+    fn parses_qwen_top_level_cached_tokens() {
+        let raw = json!({
+            "usage": {
+                "input_tokens": 100,
+                "cached_tokens": 80
+            }
+        });
+
+        let usage = parse_openai_usage(&raw).expect("usage parsed");
+        assert_eq!(usage.cache_hit_tokens, Some(80));
+    }
+
+    #[test]
+    fn preserves_existing_cache_hit_tokens() {
+        let raw = json!({
+            "usage": {
+                "prompt_tokens": 20,
+                "completion_tokens": 10,
+                "total_tokens": 30,
+                "cache_hit_tokens": 12,
+                "prompt_tokens_details": {
+                    "cached_tokens": 80
+                }
+            }
+        });
+
+        let usage = parse_openai_usage(&raw).expect("usage parsed");
         assert_eq!(usage.cache_hit_tokens, Some(12));
     }
 
     #[test]
-    fn parse_openai_usage_missing_cache_hit_tokens_defaults_to_none() {
+    fn zero_cache_hit_tokens_is_some_zero() {
+        let usage = json!({
+            "prompt_tokens_details": {
+                "cached_tokens": 0
+            }
+        });
+
+        assert_eq!(parse_cache_hit_tokens(&usage), Some(0));
+    }
+
+    #[test]
+    fn missing_cache_fields_is_none() {
         let raw = json!({
             "usage": {
                 "prompt_tokens": 5,
