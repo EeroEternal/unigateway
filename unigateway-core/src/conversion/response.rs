@@ -187,5 +187,8 @@ fn token_usage_to_openai_usage(usage: &TokenUsage) -> Value {
     if let Some(cache_hit) = usage.cache_hit_tokens {
         object.insert("cache_hit_tokens".to_string(), json!(cache_hit));
     }
+    if let Some(cache_write) = usage.cache_write_tokens {
+        object.insert("cache_write_tokens".to_string(), json!(cache_write));
+    }
     Value::Object(object)
 }

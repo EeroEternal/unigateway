@@ -291,6 +291,9 @@ pub fn render_openai_embeddings_response(
                 if let Some(v) = usage.cache_hit_tokens {
                     u.insert("cache_hit_tokens".to_string(), serde_json::json!(v));
                 }
+                if let Some(v) = usage.cache_write_tokens {
+                    u.insert("cache_write_tokens".to_string(), serde_json::json!(v));
+                }
                 serde_json::Value::Object(u)
             }),
         })
@@ -450,6 +453,9 @@ fn fallback_openai_completed_chat_body(
             if let Some(v) = usage.cache_hit_tokens {
                 u.insert("cache_hit_tokens".to_string(), serde_json::json!(v));
             }
+            if let Some(v) = usage.cache_write_tokens {
+                u.insert("cache_write_tokens".to_string(), serde_json::json!(v));
+            }
             serde_json::Value::Object(u)
         }),
     })
@@ -504,6 +510,12 @@ fn responses_usage_payload(usage: &TokenUsage) -> serde_json::Value {
     }
     if let Some(cache_hit) = usage.cache_hit_tokens {
         object.insert("cache_hit_tokens".to_string(), serde_json::json!(cache_hit));
+    }
+    if let Some(cache_write) = usage.cache_write_tokens {
+        object.insert(
+            "cache_write_tokens".to_string(),
+            serde_json::json!(cache_write),
+        );
     }
     serde_json::Value::Object(object)
 }

@@ -306,6 +306,7 @@ fn convert_usage(u: &Usage) -> TokenUsage {
         total_tokens: Some(u.total_tokens as u64),
         reasoning_tokens: None,
         cache_hit_tokens: u.cache_hit_tokens.map(|v| v as u64),
+        cache_write_tokens: None,
     }
 }
 
@@ -455,6 +456,7 @@ fn parse_usage_from_value(v: &serde_json::Value) -> Option<TokenUsage> {
             .and_then(|d| d.get("reasoning_tokens"))
             .and_then(|x| x.as_u64()),
         cache_hit_tokens: v.get("cache_hit_tokens").and_then(|x| x.as_u64()),
+        cache_write_tokens: v.get("cache_write_tokens").and_then(|x| x.as_u64),
     })
 }
 

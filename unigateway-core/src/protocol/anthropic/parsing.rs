@@ -49,5 +49,8 @@ pub(super) fn parse_anthropic_usage(raw: &Value) -> Option<TokenUsage> {
             _ => None,
         },
         cache_hit_tokens: None,
+        cache_write_tokens: usage
+            .get("cache_creation_input_tokens")
+            .and_then(Value::as_u64),
     })
 }
