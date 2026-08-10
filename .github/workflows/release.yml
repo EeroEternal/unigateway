@@ -70,6 +70,11 @@ jobs:
           cargo publish -p unigateway-host --no-verify || \
           echo "::warning::unigateway-host already published, skipping"
 
+      - name: Publish unigateway-session
+        run: |
+          cargo publish -p unigateway-session --no-verify || \
+          echo "::warning::unigateway-session already published, skipping"
+
       - name: Publish unigateway-sdk
         run: |
           cargo publish -p unigateway-sdk --no-verify || \

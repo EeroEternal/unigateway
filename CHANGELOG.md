@@ -4,6 +4,25 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-08-10
+
+### Added
+
+* **Gateway-only fields (R1+R2)**: `_`-prefixed top-level JSON keys parse into `ProxyChatRequest.gateway_fields` and are not merged upstream; vendor extensions remain in `extra`.
+* **Host middleware (R4)**: Opt-in `ChatRequestMiddleware` / `ChatResponseMiddleware` via `HostMiddleware` and `dispatch_request_with_middleware`.
+* **Metadata → HTTP headers (R3)**: Optional `forward_metadata_as_headers` on `Endpoint` / `ProviderPool` (explicit allowlist / glob); distinct from static `http_header.*` endpoint metadata.
+* **Session reference crate (R5)**: Optional `unigateway-session` with in-memory prefix store, `DeltaAssemblyMiddleware`, and `http` feature for publish/delete routes.
+* **Production passthrough example (R6)**: `openai_passthrough` demonstrates host dispatch, protocol render, and SSE.
+
+### Changed
+
+* **`_`-prefixed top-level JSON keys** are no longer merged into upstream provider payloads; embedders should read them from `gateway_fields` or host middleware.
+
+### Documentation
+
+* **Embedder-neutral extensions**: [`docs/design/embedder-neutral-extensions.md`](docs/design/embedder-neutral-extensions.md) (R1–R7 roadmap and pipeline).
+* **Prompt cache usage (R7)**: [`docs/guide/usage-cache.md`](docs/guide/usage-cache.md) documents `TokenUsage.cache_hit_tokens` / vendor field mapping.
+
 ## [2.10.2]
 
 ### Added

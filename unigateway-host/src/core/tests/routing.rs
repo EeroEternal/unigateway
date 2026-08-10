@@ -152,6 +152,7 @@ fn openai_compatible_target_filters_mixed_pool() {
         max_concurrency: None,
         capabilities: EndpointCapabilities::default(),
         metadata: HashMap::new(),
+        forward_metadata_as_headers: None,
     };
 
     let target = build_openai_compatible_target(&[endpoint(), anthropic_endpoint], "pool-1", None)

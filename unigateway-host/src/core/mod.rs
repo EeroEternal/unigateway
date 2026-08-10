@@ -9,5 +9,5 @@ mod tests;
 
 pub use dispatch::{
     HostDispatchOutcome, HostDispatchTarget, HostProtocol, HostRequest,
-    anthropic_requested_model_alias, dispatch_request,
+    anthropic_requested_model_alias, dispatch_request, dispatch_request_with_middleware,
 };

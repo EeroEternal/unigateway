@@ -73,6 +73,7 @@ fn endpoint() -> DriverEndpointContext {
         },
         capabilities: EndpointCapabilities::default(),
         metadata: HashMap::from([("pool_id".to_string(), "alpha".to_string())]),
+        forward_metadata_as_headers: None,
     }
 }
 
@@ -102,6 +103,7 @@ fn build_chat_request_forwards_http_header_metadata() {
             max_tokens: None,
             stop_sequences: None,
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::new(),
         },
@@ -116,6 +118,81 @@ fn build_chat_request_forwards_http_header_metadata() {
         request.headers.get("X-Title").map(String::as_str),
         Some("Test App")
     );
+}
+
+#[test]
+fn build_chat_request_forwards_allowlisted_request_metadata_as_headers() {
+    let mut endpoint = endpoint();
+    endpoint.forward_metadata_as_headers = Some(vec!["X-Tenant-Id".to_string()]);
+
+    let request = build_chat_request(
+        &mut endpoint,
+        &ProxyChatRequest {
+            model: "gpt-4o-mini".to_string(),
+            messages: vec![Message::text(MessageRole::User, "hello")],
+            system: None,
+            tools: None,
+            tool_choice: None,
+            raw_messages: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: None,
+            stop_sequences: None,
+            stream: false,
+            gateway_fields: HashMap::new(),
+            extra: HashMap::new(),
+            metadata: HashMap::from([
+                ("X-Tenant-Id".to_string(), "tenant-a".to_string()),
+                (
+                    "unigateway.client_protocol".to_string(),
+                    "openai_chat".to_string(),
+                ),
+            ]),
+        },
+    )
+    .expect("chat request");
+
+    assert_eq!(
+        request.headers.get("X-Tenant-Id").map(String::as_str),
+        Some("tenant-a")
+    );
+    assert!(!request.headers.contains_key("unigateway.client_protocol"));
+}
+
+#[test]
+fn build_chat_request_omits_gateway_only_extra_and_gateway_fields() {
+    let request = build_chat_request(
+        &mut endpoint(),
+        &ProxyChatRequest {
+            model: "gpt-4o-mini".to_string(),
+            messages: vec![Message::text(MessageRole::User, "hello")],
+            system: None,
+            tools: None,
+            tool_choice: None,
+            raw_messages: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            max_tokens: None,
+            stop_sequences: None,
+            stream: false,
+            gateway_fields: HashMap::from([("_session_context".to_string(), json!({"epoch": 1}))]),
+            extra: HashMap::from([("_leaked".to_string(), json!({"bad": true}))]),
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("chat request");
+
+    let body: serde_json::Value =
+        serde_json::from_slice(&request.body.expect("body")).expect("json body");
+    assert!(
+        !body
+            .as_object()
+            .expect("object")
+            .contains_key("_session_context")
+    );
+    assert!(!body.as_object().expect("object").contains_key("_leaked"));
 }
 
 #[test]
@@ -135,6 +212,7 @@ fn build_chat_request_maps_model_and_url() {
             max_tokens: Some(32),
             stop_sequences: None,
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::new(),
         },
@@ -182,6 +260,7 @@ fn build_chat_request_preserves_structured_text_blocks_without_raw_messages() {
             max_tokens: Some(32),
             stop_sequences: None,
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::new(),
         },
@@ -238,6 +317,7 @@ fn build_chat_request_preserves_structured_image_blocks_without_raw_messages() {
             max_tokens: Some(32),
             stop_sequences: None,
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::new(),
         },
@@ -293,6 +373,7 @@ fn build_chat_request_preserves_structured_tool_result_content_without_raw_messa
             max_tokens: Some(32),
             stop_sequences: None,
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::new(),
         },
@@ -334,6 +415,7 @@ fn build_chat_request_merges_extra_without_overriding_core_fields() {
             max_tokens: Some(32),
             stop_sequences: None,
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::from([
                 ("reasoning_effort".to_string(), json!("high")),
                 ("max_completion_tokens".to_string(), json!(1024)),
@@ -378,6 +460,7 @@ fn build_chat_request_uses_max_completion_tokens_when_client_provides_it() {
             max_tokens: Some(1024),
             stop_sequences: None,
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::from([("max_completion_tokens".to_string(), json!(1024))]),
             metadata: HashMap::new(),
         },
@@ -409,6 +492,7 @@ fn build_chat_request_preserves_explicit_max_completion_tokens_over_max_tokens()
             max_tokens: Some(1024),
             stop_sequences: None,
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::from([("max_completion_tokens".to_string(), json!(2048))]),
             metadata: HashMap::new(),
         },
@@ -443,6 +527,7 @@ fn build_chat_request_forwards_max_tokens_when_client_provides_only_max_tokens()
             max_tokens: Some(1024),
             stop_sequences: None,
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::new(),
         },
@@ -514,6 +599,7 @@ fn build_chat_request_translates_anthropic_raw_messages_and_tool_choice() {
             max_tokens: Some(64),
             stop_sequences: Some(json!(["DONE", "HALT"])),
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::new(),
         },
@@ -605,6 +691,7 @@ fn build_chat_request_normalizes_string_any_tool_choice() {
             max_tokens: None,
             stop_sequences: None,
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::new(),
         },
@@ -651,6 +738,7 @@ fn build_chat_request_downgrades_forced_openai_function_tool_choice_to_auto() {
             max_tokens: None,
             stop_sequences: None,
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::new(),
         },
@@ -682,6 +770,7 @@ fn build_chat_request_memtensor_style_downgrades_named_function_to_required() {
             local_inference: None,
         },
         metadata: HashMap::new(),
+        forward_metadata_as_headers: None,
     };
 
     let request = build_chat_request(
@@ -708,6 +797,7 @@ fn build_chat_request_memtensor_style_downgrades_named_function_to_required() {
             max_tokens: None,
             stop_sequences: None,
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::new(),
         },
@@ -972,6 +1062,7 @@ async fn openai_driver_executes_non_streaming_operations() {
                 max_tokens: None,
                 stop_sequences: None,
                 stream: false,
+                gateway_fields: HashMap::new(),
                 extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
@@ -1104,6 +1195,7 @@ async fn openai_driver_executes_streaming_chat() {
                 max_tokens: None,
                 stop_sequences: None,
                 stream: true,
+                gateway_fields: HashMap::new(),
                 extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
@@ -1171,6 +1263,7 @@ async fn openai_driver_streaming_chat_completion_survives_dropped_stream() {
                 max_tokens: None,
                 stop_sequences: None,
                 stream: true,
+                gateway_fields: HashMap::new(),
                 extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
@@ -1340,6 +1433,7 @@ fn build_chat_request_injects_thinking_for_claude_when_xml_think_tag_requested()
         model_policy: Default::default(),
         capabilities: EndpointCapabilities::default(),
         metadata: Default::default(),
+        forward_metadata_as_headers: None,
     };
 
     let mut request = ProxyChatRequest {
@@ -1354,6 +1448,7 @@ fn build_chat_request_injects_thinking_for_claude_when_xml_think_tag_requested()
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        gateway_fields: HashMap::new(),
         extra: HashMap::new(),
         raw_messages: None,
         metadata: HashMap::from([(
@@ -1436,6 +1531,7 @@ fn build_chat_request_skips_thinking_injection_for_non_claude_or_missing_metadat
         model_policy: Default::default(),
         capabilities: EndpointCapabilities::default(),
         metadata: Default::default(),
+        forward_metadata_as_headers: None,
     };
 
     let mut request = ProxyChatRequest {
@@ -1450,6 +1546,7 @@ fn build_chat_request_skips_thinking_injection_for_non_claude_or_missing_metadat
         stop_sequences: None,
         tools: None,
         tool_choice: None,
+        gateway_fields: HashMap::new(),
         extra: HashMap::new(),
         raw_messages: None,
         metadata: HashMap::from([(

@@ -16,6 +16,8 @@ pub mod endpoint_context;
 /// Error types specific to the gateway's execution and network layer.
 pub mod error;
 #[allow(missing_docs)]
+pub mod metadata_headers;
+#[allow(missing_docs)]
 pub mod pool;
 #[allow(missing_docs)]
 pub mod protocol;
@@ -61,6 +63,10 @@ pub use conversion::{
 };
 pub use endpoint_context::DriverEndpointContext;
 pub use error::{GatewayError, GatewayErrorKind};
+pub use metadata_headers::{
+    forward_metadata_as_http_headers, is_internal_metadata_key, is_valid_http_header_value,
+    merge_forward_allowlists, metadata_key_matches_allowlist,
+};
 pub use pool::{
     DriverId, Endpoint, EndpointId, EndpointRef, ExecutionPlan, ExecutionTarget, ModelPolicy,
     PoolId, PoolSummary, ProviderKind, ProviderPool, RequestId, SecretString,
@@ -76,9 +82,9 @@ pub use request::{
     anthropic_messages_to_openai_messages, anthropic_tool_choice_to_openai_tool_choice,
     anthropic_tools_to_openai_tools, apply_reactive_tool_choice_override,
     classify_anthropic_tool_choice, classify_openai_tool_choice, content_blocks_to_anthropic,
-    content_blocks_to_anthropic_request, is_placeholder_thinking_signature,
-    is_tool_choice_upstream_rejection, normalize_tool_choice,
-    openai_message_to_anthropic_content_blocks,
+    content_blocks_to_anthropic_request, is_gateway_only_field_key,
+    is_placeholder_thinking_signature, is_tool_choice_upstream_rejection, merge_forwardable_extra,
+    normalize_tool_choice, openai_message_to_anthropic_content_blocks,
     openai_message_to_anthropic_content_blocks_with_policy, openai_message_to_content_blocks,
     openai_messages_to_anthropic_messages, openai_tool_choice_to_anthropic_tool_choice,
     openai_tools_to_anthropic_tools, reactive_tool_choice_fallback,

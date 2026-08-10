@@ -280,6 +280,7 @@ impl UniGatewayEngine {
         endpoint: Endpoint,
         snapshot_metadata: std::collections::HashMap<String, String>,
         request_metadata: std::collections::HashMap<String, String>,
+        pool_forward_metadata_as_headers: Option<Vec<String>>,
     ) -> DriverEndpointContext {
         let mut metadata = snapshot_metadata;
         metadata.extend(endpoint.metadata.clone());
@@ -298,6 +299,10 @@ impl UniGatewayEngine {
             model_policy: endpoint.model_policy,
             capabilities,
             metadata,
+            forward_metadata_as_headers: crate::metadata_headers::merge_forward_allowlists(
+                pool_forward_metadata_as_headers.as_ref(),
+                endpoint.forward_metadata_as_headers.as_ref(),
+            ),
         }
     }
 

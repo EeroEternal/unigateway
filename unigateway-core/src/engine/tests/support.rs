@@ -47,6 +47,7 @@ pub(super) fn endpoint(endpoint_id: &str) -> Endpoint {
         max_concurrency: None,
         capabilities: EndpointCapabilities::default(),
         metadata: HashMap::new(),
+        forward_metadata_as_headers: None,
     }
 }
 
@@ -74,6 +75,7 @@ pub(super) fn pool(
             stop_after_stream_started: true,
         },
         metadata: HashMap::new(),
+        forward_metadata_as_headers: None,
     }
 }
 
@@ -91,6 +93,7 @@ pub(super) fn chat_request(stream: bool) -> ProxyChatRequest {
         max_tokens: None,
         stop_sequences: None,
         stream,
+        gateway_fields: HashMap::new(),
         extra: HashMap::new(),
         metadata: HashMap::new(),
     }

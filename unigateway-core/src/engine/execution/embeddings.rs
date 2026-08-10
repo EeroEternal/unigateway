@@ -58,6 +58,7 @@ impl UniGatewayEngine {
                             endpoint.clone(),
                             snapshot.metadata.clone(),
                             request.metadata.clone(),
+                            snapshot.forward_metadata_as_headers.clone(),
                         )
                         .metadata;
                     self.emit_attempt_skipped(build_aimd_capacity_skipped_event(
@@ -80,6 +81,7 @@ impl UniGatewayEngine {
                 endpoint.clone(),
                 snapshot.metadata.clone(),
                 request.metadata.clone(),
+                snapshot.forward_metadata_as_headers.clone(),
             );
             let attempt_metadata = context.metadata.clone();
 

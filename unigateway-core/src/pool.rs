@@ -93,6 +93,9 @@ pub struct Endpoint {
     #[serde(default)]
     pub capabilities: EndpointCapabilities,
     pub metadata: HashMap<String, String>,
+    /// Allowlisted request metadata keys (exact or `prefix*`) forwarded as outbound HTTP headers.
+    #[serde(default)]
+    pub forward_metadata_as_headers: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,6 +105,9 @@ pub struct ProviderPool {
     pub load_balancing: LoadBalancingStrategy,
     pub retry_policy: RetryPolicy,
     pub metadata: HashMap<String, String>,
+    /// Pool-wide allowlist merged with each endpoint's `forward_metadata_as_headers`.
+    #[serde(default)]
+    pub forward_metadata_as_headers: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -15,6 +15,7 @@ This repository is a Rust library workspace. It does not ship an in-tree HTTP se
 | [`admin.md`](design/admin.md) | `/api/admin/*` JSON contracts for embedders that build their own management gateway or UI. |
 | [`queue.md`](design/queue.md) | Concurrency queueing and backpressure design. Runtime helpers live in `unigateway-config::runtime`; HTTP integration belongs to embedders. |
 | [`scheduling.md`](design/scheduling.md) | Longer-term scheduling and queueing direction. |
+| [`embedder-neutral-extensions.md`](design/embedder-neutral-extensions.md) | Planned embedder-neutral gateway fields, host middleware, and passthrough example (RFC). |
 | [`cli.md`](design/cli.md) | Deprecated historical CLI product draft; management surfaces now belong to embedder applications. |
 
 ## Guide
@@ -24,6 +25,8 @@ This repository is a Rust library workspace. It does not ship an in-tree HTTP se
 | [`config.md`](guide/config.md) | `unigateway.toml` fields and rules for syncing config state into core pools. |
 | [`providers.md`](guide/providers.md) | TOML and call examples for common providers. |
 | [`embed.md`](guide/embed.md) | Embedding UniGateway in another Rust application. |
+| [`usage-cache.md`](guide/usage-cache.md) | Prompt cache token normalization (`cache_hit_tokens`, vendor field mapping). |
+| [`../unigateway-session/README.md`](../unigateway-session/README.md) | Optional session prefix store and delta middleware (R5 reference). |
 | [`embedder_patterns.md`](guide/embedder_patterns.md) | Production embedding patterns: dynamic state awareness, external routing, `GatewayHooks` extension, and runtime refresh. |
 | [`reasoning.md`](guide/reasoning.md) | Neutral reasoning normalization contract, metadata hints, and embedder-owned provider specialization. |
 
@@ -38,5 +41,6 @@ This repository is a Rust library workspace. It does not ship an in-tree HTTP se
 | [`refactor-baseline.md`](dev/refactor-baseline.md) | Historical split notes and structure debt; the root `src/` product shell has been removed. |
 | [`local-gateway.md`](dev/local-gateway.md) | Historical and exploratory local gateway notes; implementation belongs to embedders. |
 | [`openclaw.md`](dev/openclaw.md) | Example flow for OpenClaw integration against a compatible HTTP gateway. |
+| [`dev/issues/`](dev/issues/README.md) | Draft GitHub issue bodies for embedder-neutral gateway extensions (gateway fields, host middleware, passthrough example). |
 
 Repository-wide agent collaboration conventions live in [`../AGENTS.md`](../AGENTS.md).

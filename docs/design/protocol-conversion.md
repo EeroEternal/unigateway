@@ -45,6 +45,7 @@ ProxyChatRequest
   tool_choice
   raw_messages
   extra
+  gateway_fields
   metadata
 ```
 
@@ -86,7 +87,9 @@ Some protocol features do not fit into a fully symmetric common model. UniGatewa
 
 `tools` and `tool_choice` are currently preserved as JSON values. Driver-side conversion maps the OpenAI function-tool shape to the Anthropic tool shape, or the reverse, only when the selected upstream protocol requires it.
 
-`extra` carries protocol-specific request fields that UniGateway does not model as first-class neutral fields. Core fields win when `extra` overlaps with built-in payload keys.
+`extra` carries protocol-specific request fields that UniGateway does not model as first-class neutral fields. Core fields win when `extra` overlaps with built-in payload keys. Drivers merge `extra` into upstream JSON.
+
+`gateway_fields` holds top-level ingress keys prefixed with `_` (gateway-only convention). Host middleware reads these fields; drivers never merge them upstream. See [`embedder-neutral-extensions.md`](embedder-neutral-extensions.md).
 
 `metadata` records protocol semantics that should not be inferred from shape alone. The important metadata includes:
 
@@ -95,6 +98,8 @@ unigateway.client_protocol
 unigateway.openai_raw_messages
 unigateway.thinking_signature_status
 ```
+
+Per-request `metadata` is internal to core/host (routing hints, hooks). It is **not** forwarded upstream as JSON unless a driver explicitly maps a key. Optional **metadata → outbound HTTP header** forwarding is configured separately; see [Outbound HTTP headers](#outbound-http-headers) below.
 
 ## Ingress Parsing
 
@@ -147,6 +152,19 @@ For chat requests:
 
 Anthropic `responses` and `embeddings` are not implemented by the Anthropic driver. They currently return a not-implemented gateway error.
 
+### Outbound HTTP headers
+
+Two mechanisms add headers to upstream HTTP requests. They are independent and must not be conflated:
+
+| Mechanism | Config | Source | Default |
+| --- | --- | --- | --- |
+| Static endpoint headers | Endpoint `metadata` keys prefixed with `http_header.` | Pool/endpoint config at upsert time | Empty |
+| Per-request metadata headers | `forward_metadata_as_headers: Option<Vec<String>>` on `Endpoint` / `ProviderPool` | `ProxyChatRequest.metadata` keys matching allowlist / glob | `None` (disabled) |
+
+Static headers are resolved when building the driver context (`openai_headers`, `anthropic_headers`). Per-request forwarding runs at request build time: only allowlisted metadata keys become outbound headers; keys under `unigateway.*` are never forwarded. Pool-level and endpoint-level allowlists merge (deduplicated, case-insensitive).
+
+See [`embedder_patterns.md`](../guide/embedder_patterns.md) (模式六) and [`embedder-neutral-extensions.md`](embedder-neutral-extensions.md) (R3).
+
 ## Response Rendering
 
 Drivers parse upstream responses into `ProxySession`:
@@ -169,6 +187,8 @@ The protocol layer then renders the final client-facing shape.
 - If the selected provider is OpenAI-compatible and the raw response already has OpenAI `choices`, the raw response is returned.
 - Otherwise UniGateway constructs an OpenAI `chat.completion` response from the neutral final response.
 - For streaming, `OpenAiChatStreamAdapter` emits OpenAI SSE chunks and a final `[DONE]` frame.
+
+OpenAI-compatible usage parsing normalizes vendor prompt-cache fields into `TokenUsage.cache_hit_tokens` and `TokenUsage.cache_write_tokens`. See [`usage-cache.md`](../guide/usage-cache.md) (R7).
 
 ### Anthropic Client Rendering
 

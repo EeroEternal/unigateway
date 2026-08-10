@@ -47,6 +47,7 @@ pub fn openai_payload_to_chat_request(
         tools: payload.get("tools").cloned(),
         tool_choice: payload.get("tool_choice").cloned(),
         raw_messages,
+        gateway_fields: openai_chat_gateway_fields(payload),
         extra: openai_chat_extra(payload),
         metadata: HashMap::new(),
     };
@@ -131,6 +132,7 @@ pub fn anthropic_payload_to_chat_request(
         tools: payload.get("tools").cloned(),
         tool_choice: payload.get("tool_choice").cloned(),
         raw_messages: payload.get("messages").cloned(),
+        gateway_fields: anthropic_chat_gateway_fields(payload),
         extra: anthropic_chat_extra(payload),
         metadata: anthropic_requested_model_alias(model),
     };
@@ -267,59 +269,90 @@ fn parse_role(role: &str) -> MessageRole {
 }
 
 fn openai_chat_extra(payload: &Value) -> HashMap<String, Value> {
-    let Some(object) = payload.as_object() else {
-        return HashMap::new();
-    };
+    split_chat_payload_extensions(payload, is_openai_chat_known_field).extra
+}
 
-    object
-        .iter()
-        .filter(|(key, _)| {
-            !matches!(
-                key.as_str(),
-                "model"
-                    | "messages"
-                    | "temperature"
-                    | "top_p"
-                    | "top_k"
-                    | "max_tokens"
-                    | "stop"
-                    | "stream"
-                    | "tools"
-                    | "tool_choice"
-                    | "target_vendor"
-                    | "target_provider"
-                    | "provider"
-            )
-        })
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect()
+fn openai_chat_gateway_fields(payload: &Value) -> HashMap<String, Value> {
+    split_chat_payload_extensions(payload, is_openai_chat_known_field).gateway_fields
 }
 
 fn anthropic_chat_extra(payload: &Value) -> HashMap<String, Value> {
+    split_chat_payload_extensions(payload, is_anthropic_chat_known_field).extra
+}
+
+fn anthropic_chat_gateway_fields(payload: &Value) -> HashMap<String, Value> {
+    split_chat_payload_extensions(payload, is_anthropic_chat_known_field).gateway_fields
+}
+
+struct ChatPayloadExtensions {
+    extra: HashMap<String, Value>,
+    gateway_fields: HashMap<String, Value>,
+}
+
+fn split_chat_payload_extensions(
+    payload: &Value,
+    is_known_field: fn(&str) -> bool,
+) -> ChatPayloadExtensions {
     let Some(object) = payload.as_object() else {
-        return HashMap::new();
+        return ChatPayloadExtensions {
+            extra: HashMap::new(),
+            gateway_fields: HashMap::new(),
+        };
     };
 
-    object
-        .iter()
-        .filter(|(key, _)| {
-            !matches!(
-                key.as_str(),
-                "model"
-                    | "messages"
-                    | "temperature"
-                    | "top_p"
-                    | "top_k"
-                    | "max_tokens"
-                    | "stop_sequences"
-                    | "stream"
-                    | "system"
-                    | "tools"
-                    | "tool_choice"
-            )
-        })
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect()
+    let mut extra = HashMap::new();
+    let mut gateway_fields = HashMap::new();
+    for (key, value) in object {
+        if is_known_field(key) {
+            continue;
+        }
+        if unigateway_core::is_gateway_only_field_key(key) {
+            gateway_fields.insert(key.clone(), value.clone());
+        } else {
+            extra.insert(key.clone(), value.clone());
+        }
+    }
+
+    ChatPayloadExtensions {
+        extra,
+        gateway_fields,
+    }
+}
+
+fn is_openai_chat_known_field(key: &str) -> bool {
+    matches!(
+        key,
+        "model"
+            | "messages"
+            | "temperature"
+            | "top_p"
+            | "top_k"
+            | "max_tokens"
+            | "stop"
+            | "stream"
+            | "tools"
+            | "tool_choice"
+            | "target_vendor"
+            | "target_provider"
+            | "provider"
+    )
+}
+
+fn is_anthropic_chat_known_field(key: &str) -> bool {
+    matches!(
+        key,
+        "model"
+            | "messages"
+            | "temperature"
+            | "top_p"
+            | "top_k"
+            | "max_tokens"
+            | "stop_sequences"
+            | "stream"
+            | "system"
+            | "tools"
+            | "tool_choice"
+    )
 }
 
 fn openai_thinking_signature_status(raw_messages: Option<&Value>) -> ThinkingSignatureStatus {
@@ -485,6 +518,48 @@ mod tests {
         assert!(!req.extra.contains_key("messages"));
         assert!(!req.extra.contains_key("target_provider"));
         assert!(!req.extra.contains_key("provider"));
+    }
+
+    #[test]
+    fn openai_chat_gateway_fields_collects_underscore_prefixed_keys() {
+        let req = openai_payload_to_chat_request(
+            &json!({
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "user", "content": "hello"}],
+                "_session_context": {"epoch": 3},
+                "reasoning_effort": "high"
+            }),
+            "gpt-4o-mini",
+        )
+        .expect("request");
+
+        assert_eq!(
+            req.gateway_fields.get("_session_context"),
+            Some(&json!({"epoch": 3}))
+        );
+        assert!(!req.extra.contains_key("_session_context"));
+        assert_eq!(req.extra.get("reasoning_effort"), Some(&json!("high")));
+    }
+
+    #[test]
+    fn anthropic_chat_gateway_fields_collects_underscore_prefixed_keys() {
+        let req = anthropic_payload_to_chat_request(
+            &json!({
+                "model": "claude-opus-4-6",
+                "messages": [{"role": "user", "content": "hello"}],
+                "_trace": {"id": "abc"},
+                "thinking": {"type": "enabled", "budget_tokens": 1024}
+            }),
+            "claude-opus-4-6",
+        )
+        .expect("request");
+
+        assert_eq!(
+            req.gateway_fields.get("_trace"),
+            Some(&json!({"id": "abc"}))
+        );
+        assert!(!req.extra.contains_key("_trace"));
+        assert!(req.extra.contains_key("thinking"));
     }
 
     #[test]

@@ -206,8 +206,28 @@ pub struct ProxyChatRequest {
     pub tools: Option<Value>,
     pub tool_choice: Option<Value>,
     pub raw_messages: Option<Value>,
+    /// Top-level ingress fields prefixed with `_`; read by embedder middleware, never forwarded upstream.
+    pub gateway_fields: HashMap<String, Value>,
     pub extra: HashMap<String, Value>,
     pub metadata: HashMap<String, String>,
+}
+
+/// Returns true when a top-level request key is gateway-only and must not be forwarded upstream.
+pub fn is_gateway_only_field_key(key: &str) -> bool {
+    key.starts_with('_')
+}
+
+/// Merges forwardable `extra` entries into an upstream JSON payload, skipping gateway-only keys.
+pub fn merge_forwardable_extra(
+    payload: &mut serde_json::Map<String, Value>,
+    extra: &HashMap<String, Value>,
+) {
+    for (key, value) in extra {
+        if is_gateway_only_field_key(key) {
+            continue;
+        }
+        payload.entry(key.clone()).or_insert(value.clone());
+    }
 }
 
 impl ProxyChatRequest {
@@ -303,6 +323,7 @@ mod tests {
             tools: None,
             tool_choice: None,
             raw_messages: None,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::new(),
         }

@@ -8,6 +8,7 @@ use super::embeddings::execute_openai_embeddings_via_core;
 use super::responses::execute_openai_responses_via_core;
 use crate::error::{HostError, HostResult};
 use crate::host::{HostContext, PoolLookupOutcome};
+use crate::middleware::HostMiddleware;
 
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +28,7 @@ pub enum HostRequest {
 }
 
 #[non_exhaustive]
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum HostDispatchTarget<'a> {
     Service(&'a str),
@@ -40,6 +42,7 @@ pub enum HostDispatchOutcome {
     PoolNotFound,
 }
 
+#[allow(clippy::large_enum_variant)]
 enum ResolvedPool<'a> {
     Owned(ProviderPool),
     Borrowed(&'a ProviderPool),
@@ -51,6 +54,17 @@ pub async fn dispatch_request(
     protocol: HostProtocol,
     hint: Option<&str>,
     request: HostRequest,
+) -> HostResult<HostDispatchOutcome> {
+    dispatch_request_with_middleware(host, target, protocol, hint, request, None).await
+}
+
+pub async fn dispatch_request_with_middleware(
+    host: &HostContext<'_>,
+    target: HostDispatchTarget<'_>,
+    protocol: HostProtocol,
+    hint: Option<&str>,
+    request: HostRequest,
+    middleware: Option<&HostMiddleware>,
 ) -> HostResult<HostDispatchOutcome> {
     let resolved_pool = match target {
         HostDispatchTarget::Service(service_id) => match host
@@ -74,10 +88,10 @@ pub async fn dispatch_request(
 
     let response = match (protocol, request) {
         (HostProtocol::OpenAiChat, HostRequest::Chat(request)) => {
-            execute_openai_chat_via_core(host, pool, hint, request).await?
+            execute_openai_chat_via_core(host, pool, hint, request, middleware).await?
         }
         (HostProtocol::AnthropicMessages, HostRequest::Chat(request)) => {
-            execute_anthropic_chat_via_core(host, pool, hint, request).await?
+            execute_anthropic_chat_via_core(host, pool, hint, request, middleware).await?
         }
         (HostProtocol::OpenAiResponses, HostRequest::Responses(request)) => {
             execute_openai_responses_via_core(host, pool, hint, request).await?

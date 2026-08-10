@@ -67,6 +67,7 @@ fn endpoint() -> DriverEndpointContext {
         model_policy: ModelPolicy::default(),
         capabilities: EndpointCapabilities::default(),
         metadata: HashMap::from([("pool_id".to_string(), "beta".to_string())]),
+        forward_metadata_as_headers: None,
     }
 }
 
@@ -90,6 +91,7 @@ fn build_chat_request_moves_system_messages_to_top_level_field() {
             max_tokens: None,
             stop_sequences: Some(json!(["DONE", "HALT"])),
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::new(),
         },
@@ -155,6 +157,7 @@ fn build_chat_request_preserves_structured_image_blocks_without_raw_messages() {
             max_tokens: Some(128),
             stop_sequences: None,
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::new(),
         },
@@ -234,6 +237,7 @@ fn build_chat_request_converts_openai_raw_messages_to_anthropic_messages() {
         max_tokens: Some(256),
         stop_sequences: None,
         stream: false,
+        gateway_fields: HashMap::new(),
         extra: HashMap::new(),
         metadata: HashMap::new(),
     };
@@ -349,6 +353,7 @@ fn build_chat_request_preserves_anthropic_raw_messages() {
             max_tokens: Some(256),
             stop_sequences: None,
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::from([(
                 "unigateway.client_protocol".to_string(),
@@ -402,6 +407,7 @@ fn build_chat_request_rejects_placeholder_signature_in_anthropic_raw_messages() 
             max_tokens: Some(256),
             stop_sequences: None,
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::new(),
             metadata: HashMap::from([(
                 "unigateway.client_protocol".to_string(),
@@ -433,6 +439,7 @@ fn build_chat_request_merges_anthropic_extra_without_overriding_core_fields() {
             max_tokens: Some(1400),
             stop_sequences: None,
             stream: false,
+            gateway_fields: HashMap::new(),
             extra: HashMap::from([
                 (
                     "thinking".to_string(),
@@ -512,6 +519,7 @@ async fn anthropic_driver_executes_non_streaming_chat() {
                 max_tokens: Some(256),
                 stop_sequences: None,
                 stream: false,
+                gateway_fields: HashMap::new(),
                 extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
@@ -571,6 +579,7 @@ async fn anthropic_driver_executes_streaming_chat() {
                 max_tokens: Some(128),
                 stop_sequences: None,
                 stream: true,
+                gateway_fields: HashMap::new(),
                 extra: HashMap::new(),
                 metadata: HashMap::new(),
             },
@@ -628,6 +637,7 @@ fn build_chat_request_drops_top_p_when_both_temperature_and_top_p_present() {
             stop_sequences: None,
             stream: false,
             // Simulate a client that sends both params and extra somehow retains top_p
+            gateway_fields: HashMap::new(),
             extra: HashMap::from([("top_p".to_string(), json!(0.9))]),
             metadata: HashMap::new(),
         },
@@ -677,6 +687,7 @@ async fn anthropic_driver_streaming_chat_completion_survives_dropped_stream() {
                 max_tokens: Some(128),
                 stop_sequences: None,
                 stream: true,
+                gateway_fields: HashMap::new(),
                 extra: HashMap::new(),
                 metadata: HashMap::new(),
             },

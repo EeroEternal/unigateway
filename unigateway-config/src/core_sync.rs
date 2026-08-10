@@ -133,6 +133,7 @@ fn build_pool_from_file(file: &GatewayConfigFile, service_id: &str) -> Result<Pr
                 CONFIG_MANAGED_POOL_MARKER_VALUE.to_string(),
             ),
         ]),
+        forward_metadata_as_headers: None,
     })
 }
 
@@ -219,6 +220,7 @@ fn to_core_endpoint(
         max_concurrency: None,
         capabilities: EndpointCapabilities::default(),
         metadata,
+        forward_metadata_as_headers: None,
     })
 }
 

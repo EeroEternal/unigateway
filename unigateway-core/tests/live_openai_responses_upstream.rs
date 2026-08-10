@@ -112,6 +112,7 @@ fn live_endpoint(settings: &LiveSettings) -> Endpoint {
             ..EndpointCapabilities::default()
         },
         metadata,
+        forward_metadata_as_headers: None,
     }
 }
 
@@ -128,6 +129,7 @@ fn live_pool(endpoint: Endpoint) -> ProviderPool {
             stop_after_stream_started: true,
         },
         metadata: HashMap::new(),
+        forward_metadata_as_headers: None,
     }
 }
 
