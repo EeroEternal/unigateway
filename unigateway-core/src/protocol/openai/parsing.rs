@@ -93,6 +93,28 @@ pub(super) fn parse_cache_hit_tokens(usage: &Value) -> Option<u64> {
     usage.get("cached_tokens").and_then(Value::as_u64)
 }
 
+/// Normalize upstream cache-write token counts from heterogeneous OpenAI-compatible usage shapes.
+///
+/// Priority (first match wins; values are never summed):
+/// 1. `usage.cache_write_tokens`
+/// 2. `usage.cache_creation_input_tokens`
+/// 3. `usage.prompt_tokens_details.cache_creation_input_tokens`
+pub(super) fn parse_cache_write_tokens(usage: &Value) -> Option<u64> {
+    if let Some(value) = usage.get("cache_write_tokens").and_then(Value::as_u64) {
+        return Some(value);
+    }
+    if let Some(value) = usage
+        .get("cache_creation_input_tokens")
+        .and_then(Value::as_u64)
+    {
+        return Some(value);
+    }
+    usage
+        .get("prompt_tokens_details")
+        .and_then(|details| details.get("cache_creation_input_tokens"))
+        .and_then(Value::as_u64)
+}
+
 pub(super) fn parse_openai_usage(raw: &Value) -> Option<TokenUsage> {
     let usage = raw.get("usage")?;
     Some(TokenUsage {
@@ -101,6 +123,7 @@ pub(super) fn parse_openai_usage(raw: &Value) -> Option<TokenUsage> {
         total_tokens: usage.get("total_tokens").and_then(Value::as_u64),
         reasoning_tokens: None,
         cache_hit_tokens: parse_cache_hit_tokens(usage),
+        cache_write_tokens: parse_cache_write_tokens(usage),
     })
 }
 
@@ -152,6 +175,7 @@ pub(super) fn parse_responses_usage(raw: &Value) -> Option<TokenUsage> {
         total_tokens: usage.get("total_tokens").and_then(Value::as_u64),
         reasoning_tokens,
         cache_hit_tokens: parse_cache_hit_tokens(usage),
+        cache_write_tokens: parse_cache_write_tokens(usage),
     })
 }
 
@@ -159,7 +183,9 @@ pub(super) fn parse_responses_usage(raw: &Value) -> Option<TokenUsage> {
 mod tests {
     use serde_json::json;
 
-    use super::{parse_cache_hit_tokens, parse_openai_usage, parse_responses_usage};
+    use super::{
+        parse_cache_hit_tokens, parse_cache_write_tokens, parse_openai_usage, parse_responses_usage,
+    };
 
     #[test]
     fn parses_openai_chat_cached_tokens() {
@@ -276,5 +302,70 @@ mod tests {
 
         let usage = parse_openai_usage(&raw).expect("usage parsed");
         assert_eq!(usage.cache_hit_tokens, None);
+        assert_eq!(usage.cache_write_tokens, None);
+    }
+
+    #[test]
+    fn parses_cache_write_tokens_from_top_level_field() {
+        let raw = json!({
+            "usage": {
+                "prompt_tokens": 100,
+                "cache_write_tokens": 15
+            }
+        });
+
+        let usage = parse_openai_usage(&raw).expect("usage parsed");
+        assert_eq!(usage.cache_write_tokens, Some(15));
+        assert_eq!(usage.cache_hit_tokens, None);
+    }
+
+    #[test]
+    fn parses_cache_creation_input_tokens() {
+        let raw = json!({
+            "usage": {
+                "input_tokens": 100,
+                "cache_creation_input_tokens": 25
+            }
+        });
+
+        let usage = parse_responses_usage(&raw).expect("usage parsed");
+        assert_eq!(usage.cache_write_tokens, Some(25));
+    }
+
+    #[test]
+    fn parses_prompt_tokens_details_cache_creation_input_tokens() {
+        let usage = json!({
+            "prompt_tokens_details": {
+                "cache_creation_input_tokens": 30
+            }
+        });
+
+        assert_eq!(parse_cache_write_tokens(&usage), Some(30));
+    }
+
+    #[test]
+    fn zero_cache_write_tokens_is_some_zero() {
+        let usage = json!({
+            "cache_write_tokens": 0
+        });
+
+        assert_eq!(parse_cache_write_tokens(&usage), Some(0));
+    }
+
+    #[test]
+    fn cache_hit_and_cache_write_are_independent() {
+        let raw = json!({
+            "usage": {
+                "prompt_tokens": 100,
+                "prompt_tokens_details": {
+                    "cached_tokens": 80,
+                    "cache_creation_input_tokens": 10
+                }
+            }
+        });
+
+        let usage = parse_openai_usage(&raw).expect("usage parsed");
+        assert_eq!(usage.cache_hit_tokens, Some(80));
+        assert_eq!(usage.cache_write_tokens, Some(10));
     }
 }

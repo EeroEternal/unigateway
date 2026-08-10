@@ -9,6 +9,7 @@ All notable changes to this project are documented in this file.
 ### Added
 
 * **Unified cache-hit token normalization**: OpenAI-compatible and Responses usage parsers now map `prompt_tokens_details.cached_tokens`, `input_tokens_details.cached_tokens`, `prompt_cache_hit_tokens` (DeepSeek), and top-level `cached_tokens` (Qwen/DashScope) into `TokenUsage.cache_hit_tokens`, with explicit field priority and `Some(0)` for zero hits.
+* **Cache-write token normalization**: `TokenUsage.cache_write_tokens` maps `cache_write_tokens`, `cache_creation_input_tokens`, and `prompt_tokens_details.cache_creation_input_tokens` from upstream usage; Anthropic `cache_creation_input_tokens` is mapped on the Anthropic parser path.
 
 ## [2.10.1]
 

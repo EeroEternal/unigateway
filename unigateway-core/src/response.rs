@@ -128,6 +128,7 @@ pub struct TokenUsage {
     pub total_tokens: Option<u64>,
     pub reasoning_tokens: Option<u64>,
     pub cache_hit_tokens: Option<u64>,
+    pub cache_write_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
