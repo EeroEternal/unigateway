@@ -17,6 +17,9 @@ pub fn normalize_proxy_responses_request(request: &mut ProxyResponsesRequest) {
         request.extra.remove("reasoning");
         request.extra.remove("reasoning_effort");
     }
+
+    // Provider-specific chat completions field; not valid on OpenAI `/v1/responses`.
+    request.extra.remove("thinking_budget");
 }
 
 /// Returns true when the request carries both tool declarations and reasoning configuration.
@@ -91,6 +94,31 @@ mod tests {
 
         assert_eq!(request.reasoning, Some(json!({"effort": "high"})));
         assert!(!request.extra.contains_key("reasoning_effort"));
+    }
+
+    #[test]
+    fn strips_thinking_budget_from_extra() {
+        let mut request = ProxyResponsesRequest {
+            model: "gpt-5.5".to_string(),
+            input: None,
+            instructions: None,
+            temperature: None,
+            top_p: None,
+            max_output_tokens: None,
+            stream: false,
+            tools: None,
+            tool_choice: None,
+            reasoning: Some(json!({"effort": "medium"})),
+            previous_response_id: None,
+            request_metadata: None,
+            extra: HashMap::from([("thinking_budget".to_string(), json!(8192))]),
+            metadata: HashMap::new(),
+        };
+
+        normalize_proxy_responses_request(&mut request);
+
+        assert_eq!(request.reasoning, Some(json!({"effort": "medium"})));
+        assert!(!request.extra.contains_key("thinking_budget"));
     }
 
     #[test]

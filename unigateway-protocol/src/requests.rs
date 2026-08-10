@@ -609,6 +609,38 @@ mod tests {
     }
 
     #[test]
+    fn responses_request_strips_thinking_budget() {
+        let req = openai_payload_to_responses_request(
+            &json!({
+                "model": "gpt-5.5",
+                "input": [{"role": "user", "content": "hello"}],
+                "reasoning": {"effort": "high"},
+                "thinking_budget": 8192
+            }),
+            "gpt-5.5",
+        )
+        .expect("request");
+
+        assert_eq!(req.reasoning, Some(json!({"effort": "high"})));
+        assert!(!req.extra.contains_key("thinking_budget"));
+    }
+
+    #[test]
+    fn chat_request_preserves_thinking_budget_in_extra() {
+        let req = openai_payload_to_chat_request(
+            &json!({
+                "model": "gpt-5.5",
+                "messages": [{"role": "user", "content": "hello"}],
+                "thinking_budget": 8192
+            }),
+            "gpt-5.5",
+        )
+        .expect("request");
+
+        assert_eq!(req.extra.get("thinking_budget"), Some(&json!(8192)));
+    }
+
+    #[test]
     fn responses_extra_filter_strips_gateway_routing_hints_only() {
         let filtered = openai_payload_to_responses_request(
             &json!({

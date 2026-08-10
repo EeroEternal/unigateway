@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.10.1]
+
+### Fixed
+
+* **Responses `thinking_budget` leak**: `normalize_proxy_responses_request` now strips chat-only `thinking_budget` from `extra` so Responses payloads no longer forward it to OpenAI-compatible `/v1/responses` upstreams.
+
 ## [2.10.0]
 
 ### Added

@@ -760,6 +760,39 @@ fn build_responses_request_maps_reasoning_effort_with_tools() {
 }
 
 #[test]
+fn build_responses_request_strips_thinking_budget_from_upstream_payload() {
+    let request = build_responses_request(
+        &mut endpoint(),
+        &ProxyResponsesRequest {
+            model: "gpt-5.5".to_string(),
+            input: Some(json!([{"role": "user", "content": "hello"}])),
+            instructions: None,
+            temperature: None,
+            top_p: None,
+            max_output_tokens: None,
+            stream: false,
+            tools: None,
+            tool_choice: None,
+            reasoning: Some(json!({"effort": "high"})),
+            previous_response_id: None,
+            request_metadata: None,
+            extra: HashMap::from([("thinking_budget".to_string(), json!(8192))]),
+            metadata: HashMap::new(),
+        },
+    )
+    .expect("responses request");
+
+    let body: Value = serde_json::from_slice(&request.body.expect("body")).expect("json body");
+    assert_eq!(
+        body.get("reasoning")
+            .and_then(|value| value.get("effort"))
+            .and_then(Value::as_str),
+        Some("high")
+    );
+    assert!(body.get("thinking_budget").is_none());
+}
+
+#[test]
 fn build_responses_request_forwards_supported_optional_fields() {
     let request = build_responses_request(
         &mut endpoint(),
