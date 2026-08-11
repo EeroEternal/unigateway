@@ -428,24 +428,42 @@ Endpoint {
 
 ### 模式七：Session prefix 参考实现（R5，opt-in）
 
-若 embedder 需要 publish / epoch / delta 组装，可使用可选 crate `unigateway-session`（非默认依赖）：
+若 embedder 需要 namespace 隔离、epoch 单调 publish、raw JSON delta 组装、fingerprint/TTL 等能力，可使用可选 crate `unigateway-session`（非默认依赖）：
 
 ```toml
-unigateway-sdk = { version = "2.10", features = ["host", "session"] }
-unigateway-session = { version = "2.10", features = ["http"] }
+unigateway-sdk = { version = "2.12", features = ["host", "session"] }
+unigateway-session = { version = "2.12", features = ["http"] }
 ```
 
 ```rust
 use std::sync::Arc;
-use unigateway_session::{DeltaAssemblyMiddleware, MemorySessionStore};
+use unigateway_session::{
+    DeltaAssemblyMiddleware, MemorySessionStore, SessionKey, SessionMiddlewareConfig,
+    SessionStoreConfig, SessionLifetime, FingerprintPolicy,
+};
 use unigateway_host::HostMiddleware;
 
-let store = Arc::new(MemorySessionStore::new());
-let middleware = HostMiddleware::new()
-    .with_request(Arc::new(DeltaAssemblyMiddleware::new(store.clone())));
-// 客户端 body: "_session_context": {"session_id":"s1","epoch":1,"delivery":"delta"}
+let store = Arc::new(MemorySessionStore::with_config(SessionStoreConfig {
+    lifetime: SessionLifetime {
+        touch_on_read: true,
+        ..Default::default()
+    },
+    ..Default::default()
+}));
+let middleware = HostMiddleware::new().with_request(Arc::new(
+    DeltaAssemblyMiddleware::with_store(
+        store.clone(),
+        SessionMiddlewareConfig {
+            fingerprint_policy: FingerprintPolicy::Optional,
+            ..Default::default()
+        },
+    ),
+));
+// 客户端 body 需保留 raw messages；gateway_fields 示例:
+// "_session_context": {"session_id":"s1","epoch":1,"delivery":"delta","tail_start":1}
+// namespace 由宿主 SessionKey resolver 注入，不可由客户端 body 信任
 ```
 
-`http` feature 提供 `POST/DELETE /v1/gateway/sessions/{id}/publish|delete` 路由，合并进 embedder 的 Axum app。自有 session 存储的产品可只用 R1+R2+R4，不必启用本 crate。
+`http` feature 提供 `POST/DELETE /v1/gateway/sessions/{id}/publish|delete`（`SessionHttpConfig.namespace` 可配置租户隔离）。自有 session 存储的产品可只用 R1+R2+R4，不必启用本 crate。
 
-详见 [`unigateway-session/README.md`](../../unigateway-session/README.md)。
+详见 [`unigateway-session/README.md`](../../unigateway-session/README.md) 与 [`docs/dev/issues/04-session-generalization-p0.md`](../dev/issues/04-session-generalization-p0.md)。

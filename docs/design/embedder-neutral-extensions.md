@@ -117,6 +117,8 @@ Default chain is empty → no behavior change.
 
 Generic primitives for agent products: publish stored prefix, epoch / hash validation, delta assembly (`full = stored_prefix || tail`). Implemented in **`unigateway-session`** (opt-in crate; `http` feature for publish/delete routes).
 
+P0 generalization spec: [`dev/issues/04-session-generalization-p0.md`](../dev/issues/04-session-generalization-p0.md). P1 (fingerprint, size limits, store trait): [`dev/issues/05-session-generalization-p1.md`](../dev/issues/05-session-generalization-p1.md). P2 (TTL, lifecycle hooks): [`dev/issues/06-session-generalization-p2.md`](../dev/issues/06-session-generalization-p2.md).
+
 Embedders with existing session stores can use R1+R2+R4 only. See [`unigateway-session/README.md`](../../unigateway-session/README.md) and [`embedder_patterns.md`](../guide/embedder_patterns.md) (模式七).
 
 ### R6 — Production passthrough example

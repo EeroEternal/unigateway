@@ -2,11 +2,22 @@
 //!
 //! Enable the `http` feature for optional Axum publish/delete routes.
 
+pub mod lifecycle;
+pub mod lifetime;
 pub mod middleware;
 pub mod store;
 
-pub use middleware::{DeltaAssemblyMiddleware, SessionDelivery, SessionGatewayContext};
-pub use store::{MemorySessionStore, SessionPrefix, SessionStoreError};
+pub use lifecycle::{SessionLifecycleEvent, SessionLifecycleHook, SessionSizeRejectKind};
+pub use lifetime::SessionLifetime;
+pub use middleware::{
+    DeltaAssemblyMiddleware, SessionDelivery, SessionGatewayContext, SessionKeyResolver,
+    SessionMiddlewareConfig, TailPositionPolicy,
+};
+pub use store::{
+    DEFAULT_NAMESPACE, Fingerprint, FingerprintPolicy, MemorySessionStore, PublishResult,
+    SessionError, SessionKey, SessionPrefix, SessionSizeLimits, SessionStore, SessionStoreConfig,
+    SessionStoreError, fingerprints_match, message_json_bytes,
+};
 
 #[cfg(feature = "http")]
 pub mod http;

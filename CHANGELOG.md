@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.12.0] - 2026-08-11
+
+### Changed
+
+* **`unigateway-session` P0 generalization**: namespace-aware `SessionKey`, atomic epoch publish (`PublishResult`, `StaleEpoch`, `EpochConflict`), raw JSON delta assembly (no `Message` round-trip), configurable `TailPositionPolicy`, injectable namespace resolver, stable `SessionError`. Bare `session_id` APIs remain via `DEFAULT_NAMESPACE`.
+* **`unigateway-session` P1 generalization**: opaque `Fingerprint` with `FingerprintPolicy`, `SessionSizeLimits`, `SessionStore` trait, `message_count` on prefix snapshots.
+* **`unigateway-session` P2 generalization**: `SessionLifetime` (idle/max TTL), lazy expiration, `touch_key`, `purge_expired`, `SessionError::Expired`, optional `SessionLifecycleHook`.
+
+### Documentation
+
+* Session specs: [`docs/dev/issues/04-session-generalization-p0.md`](docs/dev/issues/04-session-generalization-p0.md), [`05`](docs/dev/issues/05-session-generalization-p1.md), [`06`](docs/dev/issues/06-session-generalization-p2.md).
+* Updated [`docs/guide/embedder_patterns.md`](docs/guide/embedder_patterns.md) session pattern (模式七).
+
 ## [2.11.0] - 2026-08-10
 
 ### Added
