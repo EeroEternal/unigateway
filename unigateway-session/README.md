@@ -12,8 +12,8 @@ Optional **reference** session prefix store and delta assembly middleware. Defau
 ## Quick start
 
 ```toml
-unigateway-sdk = { version = "2.13", features = ["host", "session"] }
-unigateway-session = { version = "2.13", features = ["http"] }
+unigateway-sdk = { version = "2.14", features = ["host", "session"] }
+unigateway-session = { version = "2.14", features = ["http"] }
 ```
 
 ```rust

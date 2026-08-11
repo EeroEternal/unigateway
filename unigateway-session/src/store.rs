@@ -30,7 +30,7 @@ impl SessionKey {
         Self::new(DEFAULT_NAMESPACE, session_id)
     }
 
-    fn storage_key(&self) -> String {
+    pub fn storage_key(&self) -> String {
         format!("{}\0{}", self.namespace, self.session_id)
     }
 }
@@ -153,11 +153,16 @@ pub struct SessionPrefix {
 }
 
 impl SessionPrefix {
-    fn normalized(mut self) -> Self {
+    /// Fills default `message_count` from `messages.len()` when omitted.
+    pub fn normalize(mut self) -> Self {
         if self.message_count.is_none() {
             self.message_count = Some(self.messages.len() as u64);
         }
         self
+    }
+
+    fn normalized(self) -> Self {
+        self.normalize()
     }
 }
 

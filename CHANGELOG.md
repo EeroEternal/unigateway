@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.14.0] - 2026-08-11
+
+### Added
+
+* **`unigateway-session-redis`**: optional Redis-backed `SessionStore` with epoch CAS (Lua), namespace keys, idle TTL via `EXPIRE`, and max-lifetime checks aligned with `MemorySessionStore`.
+
+### Changed
+
+* **`unigateway-session`**: public `SessionKey::storage_key()`, `SessionPrefix::normalize()`, and `is_session_expired()` for external store implementations.
+
+### Documentation
+
+* Issue spec: [`docs/dev/issues/07-session-redis.md`](docs/dev/issues/07-session-redis.md).
+
 ## [2.13.0] - 2026-08-11
 
 ### Changed
