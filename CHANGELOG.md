@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.13.0] - 2026-08-11
+
+### Changed
+
+* **`unigateway-session` `http` feature**: optional Axum dependency upgraded from 0.7 to 0.8; `session_router` path syntax uses `/{session_id}`. Embedders on Axum 0.8 (e.g. Zene) can merge publish/delete routes directly.
+
 ## [2.12.0] - 2026-08-11
 
 ### Changed

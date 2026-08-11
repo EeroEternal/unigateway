@@ -7,13 +7,13 @@ Optional **reference** session prefix store and delta assembly middleware. Defau
 | Feature | Description |
 | --- | --- |
 | *(default)* | In-memory store + `DeltaAssemblyMiddleware` |
-| `http` | Axum routes for publish/delete |
+| `http` | Axum 0.8 routes for publish/delete |
 
 ## Quick start
 
 ```toml
-unigateway-sdk = { version = "2.12", features = ["host", "session"] }
-unigateway-session = { version = "2.12", features = ["http"] }
+unigateway-sdk = { version = "2.13", features = ["host", "session"] }
+unigateway-session = { version = "2.13", features = ["http"] }
 ```
 
 ```rust
@@ -83,7 +83,7 @@ With `SessionHttpConfig::default()` (`/v1/gateway` prefix, `default` namespace):
 - `POST /v1/gateway/sessions/{id}/publish` — body `{ "epoch", "messages", "pinned_boundary"? , "fingerprint"? , "message_count"? }`
 - `DELETE /v1/gateway/sessions/{id}`
 
-Set `SessionHttpConfig.namespace` for host-level isolation. Merge `session_router(store, config)` into your embedder Axum app.
+Set `SessionHttpConfig.namespace` for host-level isolation. Merge `session_router(store, config)` into your embedder Axum 0.8 app.
 
 ## Publish semantics
 

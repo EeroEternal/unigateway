@@ -1,6 +1,6 @@
 [package]
 name = "unigateway-session"
-version = "2.12.0"
+version = "2.13.0"
 edition = "2024"
 rust-version = "1.92"
 description = "Optional in-memory session prefix store and delta assembly middleware for UniGateway embedders."
@@ -24,6 +24,6 @@ unigateway-host.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [dependencies.axum]
-version = "0.7"
+version = "0.8"
 optional = true
 features = ["json"]
