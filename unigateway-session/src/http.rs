@@ -35,11 +35,11 @@ impl Default for SessionHttpConfig {
 pub fn session_router(store: Arc<MemorySessionStore>, config: SessionHttpConfig) -> Router {
     Router::new()
         .route(
-            &format!("{}/sessions/:session_id/publish", config.path_prefix),
+            &format!("{}/sessions/{{session_id}}/publish", config.path_prefix),
             post(publish_session),
         )
         .route(
-            &format!("{}/sessions/:session_id", config.path_prefix),
+            &format!("{}/sessions/{{session_id}}", config.path_prefix),
             delete(delete_session),
         )
         .with_state((store, config))
