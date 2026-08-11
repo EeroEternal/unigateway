@@ -431,8 +431,8 @@ Endpoint {
 若 embedder 需要 namespace 隔离、epoch 单调 publish、raw JSON delta 组装、fingerprint/TTL 等能力，可使用可选 crate `unigateway-session`（非默认依赖）：
 
 ```toml
-unigateway-sdk = { version = "2.13", features = ["host", "session"] }
-unigateway-session = { version = "2.13", features = ["http"] }
+unigateway-sdk = { version = "2.14", features = ["host", "session"] }
+unigateway-session = { version = "2.14", features = ["http"] }
 ```
 
 ```rust

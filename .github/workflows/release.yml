@@ -75,6 +75,11 @@ jobs:
           cargo publish -p unigateway-session --no-verify || \
           echo "::warning::unigateway-session already published, skipping"
 
+      - name: Publish unigateway-session-redis
+        run: |
+          cargo publish -p unigateway-session-redis --no-verify || \
+          echo "::warning::unigateway-session-redis already published, skipping"
+
       - name: Publish unigateway-sdk
         run: |
           cargo publish -p unigateway-sdk --no-verify || \

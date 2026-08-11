@@ -12,7 +12,8 @@ English issue bodies for embedder-neutral gateway extensions. Copy each file int
 | [`04-session-generalization-p0.md`](04-session-generalization-p0.md) | Session P0: raw assembly, SessionKey, epoch CAS, tail policy | High |
 | [`05-session-generalization-p1.md`](05-session-generalization-p1.md) | Session P1: fingerprint, size limits, SessionStore trait | High |
 | [`06-session-generalization-p2.md`](06-session-generalization-p2.md) | Session P2: TTL, touch, purge, lifecycle hooks | Medium |
+| [`07-session-redis.md`](07-session-redis.md) | Optional `unigateway-session-redis` SessionStore crate | Medium |
 
-Related optional work (not listed here): configurable `metadata` → HTTP header forwarding (R3), external session stores (Redis/Postgres in separate crates).
+Related optional work (not listed here): configurable `metadata` → HTTP header forwarding (R3), other external session stores (Postgres in separate crates).
 
 Suggested landing order: **01 → 03 → 02**.

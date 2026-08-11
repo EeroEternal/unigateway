@@ -27,7 +27,7 @@ impl SessionLifetime {
     }
 }
 
-pub(crate) fn session_expired(
+pub fn is_session_expired(
     created_at: SystemTime,
     last_accessed_at: SystemTime,
     lifetime: &SessionLifetime,
@@ -48,6 +48,15 @@ pub(crate) fn session_expired(
     false
 }
 
+pub(crate) fn session_expired(
+    created_at: SystemTime,
+    last_accessed_at: SystemTime,
+    lifetime: &SessionLifetime,
+    now: SystemTime,
+) -> bool {
+    is_session_expired(created_at, last_accessed_at, lifetime, now)
+}
+
 fn duration_since(from: SystemTime, now: SystemTime) -> Option<Duration> {
     now.duration_since(from).ok()
 }
@@ -56,7 +65,7 @@ fn duration_since(from: SystemTime, now: SystemTime) -> Option<Duration> {
 mod tests {
     use std::time::{Duration, UNIX_EPOCH};
 
-    use super::{SessionLifetime, session_expired};
+    use super::{SessionLifetime, is_session_expired};
 
     fn t(secs: u64) -> std::time::SystemTime {
         UNIX_EPOCH + Duration::from_secs(secs)
@@ -69,8 +78,8 @@ mod tests {
             max_lifetime: None,
             touch_on_read: true,
         };
-        assert!(!session_expired(t(0), t(100), &lifetime, t(150)));
-        assert!(session_expired(t(0), t(100), &lifetime, t(161)));
+        assert!(!is_session_expired(t(0), t(100), &lifetime, t(150)));
+        assert!(is_session_expired(t(0), t(100), &lifetime, t(161)));
     }
 
     #[test]
@@ -80,7 +89,7 @@ mod tests {
             max_lifetime: Some(Duration::from_secs(300)),
             touch_on_read: true,
         };
-        assert!(!session_expired(t(0), t(250), &lifetime, t(250)));
-        assert!(session_expired(t(0), t(250), &lifetime, t(301)));
+        assert!(!is_session_expired(t(0), t(250), &lifetime, t(250)));
+        assert!(is_session_expired(t(0), t(250), &lifetime, t(301)));
     }
 }

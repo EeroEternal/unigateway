@@ -8,7 +8,7 @@ pub mod middleware;
 pub mod store;
 
 pub use lifecycle::{SessionLifecycleEvent, SessionLifecycleHook, SessionSizeRejectKind};
-pub use lifetime::SessionLifetime;
+pub use lifetime::{SessionLifetime, is_session_expired};
 pub use middleware::{
     DeltaAssemblyMiddleware, SessionDelivery, SessionGatewayContext, SessionKeyResolver,
     SessionMiddlewareConfig, TailPositionPolicy,
