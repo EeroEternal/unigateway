@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.14.1] - 2026-08-13
+
+### Fixed
+
+* **Completed OpenAI tool_call arguments**: non-streaming Anthropic rendering now unwraps double-encoded `function.arguments` (and accepts already-parsed objects) using the same normalization as the streaming path, so `tool_use.input` is a JSON object instead of a string.
+
 ## [2.14.0] - 2026-08-11
 
 ### Added

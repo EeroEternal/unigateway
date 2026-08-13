@@ -1,6 +1,6 @@
 [package]
 name = "unigateway-session"
-version = "2.14.0"
+version = "2.14.1"
 edition = "2024"
 rust-version = "1.92"
 description = "Optional in-memory session prefix store and delta assembly middleware for UniGateway embedders."
