@@ -1,5 +1,6 @@
 use serde_json::{Value, json};
 
+use super::tool_calls::openai_tool_call_arguments_to_input;
 use crate::capabilities::AnthropicThinkingOutputPolicy;
 use crate::error::GatewayError;
 use crate::request::{ContentBlock, THINKING_SIGNATURE_PLACEHOLDER_VALUE};
@@ -546,11 +547,7 @@ fn openai_tool_call_to_content_block(tool_call: &Value) -> Result<ContentBlock, 
         .ok_or_else(|| {
             GatewayError::InvalidRequest("openai tool_call.function requires name".to_string())
         })?;
-    let arguments = function
-        .get("arguments")
-        .and_then(Value::as_str)
-        .unwrap_or("{}");
-    let input = serde_json::from_str(arguments).unwrap_or_else(|_| json!({ "_raw": arguments }));
+    let input = openai_tool_call_arguments_to_input(function.get("arguments"));
 
     Ok(ContentBlock::ToolUse {
         id: tool_id.to_string(),
@@ -561,11 +558,7 @@ fn openai_tool_call_to_content_block(tool_call: &Value) -> Result<ContentBlock, 
 
 fn openai_tool_call_to_anthropic_block(tool_call: &Value) -> Option<Value> {
     let function = tool_call.get("function")?;
-    let arguments = function
-        .get("arguments")
-        .and_then(Value::as_str)
-        .unwrap_or("{}");
-    let parsed_input = serde_json::from_str::<Value>(arguments).unwrap_or_else(|_| json!({}));
+    let parsed_input = openai_tool_call_arguments_to_input(function.get("arguments"));
 
     Some(json!({
         "type": "tool_use",

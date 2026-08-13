@@ -654,6 +654,85 @@ fn openai_message_downstream_blocks_include_thinking_and_tool_use() {
 }
 
 #[test]
+fn openai_message_downstream_blocks_normalize_double_encoded_tool_arguments() {
+    let blocks = openai_message_to_anthropic_content_blocks(&json!({
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [{
+            "id": "call_1",
+            "type": "function",
+            "function": {
+                "name": "search",
+                "arguments": "\"{\\\"query\\\":\\\"rust\\\"}\""
+            }
+        }]
+    }));
+
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(
+        blocks[0].get("type").and_then(Value::as_str),
+        Some("tool_use")
+    );
+    assert_eq!(
+        blocks[0]
+            .get("input")
+            .and_then(|input| input.get("query"))
+            .and_then(Value::as_str),
+        Some("rust")
+    );
+}
+
+#[test]
+fn openai_message_downstream_blocks_accept_object_tool_arguments() {
+    let blocks = openai_message_to_anthropic_content_blocks(&json!({
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [{
+            "id": "call_1",
+            "type": "function",
+            "function": {
+                "name": "search",
+                "arguments": {"query": "rust"}
+            }
+        }]
+    }));
+
+    assert_eq!(
+        blocks[0]
+            .get("input")
+            .and_then(|input| input.get("query"))
+            .and_then(Value::as_str),
+        Some("rust")
+    );
+}
+
+#[test]
+fn openai_assistant_tool_calls_normalize_double_encoded_arguments_to_content_blocks() {
+    let blocks = openai_message_to_content_blocks(&json!({
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [{
+            "id": "call_1",
+            "type": "function",
+            "function": {
+                "name": "search",
+                "arguments": "\"{\\\"query\\\":\\\"rust\\\"}\""
+            }
+        }]
+    }))
+    .expect("content blocks");
+
+    assert_eq!(
+        blocks[0],
+        ContentBlock::ToolUse {
+            id: "call_1".to_string(),
+            name: "search".to_string(),
+            input: json!({"query": "rust"}),
+        }
+    );
+}
+
+#[test]
 fn openai_message_downstream_blocks_preserve_image_url_items() {
     let blocks = openai_message_to_anthropic_content_blocks(&json!({
         "role": "assistant",

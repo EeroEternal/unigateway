@@ -167,6 +167,70 @@ fn anthropic_completed_body_converts_openai_tool_calls_to_tool_use() {
 }
 
 #[test]
+fn anthropic_completed_body_normalizes_double_encoded_tool_arguments() {
+    let body = anthropic_completed_chat_body(CompletedResponse {
+        response: ChatResponseFinal {
+            model: Some("gpt-4o-mini".to_string()),
+            output_text: None,
+            raw: serde_json::json!({
+                "id": "chatcmpl_double_encoded",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": null,
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "search",
+                                "arguments": "\"{\\\"query\\\":\\\"rust\\\"}\""
+                            }
+                        }]
+                    },
+                    "finish_reason": "tool_calls"
+                }]
+            }),
+        },
+        report: RequestReport {
+            request_id: "req_tool_double_encoded".to_string(),
+            correlation_id: "req_tool_double_encoded".to_string(),
+            pool_id: Some("svc".to_string()),
+            selected_endpoint_id: "zhipu-main".to_string(),
+            selected_provider: unigateway_core::ProviderKind::OpenAiCompatible,
+            kind: RequestKind::Chat,
+            attempts: Vec::new(),
+            usage: None,
+            latency_ms: 12,
+            started_at: std::time::SystemTime::UNIX_EPOCH,
+            finished_at: std::time::SystemTime::UNIX_EPOCH,
+            error_kind: None,
+            stream: None,
+            metadata: HashMap::from([(
+                ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY.to_string(),
+                "claude-3-5-sonnet-latest".to_string(),
+            )]),
+        },
+    });
+
+    let content = body
+        .get("content")
+        .and_then(Value::as_array)
+        .expect("content array");
+
+    assert_eq!(
+        content[0].get("type").and_then(Value::as_str),
+        Some("tool_use")
+    );
+    assert_eq!(
+        content[0]
+            .get("input")
+            .and_then(|input| input.get("query"))
+            .and_then(Value::as_str),
+        Some("rust")
+    );
+}
+
+#[test]
 fn anthropic_completed_body_converts_openai_reasoning_to_thinking_block() {
     let body = anthropic_completed_chat_body(CompletedResponse {
         response: ChatResponseFinal {

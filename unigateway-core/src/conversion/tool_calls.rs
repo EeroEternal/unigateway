@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PendingOpenAiToolCall {
@@ -167,6 +167,36 @@ pub fn flush_openai_tool_call_stop_update(
         delta: None,
         stop_index: Some(anthropic_index),
     }
+}
+
+pub(crate) fn openai_tool_call_arguments_to_input(arguments: Option<&Value>) -> Value {
+    match arguments {
+        Some(Value::String(raw)) => parse_openai_tool_call_argument_string(raw),
+        Some(value) => unwrap_json_encoded_value(value.clone()),
+        None => json!({}),
+    }
+}
+
+fn parse_openai_tool_call_argument_string(raw: &str) -> Value {
+    if raw.is_empty() {
+        return json!({});
+    }
+
+    let normalized = normalize_openai_tool_call_arguments(raw, raw);
+    let parsed = serde_json::from_str::<Value>(&normalized)
+        .or_else(|_| serde_json::from_str::<Value>(raw))
+        .unwrap_or_else(|_| json!({}));
+    unwrap_json_encoded_value(parsed)
+}
+
+fn unwrap_json_encoded_value(mut value: Value) -> Value {
+    while let Value::String(inner) = &value {
+        match serde_json::from_str::<Value>(inner) {
+            Ok(parsed) => value = parsed,
+            Err(_) => break,
+        }
+    }
+    value
 }
 
 fn merge_openai_tool_call_arguments(existing: &str, incoming: &str) -> String {
