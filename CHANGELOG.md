@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.14.2] - 2026-08-14
+
+### Fixed
+
+* **Responses gateway-only field leak**: `build_responses_request` now skips `_`-prefixed embedder-internal extra fields before forwarding upstream, matching both chat renderers. Previously such fields could leak to providers on the OpenAI Responses path.
+
+### Added
+
+* **Render-determinism golden contract**: byte-level regression tests across the OpenAI Chat, OpenAI Responses, and Anthropic renderers — repeated renders are byte-identical (fresh `HashMap` seeds), append-only multi-turn history keeps the serialized prefix identical up to the first edit, conditional injections (thinking budget, system prompt position, placeholder thinking signatures) are locked, and the endpoint-pinning caveat for fallback is documented as out of scope.
+
 ## [2.14.1] - 2026-08-13
 
 ### Fixed
