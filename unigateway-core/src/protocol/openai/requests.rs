@@ -329,6 +329,11 @@ pub fn build_responses_request(
         payload.insert("metadata".to_string(), request_metadata);
     }
     for (key, value) in request.extra.clone() {
+        // Align with the chat renderers: top-level ingress fields prefixed with
+        // `_` are embedder-internal and must never be forwarded upstream.
+        if crate::request::is_gateway_only_field_key(&key) {
+            continue;
+        }
         payload.entry(key).or_insert(value);
     }
 

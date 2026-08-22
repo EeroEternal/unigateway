@@ -14,7 +14,7 @@ use crate::capabilities::EndpointCapabilities;
 use crate::drivers::{DriverEndpointContext, ProviderDriver};
 use crate::pool::{ModelPolicy, ProviderKind, SecretString};
 use crate::request::{
-    ContentBlock, Message, MessageRole, ProxyChatRequest, ProxyEmbeddingsRequest,
+    ClientProtocol, ContentBlock, Message, MessageRole, ProxyChatRequest, ProxyEmbeddingsRequest,
     ProxyResponsesRequest,
 };
 use crate::response::ProxySession;
@@ -1564,4 +1564,369 @@ fn build_chat_request_skips_thinking_injection_for_non_claude_or_missing_metadat
     let req = build_chat_request(&mut endpoint, &request).unwrap();
     let json: serde_json::Value = serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
     assert!(json.get("thinking").is_none());
+}
+
+// ===========================================================================
+// Render-determinism golden contract
+//
+// These tests lock the byte-level determinism of upstream payload rendering.
+// They intentionally assert on serialized bytes, not parsed values.
+//
+// Today determinism holds "by accident" of two implementation details:
+//   1. merged `extra: HashMap` entries never override core fields
+//      (`payload.entry(key).or_insert(value)`), so HashMap iteration order
+//      cannot change rendered values;
+//   2. serde_json is used WITHOUT the `preserve_order` feature, so every
+//      object serializes with sorted keys.
+// Each render below rebuilds nothing per iteration but uses fresh `HashMap`
+// instances (fresh SipHash seeds), so any leak of iteration order into the
+// output bytes — for example someone enabling `preserve_order` — fails these
+// tests immediately.
+//
+// Endpoint pinning caveat: every render uses a freshly constructed,
+// fixed-value `DriverEndpointContext` (no model mapping, fixed base URL).
+// If retry/fallback switches to a DIFFERENT endpoint, `resolved_model()` may
+// rewrite the model name and the upstream prefix cache is invalidated by
+// design. That scheduling-layer property is explicitly OUT of scope for this
+// contract.
+//
+// Numeric note: typed `temperature: f32` values serialize via f64 widening
+// (0.2f32 => 0.20000000298023224); assertions compare parsed bodies against
+// `json!(request_value)` shapes rather than decimal literals.
+// ===========================================================================
+
+/// Longest common byte prefix of two serialized bodies.
+fn byte_common_prefix(a: &[u8], b: &[u8]) -> usize {
+    a.iter().zip(b.iter()).take_while(|(x, y)| x == y).count()
+}
+
+/// Byte offset of the `],"model":"` boundary that follows the `messages`
+/// array in a serialized chat payload (serde_json compact form, sorted keys).
+fn messages_array_close_offset(body: &[u8]) -> usize {
+    const MARKER: &[u8] = b"],\"model\":\"";
+    body.windows(MARKER.len())
+        .rposition(|window| window == MARKER)
+        .expect("serialized chat payload must contain the messages/model boundary")
+}
+
+/// Fixed endpoint context: no model mapping, no header forwarding.
+fn pinned_endpoint() -> DriverEndpointContext {
+    DriverEndpointContext {
+        endpoint_id: "ep-golden".to_string(),
+        provider_kind: ProviderKind::OpenAiCompatible,
+        base_url: "https://upstream.example.com/v1".to_string(),
+        api_key: SecretString::new("sk-golden"),
+        model_policy: ModelPolicy::default(),
+        capabilities: EndpointCapabilities::default(),
+        metadata: HashMap::new(),
+        forward_metadata_as_headers: None,
+    }
+}
+
+/// A wide `extra` map designed to expose iteration-order dependence:
+/// many keys, plus keys colliding with core fields, plus a gateway-only key.
+fn wide_extra() -> HashMap<String, Value> {
+    let mut extra = HashMap::new();
+    for i in 0..32 {
+        extra.insert(format!("x_field_{i:02}"), json!(format!("value-{i}")));
+    }
+    // Must never override core fields (or_insert semantics).
+    extra.insert("model".to_string(), json!("smuggled-model"));
+    extra.insert("stream".to_string(), json!(true));
+    extra.insert("temperature".to_string(), json!(9.9));
+    // Gateway-only fields are dropped before forwarding.
+    extra.insert("_internal_flag".to_string(), json!("secret"));
+    extra
+}
+
+fn golden_tool_calling_turn(messages: Value) -> ProxyChatRequest {
+    let mut request = ProxyChatRequest {
+        model: "claude-3-7-sonnet".to_string(),
+        messages: Vec::new(),
+        raw_messages: Some(messages),
+        temperature: Some(0.2),
+        top_p: None,
+        top_k: None,
+        max_tokens: Some(2048),
+        stop_sequences: None,
+        stream: false,
+        system: None,
+        tools: Some(json!([
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "Look up current weather",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"city": {"type": "string"}}
+                    }
+                }
+            }
+        ])),
+        tool_choice: Some(json!("auto")),
+        gateway_fields: HashMap::new(),
+        extra: wide_extra(),
+        metadata: HashMap::from([(
+            "unigateway.reasoning_text_encoding".to_string(),
+            "xml_think_tag".to_string(),
+        )]),
+    };
+    request.set_client_protocol(ClientProtocol::OpenAiChat);
+    request.mark_openai_raw_messages();
+    request
+}
+
+fn golden_turn_n_messages() -> Value {
+    json!([
+        {"role": "user", "content": "What's the weather in Stockholm?"},
+        {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [{
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "arguments": "{\"city\": \"Stockholm\"}"
+                }
+            }]
+        },
+        {"role": "tool", "tool_call_id": "call_1", "content": "12°C, clear"}
+    ])
+}
+
+const GOLDEN_TURN_N_MESSAGE_COUNT: usize = 3;
+
+fn render_chat_body(request: &ProxyChatRequest) -> Vec<u8> {
+    build_chat_request(&mut pinned_endpoint(), request)
+        .expect("chat request must render")
+        .body
+        .expect("chat request must have a body")
+}
+
+#[test]
+fn chat_request_render_bytes_are_stable_across_repeated_renders() {
+    let request = golden_tool_calling_turn(golden_turn_n_messages());
+
+    let first = render_chat_body(&request);
+    for _ in 0..31 {
+        assert_eq!(render_chat_body(&request), first);
+    }
+
+    // Lock the conditional-injection decisions that made it into the bytes:
+    // claude + xml_think_tag + no explicit thinking => thinking budget injected
+    // once, at a stable position, as a pure function of max_tokens.
+    let body: Value = serde_json::from_slice(&first).expect("json body");
+    assert_eq!(
+        body.pointer("/thinking"),
+        Some(&json!({"type": "enabled", "budget_tokens": 1024})),
+        "thinking budget must be injected as (max_tokens / 2).max(1024)"
+    );
+    assert_eq!(body.get("max_tokens"), Some(&json!(2048)));
+
+    // Extra-merge semantics that keep rendering deterministic:
+    assert_eq!(
+        body.get("model"),
+        Some(&Value::String("claude-3-7-sonnet".to_string())),
+        "extra must not override the resolved model"
+    );
+    assert_eq!(
+        body.get("stream"),
+        Some(&Value::Bool(false)),
+        "extra must not override core fields"
+    );
+    assert_eq!(
+        body.get("temperature"),
+        Some(&json!(request_temperature_f32())),
+        "extra must not override typed fields"
+    );
+    assert!(
+        body.get("_internal_flag").is_none(),
+        "gateway-only fields must be dropped"
+    );
+    assert!(
+        body.get("x_field_00").is_some(),
+        "forwardable extra fields must survive"
+    );
+
+    // max_tokens vs max_completion_tokens precedence must be deterministic:
+    // when both are present, max_completion_tokens wins and the payload-level
+    // max_tokens insert is suppressed; the thinking injection still reads the
+    // typed field and therefore stays unchanged.
+    let mut conflicting = golden_tool_calling_turn(golden_turn_n_messages());
+    conflicting
+        .extra
+        .insert("max_completion_tokens".to_string(), json!(512));
+    let rendered = render_chat_body(&conflicting);
+    let body: Value = serde_json::from_slice(&rendered).expect("json body");
+    assert_eq!(body.get("max_completion_tokens"), Some(&json!(512)));
+    assert!(body.get("max_tokens").is_none());
+    assert_eq!(
+        body.pointer("/thinking/budget_tokens"),
+        Some(&json!(1024)),
+        "injection must stay a pure function of the typed max_tokens"
+    );
+    for _ in 0..15 {
+        assert_eq!(render_chat_body(&conflicting), rendered);
+    }
+}
+
+fn request_temperature_f32() -> f64 {
+    // Mirrors how serde_json widens f32 to f64 inside Value::Number.
+    f64::from(0.2_f32)
+}
+
+#[test]
+fn responses_request_render_bytes_are_stable_across_repeated_renders() {
+    let request = ProxyResponsesRequest {
+        model: "gpt-5.5".to_string(),
+        input: Some(json!([
+            {"role": "user", "content": "What's the weather in Stockholm?"},
+            {"role": "assistant", "content": "It is 12°C and clear."}
+        ])),
+        instructions: Some("be terse".to_string()),
+        temperature: Some(0.2),
+        top_p: None,
+        max_output_tokens: Some(512),
+        stream: false,
+        tools: Some(json!([{
+            "type": "function",
+            "name": "get_weather",
+            "parameters": {"type": "object", "properties": {}}
+        }])),
+        tool_choice: Some(json!("auto")),
+        reasoning: Some(json!({"effort": "low"})),
+        previous_response_id: Some("resp_prev_1".to_string()),
+        request_metadata: Some(json!({"request_id": "req-42"})),
+        extra: wide_extra(),
+        metadata: HashMap::new(),
+    };
+
+    let render = || {
+        build_responses_request(&mut pinned_endpoint(), &request)
+            .expect("responses request must render")
+            .body
+            .expect("responses request must have a body")
+    };
+
+    let first = render();
+    for _ in 0..31 {
+        assert_eq!(render(), first);
+    }
+
+    let body: Value = serde_json::from_slice(&first).expect("json body");
+    assert_eq!(
+        body.get("model"),
+        Some(&Value::String("gpt-5.5".to_string())),
+        "extra must not override the resolved model"
+    );
+    assert_eq!(
+        body.get("previous_response_id"),
+        Some(&json!("resp_prev_1"))
+    );
+    assert!(body.get("_internal_flag").is_none());
+    assert_eq!(body.pointer("/reasoning"), Some(&json!({"effort": "low"})));
+}
+
+#[test]
+fn system_prompt_is_injected_at_index_zero_for_anthropic_format_raw_messages() {
+    let mut request = ProxyChatRequest {
+        model: "claude-3-7-sonnet".to_string(),
+        messages: Vec::new(),
+        raw_messages: Some(json!([
+            {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+        ])),
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        max_tokens: None,
+        stop_sequences: None,
+        stream: false,
+        system: Some(json!("You are helpful.")),
+        tools: None,
+        tool_choice: None,
+        gateway_fields: HashMap::new(),
+        extra: HashMap::new(),
+        metadata: HashMap::new(),
+    };
+    // Anthropic-format raw messages: protocol marker set, no OpenAI raw flag.
+    request.set_client_protocol(ClientProtocol::AnthropicMessages);
+
+    let first = render_chat_body(&request);
+    for _ in 0..15 {
+        assert_eq!(render_chat_body(&request), first);
+    }
+
+    let body: Value = serde_json::from_slice(&first).expect("json body");
+    assert_eq!(
+        body.pointer("/messages/0"),
+        Some(&json!({"role": "system", "content": "You are helpful."})),
+        "system prompt must be injected at index 0, before all history"
+    );
+    assert_eq!(
+        body.pointer("/messages/1/content/0/text"),
+        Some(&json!("hi"))
+    );
+}
+
+#[test]
+fn chat_tool_calling_turns_keep_byte_identical_prefix_up_to_first_edit() {
+    let render_turn = |messages: Value| render_chat_body(&golden_tool_calling_turn(messages));
+
+    let turn_n = render_turn(golden_turn_n_messages());
+
+    // Turn N+1 evolves append-only: two more messages at the end.
+    let mut turn_n_plus_1_messages = golden_turn_n_messages();
+    turn_n_plus_1_messages
+        .as_array_mut()
+        .expect("messages array")
+        .extend([
+            json!({"role": "assistant", "content": "It is 12°C and clear."}),
+            json!({"role": "user", "content": "Thanks! And tomorrow?"}),
+        ]);
+    let turn_n_plus_1 = render_turn(turn_n_plus_1_messages);
+
+    // The serialized bytes are identical up to the close of the last shared
+    // message; everything after the messages array is identical too. Only the
+    // appended region differs.
+    let boundary = messages_array_close_offset(&turn_n);
+    assert_eq!(
+        byte_common_prefix(&turn_n, &turn_n_plus_1),
+        boundary,
+        "append-only evolution must keep every byte before the first new \
+         message identical, including all non-message fields"
+    );
+    let tail_n = &turn_n[boundary..];
+    let tail_n1 = &turn_n_plus_1[messages_array_close_offset(&turn_n_plus_1)..];
+    assert_eq!(
+        tail_n, tail_n1,
+        "non-message fields must render identically"
+    );
+
+    // Structural restatement of the same contract, robust to future layout
+    // changes: removing the appended elements from turn N+1's parsed payload
+    // and re-serializing must reproduce turn N's bytes exactly.
+    let mut truncated: Value = serde_json::from_slice(&turn_n_plus_1).expect("json body");
+    truncated["messages"]
+        .as_array_mut()
+        .expect("messages array")
+        .truncate(GOLDEN_TURN_N_MESSAGE_COUNT);
+    assert_eq!(
+        serde_json::to_vec(&truncated).expect("re-serialize"),
+        turn_n,
+        "turn N+1 must differ from turn N only by appended messages"
+    );
+
+    // Control: editing an early message invalidates the prefix at the edit
+    // position — strictly earlier than the append-only boundary above.
+    let mut edited_messages = golden_turn_n_messages();
+    edited_messages[0]["content"] = json!("What's the weather in Paris?");
+    let turn_n_edited = render_turn(edited_messages);
+    let edited_prefix = byte_common_prefix(&turn_n, &turn_n_edited);
+    assert!(
+        edited_prefix < boundary,
+        "an edit inside the history must invalidate the common prefix at or \
+         before the edited position (got {edited_prefix} >= {boundary})"
+    );
 }
