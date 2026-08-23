@@ -1,5 +1,35 @@
 use std::collections::HashMap;
 
+use crate::endpoint_context::DriverEndpointContext;
+
+/// Builds the shared part of an outbound upstream header map for a renderer:
+/// endpoint `http_header.*` metadata entries plus allowlisted request-metadata
+/// forwarding, layered over protocol-specific static headers.
+pub(crate) fn base_outbound_headers(
+    endpoint: &DriverEndpointContext,
+    request_metadata: &HashMap<String, String>,
+    static_headers: HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut headers = static_headers;
+
+    for (key, value) in &endpoint.metadata {
+        let Some(header_name) = key.strip_prefix("http_header.") else {
+            continue;
+        };
+        if !value.is_empty() {
+            headers.insert(header_name.to_string(), value.clone());
+        }
+    }
+
+    forward_metadata_as_http_headers(
+        &mut headers,
+        request_metadata,
+        endpoint.forward_metadata_as_headers.as_deref(),
+    );
+
+    headers
+}
+
 /// Returns whether a metadata key is blocked from implicit header forwarding.
 pub fn is_internal_metadata_key(key: &str) -> bool {
     key.starts_with("unigateway.") || key.starts_with("http_header.")

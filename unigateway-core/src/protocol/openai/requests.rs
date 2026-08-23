@@ -20,7 +20,7 @@ pub fn build_chat_request(
     let mut payload = serde_json::Map::from_iter([
         (
             "model".to_string(),
-            Value::String(resolved_model(endpoint, &request.model)),
+            Value::String(endpoint.resolve_model(&request.model)),
         ),
         (
             "messages".to_string(),
@@ -57,9 +57,9 @@ pub fn build_chat_request(
     let is_claude = request.model.to_lowercase().contains("claude");
     let is_xml_think = request
         .metadata
-        .get("unigateway.reasoning_text_encoding")
+        .get(crate::request::REASONING_TEXT_ENCODING_KEY)
         .map(|s| s.as_str())
-        == Some("xml_think_tag");
+        == Some(crate::request::REASONING_TEXT_ENCODING_XML_THINK_TAG);
 
     let has_explicit_thinking = request.extra.contains_key("thinking")
         || request.extra.contains_key("enable_thinking")
@@ -82,19 +82,21 @@ pub fn build_chat_request(
         }
     }
 
-    for (key, value) in request.extra.clone() {
-        if key == "max_tokens" && request.extra.contains_key("max_completion_tokens") {
-            continue;
-        }
-        if crate::request::is_gateway_only_field_key(&key) {
-            continue;
-        }
-        payload.entry(key).or_insert(value);
-    }
+    // When both token-limit fields are present, the payload-level
+    // max_tokens entry is suppressed and only extra's max_completion_tokens
+    // survives; merge_forwardable_extra handles the gateway-only filtering.
+    let suppress_max_tokens = request.extra.contains_key("max_completion_tokens");
+    let forwardable = request
+        .extra
+        .iter()
+        .filter(|(key, _)| !(suppress_max_tokens && key.as_str() == "max_tokens"))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    crate::request::merge_forwardable_extra(&mut payload, &forwardable);
 
     TransportRequest::post_json(
         Some(endpoint.endpoint_id.clone()),
-        join_url(&endpoint.base_url, "chat/completions"),
+        endpoint.api_url("chat/completions"),
         openai_headers(endpoint, &request.metadata),
         &Value::Object(payload),
         None,
@@ -286,7 +288,7 @@ pub fn build_responses_request(
     let mut payload = serde_json::Map::from_iter([
         (
             "model".to_string(),
-            Value::String(resolved_model(endpoint, &request.model)),
+            Value::String(endpoint.resolve_model(&request.model)),
         ),
         ("stream".to_string(), Value::Bool(request.stream)),
     ]);
@@ -328,18 +330,13 @@ pub fn build_responses_request(
     if let Some(request_metadata) = request.request_metadata.clone() {
         payload.insert("metadata".to_string(), request_metadata);
     }
-    for (key, value) in request.extra.clone() {
-        // Align with the chat renderers: top-level ingress fields prefixed with
-        // `_` are embedder-internal and must never be forwarded upstream.
-        if crate::request::is_gateway_only_field_key(&key) {
-            continue;
-        }
-        payload.entry(key).or_insert(value);
-    }
+    // Aligned with the chat renderers: top-level ingress fields prefixed with
+    // `_` are embedder-internal and must never be forwarded upstream.
+    crate::request::merge_forwardable_extra(&mut payload, &request.extra);
 
     TransportRequest::post_json(
         Some(endpoint.endpoint_id.clone()),
-        join_url(&endpoint.base_url, "responses"),
+        endpoint.api_url("responses"),
         openai_headers(endpoint, &request.metadata),
         &Value::Object(payload),
         None,
@@ -353,7 +350,7 @@ pub fn build_embeddings_request(
     let mut payload = serde_json::Map::from_iter([
         (
             "model".to_string(),
-            Value::String(resolved_model(endpoint, &request.model)),
+            Value::String(endpoint.resolve_model(&request.model)),
         ),
         ("input".to_string(), json!(request.input)),
     ]);
@@ -367,7 +364,7 @@ pub fn build_embeddings_request(
 
     TransportRequest::post_json(
         Some(endpoint.endpoint_id.clone()),
-        join_url(&endpoint.base_url, "embeddings"),
+        endpoint.api_url("embeddings"),
         openai_headers(endpoint, &request.metadata),
         &Value::Object(payload),
         None,
@@ -378,39 +375,15 @@ fn openai_headers(
     endpoint: &DriverEndpointContext,
     request_metadata: &HashMap<String, String>,
 ) -> HashMap<String, String> {
-    let mut headers = HashMap::from([("content-type".to_string(), "application/json".to_string())]);
+    let mut static_headers =
+        HashMap::from([("content-type".to_string(), "application/json".to_string())]);
 
     let api_key = endpoint.api_key.expose_secret();
     if !api_key.is_empty() {
-        headers.insert("authorization".to_string(), format!("Bearer {api_key}"));
+        static_headers.insert("authorization".to_string(), format!("Bearer {api_key}"));
     }
 
-    for (key, value) in &endpoint.metadata {
-        let Some(header_name) = key.strip_prefix("http_header.") else {
-            continue;
-        };
-        if !value.is_empty() {
-            headers.insert(header_name.to_string(), value.clone());
-        }
-    }
-
-    crate::metadata_headers::forward_metadata_as_http_headers(
-        &mut headers,
-        request_metadata,
-        endpoint.forward_metadata_as_headers.as_deref(),
-    );
-
-    headers
-}
-
-fn resolved_model(endpoint: &DriverEndpointContext, requested_model: &str) -> String {
-    endpoint
-        .model_policy
-        .model_mapping
-        .get(requested_model)
-        .cloned()
-        .or_else(|| endpoint.model_policy.default_model.clone())
-        .unwrap_or_else(|| requested_model.to_string())
+    crate::metadata_headers::base_outbound_headers(endpoint, request_metadata, static_headers)
 }
 
 fn apply_openai_chat_output_token_limit(
@@ -433,10 +406,6 @@ fn openai_role(role: MessageRole) -> &'static str {
         MessageRole::Assistant => "assistant",
         MessageRole::Tool => "tool",
     }
-}
-
-fn join_url(base_url: &str, path: &str) -> String {
-    format!("{}/{}", base_url.trim_end_matches('/'), path)
 }
 
 fn apply_openai_upstream_tool_choice(

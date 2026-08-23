@@ -49,7 +49,7 @@ pub fn build_chat_request(
     let mut payload = serde_json::Map::from_iter([
         (
             "model".to_string(),
-            Value::String(resolved_model(endpoint, &request.model)),
+            Value::String(endpoint.resolve_model(&request.model)),
         ),
         ("messages".to_string(), messages),
         (
@@ -87,12 +87,7 @@ pub fn build_chat_request(
     if let Some(tool_choice) = anthropic_tool_choice(endpoint, request, payload.get("tools"))? {
         payload.insert("tool_choice".to_string(), tool_choice);
     }
-    for (key, value) in request.extra.clone() {
-        if crate::request::is_gateway_only_field_key(&key) {
-            continue;
-        }
-        payload.entry(key).or_insert(value);
-    }
+    crate::request::merge_forwardable_extra(&mut payload, &request.extra);
 
     // Defensive: extra fields (e.g. top_p) must not re-introduce a conflict
     // with temperature after the match block above. Anthropic API rejects
@@ -103,7 +98,7 @@ pub fn build_chat_request(
 
     TransportRequest::post_json(
         Some(endpoint.endpoint_id.clone()),
-        join_url(&endpoint.base_url, "messages"),
+        endpoint.api_url("messages"),
         anthropic_headers(endpoint, &request.metadata),
         &Value::Object(payload),
         None,
@@ -181,7 +176,7 @@ fn anthropic_headers(
     endpoint: &DriverEndpointContext,
     request_metadata: &HashMap<String, String>,
 ) -> HashMap<String, String> {
-    let mut headers = HashMap::from([
+    let static_headers = HashMap::from([
         (
             "x-api-key".to_string(),
             endpoint.api_key.expose_secret().to_string(),
@@ -190,25 +185,5 @@ fn anthropic_headers(
         ("content-type".to_string(), "application/json".to_string()),
     ]);
 
-    crate::metadata_headers::forward_metadata_as_http_headers(
-        &mut headers,
-        request_metadata,
-        endpoint.forward_metadata_as_headers.as_deref(),
-    );
-
-    headers
-}
-
-fn resolved_model(endpoint: &DriverEndpointContext, requested_model: &str) -> String {
-    endpoint
-        .model_policy
-        .model_mapping
-        .get(requested_model)
-        .cloned()
-        .or_else(|| endpoint.model_policy.default_model.clone())
-        .unwrap_or_else(|| requested_model.to_string())
-}
-
-fn join_url(base_url: &str, path: &str) -> String {
-    format!("{}/{}", base_url.trim_end_matches('/'), path)
+    crate::metadata_headers::base_outbound_headers(endpoint, request_metadata, static_headers)
 }
