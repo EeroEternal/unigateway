@@ -1,6 +1,6 @@
 # Internal Refactor Plan: Render Helpers, Execution Loop, Single-Source Field Lists
 
-Status: approved (2026-08), in progress. Scope decision record for the 2.15.x
+Status: approved and implemented (2026-08); shipped in the 2.15.0 series. Scope decision record for the 2.15.x
 internal-quality series.
 
 ## Goals
@@ -17,7 +17,7 @@ to 2.15.x without code changes:
 
 ## Work Items
 
-### PR-1 — Shared render helpers + metadata key constants
+### PR-1 ✅ — Shared render helpers + metadata key constants
 
 Duplicated mechanical helpers across renderers move to one place:
 
@@ -31,7 +31,7 @@ Duplicated mechanical helpers across renderers move to one place:
 * All `"unigateway.*"` metadata key string literals (~25 distinct keys) become
   named constants in one module; raw literals disappear from source.
 
-### PR-2 — Generic engine execution loop
+### PR-2 ✅ — Generic engine execution loop
 
 `engine/execution/{chat,responses,embeddings}.rs` are ~85% identical copies of
 the AIMD acquire → driver context → attempt events → fallback loop (~830 lines
@@ -40,7 +40,7 @@ entry points (`proxy_chat`, `proxy_responses`, `proxy_embeddings`) keep their
 exact signatures. Expected net reduction ~500 lines. Guarded by the existing
 engine test suite.
 
-### PR-3 — Known-field single source of truth
+### PR-3 ✅ — Known-field single source of truth
 
 The hand-written field lists in `unigateway-protocol/src/requests.rs`
 (`is_openai_chat_known_field`, `is_anthropic_chat_known_field`) decide which
@@ -50,7 +50,7 @@ between the two caused the Responses `_`-field leak fixed in 2.14.2. Each
 protocol gets one `const KNOWN_FIELDS` referenced by both sides, plus a parse →
 re-render round-trip invariant test.
 
-### PR-4 — Split `unigateway-config/src/admin.rs`
+### PR-4 ✅ — Split `unigateway-config/src/admin.rs`
 
 1104 lines mixing mutation dispatch, view building, and API-key management
 split into `admin/{mutations,views,api_keys}.rs`. The module is already
