@@ -234,6 +234,7 @@ async fn openai_renderer_completed_response_reasoning_text() {
     };
 
     let response = render_openai_chat_session(ProxySession::Completed(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("model".to_string()),
             output_text: Some("<think>hidden</think>visible".to_string()),
@@ -297,6 +298,7 @@ async fn openai_renderer_streaming_response_reasoning_text() {
 
     let (_, completion_rx) = oneshot::channel();
     let response = render_openai_chat_session(ProxySession::Streaming(StreamingResponse {
+        response_headers: std::collections::HashMap::new(),
         stream: Box::pin(futures_util::stream::iter(vec![
             Ok(ChatResponseChunk {
                 delta: None,
@@ -369,6 +371,7 @@ async fn anthropic_renderer_completed_response_reasoning_text() {
     };
 
     let response = render_anthropic_chat_session(ProxySession::Completed(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("model".to_string()),
             output_text: Some("<think>hidden</think>visible".to_string()),
@@ -449,6 +452,7 @@ async fn anthropic_renderer_completed_response_structured_reasoning() {
     };
 
     let response = render_anthropic_chat_session(ProxySession::Completed(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("model".to_string()),
             output_text: Some("visible".to_string()),
@@ -532,6 +536,7 @@ async fn anthropic_renderer_streaming_response_reasoning_text() {
 
     let (completion_tx, completion_rx) = oneshot::channel();
     let _ = completion_tx.send(Ok(unigateway_core::CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("model".to_string()),
             output_text: None,
@@ -559,6 +564,7 @@ async fn anthropic_renderer_streaming_response_reasoning_text() {
     }));
 
     let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        response_headers: std::collections::HashMap::new(),
         stream: Box::pin(futures_util::stream::iter(vec![
             Ok(ChatResponseChunk {
                 delta: None,
@@ -641,6 +647,7 @@ async fn anthropic_renderer_streaming_response_structured_reasoning() {
 
     let (completion_tx, completion_rx) = oneshot::channel();
     let _ = completion_tx.send(Ok(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("model".to_string()),
             output_text: Some("visible".to_string()),
@@ -665,6 +672,7 @@ async fn anthropic_renderer_streaming_response_structured_reasoning() {
     }));
 
     let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        response_headers: std::collections::HashMap::new(),
         stream: Box::pin(futures_util::stream::iter(vec![
             Ok(ChatResponseChunk {
                 delta: None,
@@ -729,6 +737,7 @@ async fn openai_renderer_streaming_anthropic_thinking_blocks() {
     let (_completion_tx, completion_rx) = tokio::sync::oneshot::channel();
 
     let response = render_openai_chat_session(ProxySession::Streaming(StreamingResponse {
+        response_headers: std::collections::HashMap::new(),
         stream: Box::pin(futures_util::stream::iter(vec![
             Ok(ChatResponseChunk {
                 delta: None,
@@ -831,6 +840,7 @@ fn openai_responses_renderer_preserves_function_call_body_and_reasoning_usage() 
     });
 
     let http = render_openai_responses_session(ProxySession::Completed(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ResponsesFinal {
             output_text: None,
             raw,

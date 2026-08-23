@@ -67,6 +67,7 @@ impl ProviderDriver for OpenAiCompatibleDriver {
 
             Ok(ProxySession::Completed(CompletedResponse {
                 response: response_body,
+                response_headers: response.headers.clone(),
                 report: super::super::build_request_report(
                     &endpoint,
                     started_at,
@@ -109,6 +110,7 @@ impl ProviderDriver for OpenAiCompatibleDriver {
 
             Ok(ProxySession::Completed(CompletedResponse {
                 response: response_body,
+                response_headers: response.headers.clone(),
                 report: super::super::build_request_report(
                     &endpoint,
                     started_at,
@@ -145,6 +147,7 @@ impl ProviderDriver for OpenAiCompatibleDriver {
 
             Ok(CompletedResponse {
                 response: response_body,
+                response_headers: response.headers.clone(),
                 report: super::super::build_request_report(
                     &endpoint,
                     started_at,

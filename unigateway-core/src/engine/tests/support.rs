@@ -139,6 +139,7 @@ impl ProviderDriver for TestDriver {
     > {
         Box::pin(async move {
             Ok(ProxySession::Completed(CompletedResponse {
+                response_headers: std::collections::HashMap::new(),
                 response: ChatResponseFinal {
                     model: Some(request.model),
                     output_text: Some(endpoint.endpoint_id.clone()),
@@ -174,6 +175,7 @@ impl ProviderDriver for TestDriver {
     > {
         Box::pin(async move {
             Ok(ProxySession::Completed(CompletedResponse {
+                response_headers: std::collections::HashMap::new(),
                 response: ResponsesFinal {
                     output_text: Some(endpoint.endpoint_id.clone()),
                     raw: json!({"endpoint_id": endpoint.endpoint_id}),
@@ -206,6 +208,7 @@ impl ProviderDriver for TestDriver {
     {
         Box::pin(async move {
             Ok(CompletedResponse {
+                response_headers: std::collections::HashMap::new(),
                 response: EmbeddingsResponse {
                     raw: json!({"endpoint_id": endpoint.endpoint_id}),
                 },
@@ -401,6 +404,7 @@ impl ProviderDriver for StreamingDriver {
                     .expect("second chunk send");
 
                 let _ = completion_tx.send(Ok(CompletedResponse {
+                    response_headers: std::collections::HashMap::new(),
                     response: ChatResponseFinal {
                         model: Some("gpt-4o-mini".to_string()),
                         output_text: Some("hello".to_string()),
@@ -426,6 +430,7 @@ impl ProviderDriver for StreamingDriver {
             });
 
             Ok(ProxySession::Streaming(StreamingResponse {
+                response_headers: std::collections::HashMap::new(),
                 stream: Box::pin(UnboundedReceiverStream::new(chunk_rx)),
                 completion: completion_rx,
                 request_id: "driver-stream".to_string(),
@@ -499,6 +504,7 @@ impl ProviderDriver for BehaviorDriver {
         Box::pin(async move {
             match behavior {
                 TestBehavior::Success => Ok(ProxySession::Completed(CompletedResponse {
+                    response_headers: std::collections::HashMap::new(),
                     response: ChatResponseFinal {
                         model: Some(request.model),
                         output_text: Some(endpoint.endpoint_id.clone()),
@@ -551,6 +557,7 @@ impl ProviderDriver for BehaviorDriver {
         Box::pin(async move {
             match behavior {
                 TestBehavior::Success => Ok(ProxySession::Completed(CompletedResponse {
+                    response_headers: std::collections::HashMap::new(),
                     response: ResponsesFinal {
                         output_text: Some(endpoint.endpoint_id.clone()),
                         raw: json!({"endpoint_id": endpoint.endpoint_id}),
@@ -594,6 +601,7 @@ impl ProviderDriver for BehaviorDriver {
     {
         Box::pin(async move {
             Ok(CompletedResponse {
+                response_headers: std::collections::HashMap::new(),
                 response: EmbeddingsResponse {
                     raw: json!({"endpoint_id": endpoint.endpoint_id}),
                 },
