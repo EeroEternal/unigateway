@@ -34,6 +34,7 @@ pub fn render_openai_chat_session(
             let StreamingResponse {
                 stream,
                 completion,
+                response_headers,
                 request_id,
                 request_metadata,
             } = streaming;
@@ -79,6 +80,7 @@ pub fn render_openai_chat_session(
                     Result<ChatResponseChunk, unigateway_core::GatewayError>,
                 >()),
                 completion,
+                response_headers: response_headers.clone(),
                 request_id: request_id.clone(),
                 request_metadata,
             };
@@ -143,6 +145,7 @@ pub fn render_openai_responses_session(
             let StreamingResponse {
                 stream,
                 completion,
+                response_headers,
                 request_id,
                 request_metadata,
             } = streaming;
@@ -169,6 +172,7 @@ pub fn render_openai_responses_session(
                     Result<ResponsesEvent, unigateway_core::GatewayError>,
                 >()),
                 completion,
+                response_headers,
                 request_id,
                 request_metadata,
             };

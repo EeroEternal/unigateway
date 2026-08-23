@@ -25,6 +25,7 @@ use crate::transport::{
 struct MockTransport {
     response: Option<TransportResponse>,
     stream_chunks: Option<Vec<Vec<u8>>>,
+    stream_headers: HashMap<String, String>,
     seen: Arc<Mutex<Vec<TransportRequest>>>,
 }
 
@@ -47,12 +48,13 @@ impl HttpTransport for MockTransport {
     ) -> BoxFuture<'static, Result<StreamingTransportResponse, crate::GatewayError>> {
         let seen = self.seen.clone();
         let chunks = self.stream_chunks.clone().expect("missing stream chunks");
+        let headers = self.stream_headers.clone();
 
         Box::pin(async move {
             seen.lock().expect("seen lock").push(request);
             Ok(StreamingTransportResponse {
                 status: 200,
-                headers: HashMap::new(),
+                headers,
                 stream: Box::pin(futures_util::stream::iter(
                     chunks.into_iter().map(Ok::<Vec<u8>, GatewayError>),
                 )),
@@ -1042,6 +1044,7 @@ async fn openai_driver_executes_non_streaming_operations() {
             .expect("response body"),
         }),
         stream_chunks: None,
+        stream_headers: HashMap::new(),
         seen: seen.clone(),
     });
     let driver = OpenAiCompatibleDriver::new(transport);
@@ -1100,6 +1103,7 @@ async fn openai_driver_executes_non_streaming_operations() {
             .expect("embeddings body"),
         }),
         stream_chunks: None,
+        stream_headers: HashMap::new(),
         seen: Arc::new(Mutex::new(Vec::new())),
     });
     let embeddings_driver = OpenAiCompatibleDriver::new(embeddings_transport);
@@ -1129,6 +1133,7 @@ async fn openai_driver_executes_non_streaming_operations() {
             .expect("responses body"),
         }),
         stream_chunks: None,
+        stream_headers: HashMap::new(),
         seen: Arc::new(Mutex::new(Vec::new())),
     });
     let responses_driver = OpenAiCompatibleDriver::new(responses_transport);
@@ -1176,6 +1181,7 @@ async fn openai_driver_executes_streaming_chat() {
             b"data: [DONE]\n\n".to_vec(),
         ]),
         seen: Arc::new(Mutex::new(Vec::new())),
+        stream_headers: HashMap::new(),
     });
     let driver = OpenAiCompatibleDriver::new(transport);
 
@@ -1244,6 +1250,7 @@ async fn openai_driver_streaming_chat_completion_survives_dropped_stream() {
             b"data: [DONE]\n\n".to_vec(),
         ]),
         seen: Arc::new(Mutex::new(Vec::new())),
+        stream_headers: HashMap::new(),
     });
     let driver = OpenAiCompatibleDriver::new(transport);
 
@@ -1302,6 +1309,7 @@ async fn openai_driver_executes_streaming_responses() {
             b"data: [DONE]\n\n".to_vec(),
         ]),
         seen: Arc::new(Mutex::new(Vec::new())),
+        stream_headers: HashMap::new(),
     });
     let driver = OpenAiCompatibleDriver::new(transport);
 
@@ -1373,6 +1381,7 @@ async fn openai_driver_streaming_responses_completion_survives_dropped_stream() 
             b"data: [DONE]\n\n".to_vec(),
         ]),
         seen: Arc::new(Mutex::new(Vec::new())),
+        stream_headers: HashMap::new(),
     });
     let driver = OpenAiCompatibleDriver::new(transport);
 
@@ -1929,4 +1938,126 @@ fn chat_tool_calling_turns_keep_byte_identical_prefix_up_to_first_edit() {
         "an edit inside the history must invalidate the common prefix at or \
          before the edited position (got {edited_prefix} >= {boundary})"
     );
+}
+
+#[tokio::test]
+async fn openai_driver_surfaces_upstream_headers_non_streaming() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let mut headers = HashMap::new();
+    headers.insert(
+        "x-cortex-match-mode".to_string(),
+        "exact_kv_events".to_string(),
+    );
+    headers.insert("x-cortex-cache-hit-tokens".to_string(), "320".to_string());
+    let transport = Arc::new(MockTransport {
+        response: Some(TransportResponse {
+            status: 200,
+            headers,
+            body: serde_json::to_vec(&json!({
+                "id": "chatcmpl-1",
+                "model": "gpt-4o-mini",
+                "choices": [{"message": {"content": "hello"}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 1, "total_tokens": 6}
+            }))
+            .expect("response body"),
+        }),
+        stream_chunks: None,
+        stream_headers: HashMap::new(),
+        seen,
+    });
+    let driver = OpenAiCompatibleDriver::new(transport);
+
+    let session = driver
+        .execute_chat(
+            endpoint(),
+            ProxyChatRequest {
+                model: "alias".to_string(),
+                messages: vec![Message::text(MessageRole::User, "hello")],
+                system: None,
+                tools: None,
+                tool_choice: None,
+                raw_messages: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                max_tokens: None,
+                stop_sequences: None,
+                stream: false,
+                gateway_fields: HashMap::new(),
+                extra: HashMap::new(),
+                metadata: HashMap::new(),
+            },
+        )
+        .await
+        .expect("chat result");
+
+    match session {
+        ProxySession::Completed(response) => {
+            assert_eq!(
+                response.response_headers.get("x-cortex-match-mode"),
+                Some(&"exact_kv_events".to_string())
+            );
+            assert_eq!(
+                response.response_headers.get("x-cortex-cache-hit-tokens"),
+                Some(&"320".to_string())
+            );
+        }
+        ProxySession::Streaming(_) => panic!("expected completed response"),
+    }
+}
+
+#[tokio::test]
+async fn openai_driver_surfaces_upstream_headers_streaming() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let mut stream_headers = HashMap::new();
+    stream_headers.insert(
+        "x-cortex-match-mode".to_string(),
+        "session_affinity".to_string(),
+    );
+    let transport = Arc::new(MockTransport {
+        response: None,
+        stream_chunks: Some(vec![
+            b"data: {\"id\":\"chatcmpl-1\",\"model\":\"gpt-4o-mini\",\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n".to_vec(),
+            b"data: [DONE]\n\n".to_vec(),
+        ]),
+        stream_headers,
+        seen,
+    });
+    let driver = OpenAiCompatibleDriver::new(transport);
+
+    let session = driver
+        .execute_chat(
+            endpoint(),
+            ProxyChatRequest {
+                model: "alias".to_string(),
+                messages: vec![Message::text(MessageRole::User, "hello")],
+                system: None,
+                tools: None,
+                tool_choice: None,
+                raw_messages: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                max_tokens: None,
+                stop_sequences: None,
+                stream: true,
+                gateway_fields: HashMap::new(),
+                extra: HashMap::new(),
+                metadata: HashMap::new(),
+            },
+        )
+        .await
+        .expect("chat stream session");
+
+    match session {
+        ProxySession::Streaming(streaming) => {
+            assert_eq!(
+                streaming.response_headers.get("x-cortex-match-mode"),
+                Some(&"session_affinity".to_string())
+            );
+            // Drain so the completion task finishes cleanly.
+            let _ = streaming.into_completion().await;
+        }
+        ProxySession::Completed(_) => panic!("expected streaming response"),
+    }
 }
