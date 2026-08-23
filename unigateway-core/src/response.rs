@@ -52,12 +52,18 @@ pub enum ProxySession<Chunk, Final> {
 
 pub struct CompletedResponse<T> {
     pub response: T,
+    /// HTTP response headers returned by the upstream provider. Empty for
+    /// non-HTTP transports (e.g. gRPC) and for synthesized completions.
+    pub response_headers: HashMap<String, String>,
     pub report: RequestReport,
 }
 
 pub struct StreamingResponse<Chunk, Final> {
     pub stream: ResponseStream<Chunk>,
     pub completion: CompletionHandle<Final>,
+    /// HTTP response headers returned by the upstream provider at stream start.
+    /// Empty for non-HTTP transports (e.g. gRPC).
+    pub response_headers: HashMap<String, String>,
     pub request_id: RequestId,
     pub request_metadata: HashMap<String, String>,
 }
@@ -75,6 +81,7 @@ impl<Chunk, Final> StreamingResponse<Chunk, Final> {
         let Self {
             stream: _stream,
             completion,
+            response_headers: _,
             request_id: _,
             request_metadata: _,
         } = self;

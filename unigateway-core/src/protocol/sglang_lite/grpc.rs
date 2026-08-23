@@ -9,6 +9,7 @@
 //!
 //! See docs/guide/sglang-lite.md and the original spec in sglang-lite repo.
 
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::time::SystemTime;
 
@@ -442,6 +443,7 @@ async fn drive_grpc_chat_stream(
 
     Ok(CompletedResponse {
         response: final_resp,
+        response_headers: HashMap::new(),
         report,
     })
 }
@@ -456,7 +458,7 @@ fn parse_usage_from_value(v: &serde_json::Value) -> Option<TokenUsage> {
             .and_then(|d| d.get("reasoning_tokens"))
             .and_then(|x| x.as_u64()),
         cache_hit_tokens: v.get("cache_hit_tokens").and_then(|x| x.as_u64()),
-        cache_write_tokens: v.get("cache_write_tokens").and_then(|x| x.as_u64),
+        cache_write_tokens: v.get("cache_write_tokens").and_then(|x| x.as_u64()),
     })
 }
 
@@ -577,6 +579,7 @@ pub async fn execute_chat_grpc(
         Ok(ProxySession::Streaming(StreamingResponse {
             stream: Box::pin(UnboundedReceiverStream::new(chunk_rx)),
             completion: completion_rx,
+            response_headers: HashMap::new(),
             request_id,
             request_metadata,
         }))
@@ -597,6 +600,7 @@ pub async fn execute_chat_grpc(
 
         Ok(ProxySession::Completed(CompletedResponse {
             response: final_resp,
+            response_headers: HashMap::new(),
             report,
         }))
     }

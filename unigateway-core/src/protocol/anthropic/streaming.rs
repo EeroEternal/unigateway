@@ -66,6 +66,7 @@ pub(super) async fn start_chat_stream(
     Ok(ProxySession::Streaming(StreamingResponse {
         stream: Box::pin(UnboundedReceiverStream::new(chunk_rx)),
         completion: completion_rx,
+        response_headers: transport_response.headers.clone(),
         request_id,
         request_metadata,
     }))
@@ -174,6 +175,7 @@ fn finalize_chat_stream(
 ) -> Result<CompletedResponse<ChatResponseFinal>, GatewayError> {
     let finished_at = SystemTime::now();
     Ok(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: state.model,
             output_text: if state.output_text.is_empty() {
