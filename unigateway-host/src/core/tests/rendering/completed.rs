@@ -12,6 +12,7 @@ use unigateway_protocol::{
 #[test]
 fn anthropic_completed_body_normalizes_openai_provider_output() {
     let body = anthropic_completed_chat_body(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("glm-4.5".to_string()),
             output_text: Some("pong".to_string()),
@@ -68,6 +69,7 @@ fn anthropic_completed_body_normalizes_openai_provider_output() {
 #[test]
 fn anthropic_completed_body_converts_openai_tool_calls_to_tool_use() {
     let body = anthropic_completed_chat_body(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("gpt-4o-mini".to_string()),
             output_text: None,
@@ -169,6 +171,7 @@ fn anthropic_completed_body_converts_openai_tool_calls_to_tool_use() {
 #[test]
 fn anthropic_completed_body_normalizes_double_encoded_tool_arguments() {
     let body = anthropic_completed_chat_body(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("gpt-4o-mini".to_string()),
             output_text: None,
@@ -233,6 +236,7 @@ fn anthropic_completed_body_normalizes_double_encoded_tool_arguments() {
 #[test]
 fn anthropic_completed_body_converts_openai_reasoning_to_thinking_block() {
     let body = anthropic_completed_chat_body(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("gpt-4o-mini".to_string()),
             output_text: Some("Paris is sunny".to_string()),
@@ -297,6 +301,7 @@ fn anthropic_completed_body_converts_openai_reasoning_to_thinking_block() {
 #[test]
 fn anthropic_completed_body_can_reconstruct_prefixed_think_tags_when_enabled() {
     let body = anthropic_completed_chat_body(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("claude-opus-4-7".to_string()),
             output_text: Some("final answer".to_string()),
@@ -364,6 +369,7 @@ fn anthropic_completed_body_can_reconstruct_prefixed_think_tags_when_enabled() {
 #[test]
 fn anthropic_completed_body_leaves_prefixed_think_tags_as_text_by_default() {
     let body = anthropic_completed_chat_body(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("claude-opus-4-7".to_string()),
             output_text: Some("<think>inspect the puzzle first</think>final answer".to_string()),
@@ -415,6 +421,7 @@ fn anthropic_completed_body_leaves_prefixed_think_tags_as_text_by_default() {
 #[test]
 fn openai_completed_body_normalizes_anthropic_provider_output() {
     let body = openai_completed_chat_body(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("claude-3-5-sonnet".to_string()),
             output_text: Some("pong".to_string()),
@@ -478,6 +485,7 @@ fn openai_completed_body_normalizes_anthropic_provider_output() {
 #[test]
 fn openai_completed_body_can_reconstruct_prefixed_think_tags_when_enabled() {
     let body = openai_completed_chat_body(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("claude-opus-4-7".to_string()),
             output_text: Some("final answer".to_string()),
@@ -539,6 +547,7 @@ fn openai_completed_body_can_reconstruct_prefixed_think_tags_when_enabled() {
 #[test]
 fn openai_completed_body_leaves_unclosed_prefixed_think_tag_as_content() {
     let body = openai_completed_chat_body(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("claude-opus-4-7".to_string()),
             output_text: Some("<think>plan".to_string()),
@@ -594,6 +603,7 @@ fn openai_completed_body_leaves_unclosed_prefixed_think_tag_as_content() {
 #[test]
 fn openai_completed_body_leaves_prefixed_think_tags_as_content_by_default() {
     let body = openai_completed_chat_body(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("claude-opus-4-7".to_string()),
             output_text: Some("<think>plan</think>final".to_string()),
@@ -646,6 +656,7 @@ fn openai_completed_body_leaves_prefixed_think_tags_as_content_by_default() {
 #[test]
 fn anthropic_response_body_preserves_thinking_block_structure() {
     let response = CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("claude-3-7-sonnet-latest".to_string()),
             output_text: Some("The answer is 42".to_string()),
@@ -723,6 +734,7 @@ fn anthropic_response_body_preserves_thinking_block_structure() {
 #[test]
 fn openai_response_body_includes_reasoning_content() {
     let response = CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("claude-3-7-sonnet-latest".to_string()),
             output_text: Some("The answer is 42".to_string()),
@@ -806,6 +818,7 @@ fn openai_response_body_includes_reasoning_content() {
 #[test]
 fn openai_completed_body_converts_anthropic_tool_use_to_tool_calls() {
     let body = openai_completed_chat_body(CompletedResponse {
+        response_headers: std::collections::HashMap::new(),
         response: ChatResponseFinal {
             model: Some("claude-3-5-sonnet".to_string()),
             output_text: Some("I'll call a tool".to_string()),

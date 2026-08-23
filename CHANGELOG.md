@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+* **Upstream response headers surfaced to embedders**: `CompletedResponse` and
+  `StreamingResponse` now carry `response_headers: HashMap<String, String>`
+  propagated from the HTTP transport (empty for non-HTTP transports such as
+  gRPC). This lets in-process embedders read provider/gateway diagnostic
+  headers — e.g. Cortex's `x-cortex-assigned-worker` / `x-cortex-match-mode` /
+  `x-cortex-cache-hit-tokens` — without requiring body-level injection.
+
 ## [2.15.0] - 2026-08-22
 
 ### Added

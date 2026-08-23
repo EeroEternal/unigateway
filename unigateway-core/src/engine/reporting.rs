@@ -513,6 +513,7 @@ where
     let StreamingResponse {
         stream,
         completion,
+        response_headers,
         request_id: _,
         request_metadata,
     } = streaming;
@@ -640,6 +641,7 @@ where
     StreamingResponse {
         stream,
         completion: receiver,
+        response_headers,
         request_id: response_request_id,
         request_metadata,
     }

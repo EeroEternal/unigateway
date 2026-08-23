@@ -20,6 +20,7 @@ async fn anthropic_stream_renderer_converts_openai_tool_call_deltas() {
     assert!(
         completion_tx
             .send(Ok(CompletedResponse {
+                response_headers: std::collections::HashMap::new(),
                 response: ChatResponseFinal {
                     model: Some("gpt-4o-mini".to_string()),
                     output_text: None,
@@ -57,6 +58,7 @@ async fn anthropic_stream_renderer_converts_openai_tool_call_deltas() {
     );
 
     let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        response_headers: std::collections::HashMap::new(),
         stream: Box::pin(futures_util::stream::iter(vec![
             Ok(ChatResponseChunk {
                 delta: Some("Let me check ".to_string()),
@@ -196,6 +198,7 @@ async fn anthropic_stream_renderer_converts_openai_reasoning_deltas_to_thinking_
     assert!(
         completion_tx
             .send(Ok(CompletedResponse {
+                response_headers: std::collections::HashMap::new(),
                 response: ChatResponseFinal {
                     model: Some("gpt-4o-mini".to_string()),
                     output_text: Some("final answer".to_string()),
@@ -233,6 +236,7 @@ async fn anthropic_stream_renderer_converts_openai_reasoning_deltas_to_thinking_
     );
 
     let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        response_headers: std::collections::HashMap::new(),
         stream: Box::pin(futures_util::stream::iter(vec![
             Ok(ChatResponseChunk {
                 delta: None,
@@ -329,6 +333,7 @@ async fn anthropic_stream_renderer_can_reconstruct_prefixed_think_tags_when_enab
     assert!(
         completion_tx
             .send(Ok(CompletedResponse {
+                response_headers: std::collections::HashMap::new(),
                 response: ChatResponseFinal {
                     model: Some("claude-opus-4-7".to_string()),
                     output_text: Some("final answer".to_string()),
@@ -366,6 +371,7 @@ async fn anthropic_stream_renderer_can_reconstruct_prefixed_think_tags_when_enab
     );
 
     let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        response_headers: std::collections::HashMap::new(),
         stream: Box::pin(futures_util::stream::iter(vec![
             Ok(ChatResponseChunk {
                 delta: Some("<think>inspect ".to_string()),
@@ -445,6 +451,7 @@ async fn openai_stream_renderer_can_reconstruct_prefixed_think_tags_when_enabled
     assert!(
         completion_tx
             .send(Ok(CompletedResponse {
+                response_headers: std::collections::HashMap::new(),
                 response: ChatResponseFinal {
                     model: Some("claude-opus-4-7".to_string()),
                     output_text: Some("final".to_string()),
@@ -482,6 +489,7 @@ async fn openai_stream_renderer_can_reconstruct_prefixed_think_tags_when_enabled
     );
 
     let response = render_openai_chat_session(ProxySession::Streaming(StreamingResponse {
+        response_headers: std::collections::HashMap::new(),
         stream: Box::pin(futures_util::stream::iter(vec![
             Ok(ChatResponseChunk {
                 delta: Some("<think>pla".to_string()),
@@ -565,6 +573,7 @@ async fn openai_stream_renderer_leaves_prefixed_think_tags_as_content_by_default
     assert!(
         completion_tx
             .send(Ok(CompletedResponse {
+                response_headers: std::collections::HashMap::new(),
                 response: ChatResponseFinal {
                     model: Some("claude-opus-4-7".to_string()),
                     output_text: Some("<think>plan</think>final".to_string()),
@@ -595,6 +604,7 @@ async fn openai_stream_renderer_leaves_prefixed_think_tags_as_content_by_default
     );
 
     let response = render_openai_chat_session(ProxySession::Streaming(StreamingResponse {
+        response_headers: std::collections::HashMap::new(),
         stream: Box::pin(futures_util::stream::iter(vec![Ok(ChatResponseChunk {
             delta: Some("<think>plan</think>final".to_string()),
             raw: serde_json::json!({
@@ -644,6 +654,7 @@ async fn anthropic_stream_renderer_flushes_unfinished_tool_calls_with_placeholde
     assert!(
         completion_tx
             .send(Ok(CompletedResponse {
+                response_headers: std::collections::HashMap::new(),
                 response: ChatResponseFinal {
                     model: Some("gpt-4o-mini".to_string()),
                     output_text: None,
@@ -681,6 +692,7 @@ async fn anthropic_stream_renderer_flushes_unfinished_tool_calls_with_placeholde
     );
 
     let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        response_headers: std::collections::HashMap::new(),
         stream: Box::pin(futures_util::stream::iter(vec![Ok(ChatResponseChunk {
             delta: None,
             raw: serde_json::json!({
@@ -735,6 +747,7 @@ async fn anthropic_stream_renderer_multiplexes_interleaved_tool_calls() {
     assert!(
         completion_tx
             .send(Ok(CompletedResponse {
+                response_headers: std::collections::HashMap::new(),
                 response: ChatResponseFinal {
                     model: Some("gpt-4o-mini".to_string()),
                     output_text: None,
@@ -772,6 +785,7 @@ async fn anthropic_stream_renderer_multiplexes_interleaved_tool_calls() {
     );
 
     let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        response_headers: std::collections::HashMap::new(),
         stream: Box::pin(futures_util::stream::iter(vec![
             Ok(ChatResponseChunk {
                 delta: None,
@@ -896,6 +910,7 @@ async fn anthropic_stream_renderer_deduplicates_cumulative_tool_argument_snapsho
     assert!(
         completion_tx
             .send(Ok(CompletedResponse {
+                response_headers: std::collections::HashMap::new(),
                 response: ChatResponseFinal {
                     model: Some("gpt-4o-mini".to_string()),
                     output_text: None,
@@ -933,6 +948,7 @@ async fn anthropic_stream_renderer_deduplicates_cumulative_tool_argument_snapsho
     );
 
     let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        response_headers: std::collections::HashMap::new(),
         stream: Box::pin(futures_util::stream::iter(vec![
             Ok(ChatResponseChunk {
                 delta: None,
@@ -1009,6 +1025,7 @@ async fn anthropic_stream_renderer_normalizes_double_encoded_and_prefixed_tool_a
     assert!(
         completion_tx
             .send(Ok(CompletedResponse {
+                response_headers: std::collections::HashMap::new(),
                 response: ChatResponseFinal {
                     model: Some("gpt-4o-mini".to_string()),
                     output_text: None,
@@ -1046,6 +1063,7 @@ async fn anthropic_stream_renderer_normalizes_double_encoded_and_prefixed_tool_a
     );
 
     let response = render_anthropic_chat_session(ProxySession::Streaming(StreamingResponse {
+        response_headers: std::collections::HashMap::new(),
         stream: Box::pin(futures_util::stream::iter(vec![Ok(ChatResponseChunk {
             delta: None,
             raw: serde_json::json!({
