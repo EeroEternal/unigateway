@@ -319,40 +319,48 @@ fn split_chat_payload_extensions(
     }
 }
 
+/// Fields the OpenAI Chat ingestion path recognizes and routes away from
+/// `extra` (typed fields, `messages` passthrough, and routing hints). Single
+/// source of truth shared by payload splitting and round-trip invariant
+/// tests; the core renderer's typed inserts plus `extra` merge cover exactly
+/// these semantics.
+pub const OPENAI_CHAT_KNOWN_FIELDS: &[&str] = &[
+    "model",
+    "messages",
+    "temperature",
+    "top_p",
+    "top_k",
+    "max_tokens",
+    "stop",
+    "stream",
+    "tools",
+    "tool_choice",
+    "target_vendor",
+    "target_provider",
+    "provider",
+];
+
+/// Anthropic counterpart of [`OPENAI_CHAT_KNOWN_FIELDS`].
+pub const ANTHROPIC_CHAT_KNOWN_FIELDS: &[&str] = &[
+    "model",
+    "messages",
+    "temperature",
+    "top_p",
+    "top_k",
+    "max_tokens",
+    "stop_sequences",
+    "stream",
+    "system",
+    "tools",
+    "tool_choice",
+];
+
 fn is_openai_chat_known_field(key: &str) -> bool {
-    matches!(
-        key,
-        "model"
-            | "messages"
-            | "temperature"
-            | "top_p"
-            | "top_k"
-            | "max_tokens"
-            | "stop"
-            | "stream"
-            | "tools"
-            | "tool_choice"
-            | "target_vendor"
-            | "target_provider"
-            | "provider"
-    )
+    OPENAI_CHAT_KNOWN_FIELDS.contains(&key)
 }
 
 fn is_anthropic_chat_known_field(key: &str) -> bool {
-    matches!(
-        key,
-        "model"
-            | "messages"
-            | "temperature"
-            | "top_p"
-            | "top_k"
-            | "max_tokens"
-            | "stop_sequences"
-            | "stream"
-            | "system"
-            | "tools"
-            | "tool_choice"
-    )
+    ANTHROPIC_CHAT_KNOWN_FIELDS.contains(&key)
 }
 
 fn openai_thinking_signature_status(raw_messages: Option<&Value>) -> ThinkingSignatureStatus {
@@ -912,5 +920,110 @@ mod tests {
             req.thinking_signature_status(),
             Some(ThinkingSignatureStatus::Placeholder)
         );
+    }
+}
+
+#[cfg(test)]
+mod known_field_invariants {
+    use super::*;
+    use serde_json::json;
+
+    /// Ingestion/render contract: every key in the protocol's KNOWN_FIELDS is
+    /// routed away from `extra` (typed field or raw passthrough), and only
+    /// `_`-prefixed keys land in gateway_fields. A new protocol field must be
+    /// added to the KNOWN_FIELDS list here at the same time as the parser —
+    /// otherwise it silently degrades to an opaque extra that the upstream
+    /// renderer may mis-place or drop.
+    #[test]
+    fn openai_chat_known_fields_never_leak_into_extra_or_gateway_fields() {
+        let payload = json!({
+            "model": "gpt-5.5",
+            "messages": [{"role": "user", "content": "hi"}],
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "top_k": 5,
+            "max_tokens": 128,
+            "stop": ["DONE"],
+            "stream": false,
+            "tools": [],
+            "tool_choice": "auto",
+            "target_vendor": "openai",
+            "target_provider": "alpha",
+            "provider": "alpha",
+            "reasoning_effort": "high",
+            "_internal_flag": "secret"
+        });
+
+        let request = openai_payload_to_chat_request(&payload, "gpt-4o-mini").expect("request");
+
+        for key in OPENAI_CHAT_KNOWN_FIELDS {
+            assert!(
+                !request.extra.contains_key(*key),
+                "known field {key} leaked into extra"
+            );
+        }
+        assert_eq!(request.extra.get("reasoning_effort"), Some(&json!("high")));
+        assert!(!request.extra.contains_key("_internal_flag"));
+        assert_eq!(
+            request.gateway_fields.get("_internal_flag"),
+            Some(&json!("secret"))
+        );
+        for key in request.gateway_fields.keys() {
+            assert!(
+                key.starts_with('_'),
+                "gateway_fields must only contain _-prefixed keys, found {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn anthropic_chat_known_fields_never_leak_into_extra_or_gateway_fields() {
+        let payload = json!({
+            "model": "claude-3-5-sonnet",
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "top_k": 5,
+            "max_tokens": 256,
+            "stop_sequences": ["DONE"],
+            "stream": false,
+            "system": "be terse",
+            "tools": [],
+            "tool_choice": {"type": "auto"},
+            "custom_hint": true,
+            "_internal_flag": "secret"
+        });
+
+        let request =
+            anthropic_payload_to_chat_request(&payload, "claude-3-5-haiku").expect("request");
+
+        for key in ANTHROPIC_CHAT_KNOWN_FIELDS {
+            assert!(
+                !request.extra.contains_key(*key),
+                "known field {key} leaked into extra"
+            );
+        }
+        assert_eq!(request.extra.get("custom_hint"), Some(&json!(true)));
+        assert!(!request.extra.contains_key("_internal_flag"));
+        assert_eq!(
+            request.gateway_fields.get("_internal_flag"),
+            Some(&json!("secret"))
+        );
+    }
+
+    /// The two lists are disjoint from the gateway-only `_` prefix rule by
+    /// construction; assert no known field starts with `_` so
+    /// merge_forwardable_extra's filtering can never swallow a typed field.
+    #[test]
+    fn known_fields_never_collide_with_gateway_only_prefix() {
+        for key in OPENAI_CHAT_KNOWN_FIELDS
+            .iter()
+            .chain(ANTHROPIC_CHAT_KNOWN_FIELDS)
+        {
+            assert!(
+                !key.starts_with('_'),
+                "known field {key} collides with the gateway-only `_` prefix rule"
+            );
+        }
     }
 }
