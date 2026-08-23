@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.15.0] - 2026-08-22
+
+### Added
+
+* **Render-determinism-safe endpoint helpers**: `DriverEndpointContext::{resolve_model, api_url}` public methods consolidating the previously duplicated model-resolution and URL-joining logic across renderers.
+* **Known-field single source**: exported `OPENAI_CHAT_KNOWN_FIELDS` / `ANTHROPIC_CHAT_KNOWN_FIELDS` constants backing the ingestion field routers, with round-trip invariant tests.
+
+### Changed
+
+* **Internal refactor series (no public signature changes, no payload byte changes)**: the chat/responses/embeddings fallback loops unify onto one generic engine skeleton; renderer header building and extra merging consolidate into shared helpers; `unigateway-config`'s private admin module splits by concern (`admin/{mutations,views,api_keys}`).
+
 ## [2.14.2] - 2026-08-14
 
 ### Fixed
