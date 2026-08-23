@@ -2,15 +2,10 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-/// Metadata key that declares a text encoding used for reasoning-like content.
-pub const REASONING_TEXT_ENCODING_KEY: &str = "unigateway.reasoning_text_encoding";
-/// Built-in encoding value for prefixed `<think>...</think>` text content.
-pub const REASONING_TEXT_ENCODING_XML_THINK_TAG: &str = "xml_think_tag";
-/// Legacy compatibility alias for the old Anthropic-oriented metadata key.
-pub const ANTHROPIC_REASONING_TEXT_FORMAT_KEY: &str = "unigateway.anthropic_reasoning_text_format";
-/// Legacy compatibility alias for the old Anthropic-oriented metadata value.
-pub const ANTHROPIC_REASONING_TEXT_FORMAT_XML_THINK_TAG: &str =
-    REASONING_TEXT_ENCODING_XML_THINK_TAG;
+pub use unigateway_core::{
+    ANTHROPIC_REASONING_TEXT_FORMAT_KEY, ANTHROPIC_REASONING_TEXT_FORMAT_XML_THINK_TAG,
+    REASONING_TEXT_ENCODING_KEY, REASONING_TEXT_ENCODING_XML_THINK_TAG,
+};
 
 pub(crate) fn anthropic_thinking_output_policy(
     metadata: &HashMap<String, String>,

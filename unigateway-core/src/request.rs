@@ -25,6 +25,15 @@ pub const ANTHROPIC_THINKING_OUTPUT_KEY: &str =
 /// Metadata key indicating whether the selected backend supports prefix caching.
 pub const LOCAL_INFERENCE_PREFIX_CACHING_KEY: &str =
     "unigateway.capabilities.local_inference.prefix_caching";
+/// Metadata key that declares a text encoding used for reasoning-like content.
+pub const REASONING_TEXT_ENCODING_KEY: &str = "unigateway.reasoning_text_encoding";
+/// Built-in encoding value for prefixed `<think>...</think>` text content.
+pub const REASONING_TEXT_ENCODING_XML_THINK_TAG: &str = "xml_think_tag";
+/// Legacy compatibility alias for the old Anthropic-oriented metadata key.
+pub const ANTHROPIC_REASONING_TEXT_FORMAT_KEY: &str = "unigateway.anthropic_reasoning_text_format";
+/// Legacy compatibility alias for the old Anthropic-oriented metadata value.
+pub const ANTHROPIC_REASONING_TEXT_FORMAT_XML_THINK_TAG: &str =
+    REASONING_TEXT_ENCODING_XML_THINK_TAG;
 /// Placeholder thinking signature used only for downstream protocol-shape compatibility.
 pub const THINKING_SIGNATURE_PLACEHOLDER_VALUE: &str = "EXTENDED_THINKING_PLACEHOLDER_SIG";
 

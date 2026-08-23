@@ -187,7 +187,7 @@ pub fn anthropic_requested_model_alias(model: String) -> HashMap<String, String>
     let mut metadata = HashMap::new();
     set_anthropic_requested_model_alias(&mut metadata, model);
     metadata.insert(
-        "unigateway.client_protocol".to_string(),
+        unigateway_core::CLIENT_PROTOCOL_KEY.to_string(),
         ClientProtocol::AnthropicMessages
             .as_metadata_value()
             .to_string(),
