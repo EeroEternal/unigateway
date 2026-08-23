@@ -11,6 +11,7 @@ This repository is a Rust library workspace. It does not ship an in-tree HTTP se
 | File | Description |
 | --- | --- |
 | [`arch.md`](design/arch.md) | Current library layering, config-to-core projection, and host request flow. |
+| [`refactor-plan.md`](design/refactor-plan.md) | Approved 2.15.x internal refactor plan: shared render helpers, generic execution loop, known-field single source, admin split; OpenAI-as-hub direction. |
 | [`protocol-conversion.md`](design/protocol-conversion.md) | Protocol conversion architecture, neutral chat model, OpenAI/Anthropic request and response mapping, and loss rules. |
 | [`admin.md`](design/admin.md) | `/api/admin/*` JSON contracts for embedders that build their own management gateway or UI. |
 | [`queue.md`](design/queue.md) | Concurrency queueing and backpressure design. Runtime helpers live in `unigateway-config::runtime`; HTTP integration belongs to embedders. |
