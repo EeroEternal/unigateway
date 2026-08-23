@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.15.1] - 2026-08-23
+
 ### Added
 
 * **Upstream response headers surfaced to embedders**: `CompletedResponse` and
