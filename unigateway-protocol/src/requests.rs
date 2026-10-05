@@ -4,10 +4,11 @@ use anyhow::{Result, anyhow};
 use serde::Deserialize;
 use serde_json::Value;
 use unigateway_core::{
-    ClientProtocol, ContentBlock, Message as CoreMessage, MessageRole, ProxyChatRequest,
-    ProxyEmbeddingsRequest, ProxyResponsesRequest, ThinkingSignatureStatus,
-    anthropic_content_to_blocks, is_placeholder_thinking_signature,
-    normalize_proxy_responses_request, openai_message_to_content_blocks,
+    ClientProtocol, ContentBlock, EmbeddingsInputItem, ImageUrlObject, Message as CoreMessage,
+    MessageRole, ProxyChatRequest, ProxyEmbeddingsRequest, ProxyMultimodalEmbeddingsRequest,
+    ProxyResponsesRequest, ThinkingSignatureStatus, anthropic_content_to_blocks,
+    is_placeholder_thinking_signature, normalize_proxy_responses_request,
+    openai_message_to_content_blocks,
 };
 
 pub const ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY: &str = "unigateway.requested_model_alias";
@@ -174,6 +175,72 @@ pub fn openai_payload_to_embed_request(
             .map(String::from),
         metadata: HashMap::new(),
     })
+}
+
+/// Translates an OpenAI-compatible multimodal embeddings payload into a core
+/// `ProxyMultimodalEmbeddingsRequest`.
+///
+/// Extends the `/v1/embeddings` input with chat-style content parts: array
+/// items may be plain strings, `{"type":"text",...}` objects, or
+/// `{"type":"image_url","image_url":{"url":...}}` objects. Token arrays and
+/// unknown content parts are rejected.
+pub fn openai_payload_to_multimodal_embed_request(
+    payload: &Value,
+    default_model: &str,
+) -> Result<ProxyMultimodalEmbeddingsRequest> {
+    let model = payload
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or(default_model)
+        .to_string();
+
+    let input = match payload.get("input") {
+        Some(Value::String(text)) => vec![EmbeddingsInputItem::Text { text: text.clone() }],
+        Some(Value::Array(items)) if !items.is_empty() => items
+            .iter()
+            .map(multimodal_embed_input_item)
+            .collect::<Result<Vec<_>>>()?,
+        _ => return Err(anyhow!("input must be a non-empty string or array")),
+    };
+
+    Ok(ProxyMultimodalEmbeddingsRequest {
+        model,
+        input,
+        encoding_format: payload
+            .get("encoding_format")
+            .and_then(Value::as_str)
+            .map(String::from),
+        dimensions: payload.get("dimensions").and_then(Value::as_u64),
+        metadata: HashMap::new(),
+    })
+}
+
+fn multimodal_embed_input_item(item: &Value) -> Result<EmbeddingsInputItem> {
+    match item {
+        Value::String(text) => Ok(EmbeddingsInputItem::Text { text: text.clone() }),
+        Value::Object(_) => match item.get("type").and_then(Value::as_str) {
+            Some("text") => item
+                .get("text")
+                .and_then(Value::as_str)
+                .map(|text| EmbeddingsInputItem::Text {
+                    text: text.to_string(),
+                })
+                .ok_or_else(|| anyhow!("text content part requires a string `text`")),
+            Some("image_url") => item
+                .pointer("/image_url/url")
+                .and_then(Value::as_str)
+                .map(|url| EmbeddingsInputItem::ImageUrl {
+                    image_url: ImageUrlObject {
+                        url: url.to_string(),
+                    },
+                })
+                .ok_or_else(|| anyhow!("image_url content part requires `image_url.url`")),
+            other => Err(anyhow!("unsupported embeddings input item type: {other:?}")),
+        },
+        _ => Err(anyhow!(
+            "token input is not supported for multimodal embeddings"
+        )),
+    }
 }
 
 fn stream_flag(payload: &Value, default: bool) -> bool {
@@ -467,13 +534,14 @@ mod tests {
     use serde_json::Value;
     use serde_json::json;
     use unigateway_core::{
-        ClientProtocol, THINKING_SIGNATURE_PLACEHOLDER_VALUE, ThinkingSignatureStatus,
+        ClientProtocol, EmbeddingsInputItem, THINKING_SIGNATURE_PLACEHOLDER_VALUE,
+        ThinkingSignatureStatus,
     };
 
     use super::{
         ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, anthropic_payload_to_chat_request,
         openai_payload_to_chat_request, openai_payload_to_embed_request,
-        openai_payload_to_responses_request,
+        openai_payload_to_multimodal_embed_request, openai_payload_to_responses_request,
     };
 
     #[test]
@@ -756,6 +824,52 @@ mod tests {
         .expect("request");
 
         assert_eq!(converted.encoding_format.as_deref(), Some("float"));
+    }
+
+    #[test]
+    fn multimodal_embed_request_accepts_text_and_image_items() {
+        let converted = openai_payload_to_multimodal_embed_request(
+            &json!({
+                "model": "doubao-embedding-vision-251215",
+                "input": [
+                    "你好",
+                    {"type": "text", "text": "一张猫的照片"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+                ],
+                "dimensions": 256
+            }),
+            "fallback",
+        )
+        .expect("request");
+
+        assert_eq!(converted.model, "doubao-embedding-vision-251215");
+        assert_eq!(converted.dimensions, Some(256));
+        assert!(matches!(
+            converted.input.as_slice(),
+            [
+                EmbeddingsInputItem::Text { .. },
+                EmbeddingsInputItem::Text { .. },
+                EmbeddingsInputItem::ImageUrl { .. }
+            ]
+        ));
+    }
+
+    #[test]
+    fn multimodal_embed_request_rejects_token_and_unknown_items() {
+        let err = openai_payload_to_multimodal_embed_request(&json!({ "input": [[1, 2, 3]] }), "m")
+            .unwrap_err();
+        assert!(err.to_string().contains("token input"));
+
+        let err = openai_payload_to_multimodal_embed_request(
+            &json!({ "input": [{"type": "video", "video": {"url": "x"}}] }),
+            "m",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("unsupported"));
+
+        let err =
+            openai_payload_to_multimodal_embed_request(&json!({ "input": [] }), "m").unwrap_err();
+        assert!(err.to_string().contains("non-empty"));
     }
 
     #[test]

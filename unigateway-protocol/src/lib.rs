@@ -1,14 +1,20 @@
 mod http_response;
+mod native_embeddings;
 mod requests;
 mod responses;
 
 pub use http_response::{ProtocolByteStream, ProtocolHttpResponse, ProtocolResponseBody};
+pub use native_embeddings::{
+    build_dashscope_multimodal_embeddings_request, build_volcengine_multimodal_embeddings_request,
+    dashscope_multimodal_embeddings_response_to_openai,
+    volcengine_multimodal_embeddings_response_to_openai,
+};
 pub use requests::{
     ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY, anthropic_payload_to_chat_request,
     anthropic_requested_model_alias, anthropic_requested_model_alias_from_metadata,
     anthropic_requested_model_alias_or, openai_payload_to_chat_request,
-    openai_payload_to_embed_request, openai_payload_to_responses_request,
-    set_anthropic_requested_model_alias,
+    openai_payload_to_embed_request, openai_payload_to_multimodal_embed_request,
+    openai_payload_to_responses_request, set_anthropic_requested_model_alias,
 };
 pub use responses::{
     ANTHROPIC_REASONING_TEXT_FORMAT_KEY, ANTHROPIC_REASONING_TEXT_FORMAT_XML_THINK_TAG,

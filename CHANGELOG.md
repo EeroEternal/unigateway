@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.16.0] - 2026-10-05
+
+### Added
+
+* **Multimodal embeddings conversion surface**: `ProxyMultimodalEmbeddingsRequest` /
+  `EmbeddingsInputItem` (core types), `openai_payload_to_multimodal_embed_request`
+  (OpenAI payload with chat-style `text` / `image_url` content parts), and pure
+  request/response translators for the provider-native multimodal embedding
+  services: `build_dashscope_multimodal_embeddings_request` /
+  `dashscope_multimodal_embeddings_response_to_openai` (Aliyun DashScope) and
+  `build_volcengine_multimodal_embeddings_request` /
+  `volcengine_multimodal_embeddings_response_to_openai` (Volcengine Ark
+  `/embeddings/multimodal`, whose `data` member is a single object rather than
+  an array). All functions are conversion-only — HTTP transport stays with the
+  embedder.
+
 ## [2.15.1] - 2026-08-23
 
 ### Added

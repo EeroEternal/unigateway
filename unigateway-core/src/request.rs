@@ -309,6 +309,41 @@ pub struct ProxyEmbeddingsRequest {
     pub metadata: HashMap<String, String>,
 }
 
+/// Image reference inside an [`EmbeddingsInputItem`], mirroring the chat
+/// `image_url` content part (`{"url": ...}` where the URL may also be a
+/// `data:` URI).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImageUrlObject {
+    pub url: String,
+}
+
+/// One item of a multimodal embeddings input.
+///
+/// The OpenAI `/v1/embeddings` surface is text-only; embedders that expose
+/// multimodal embedding extend the input array with chat-style content parts:
+/// plain strings are text, `text` objects carry text, `image_url` objects
+/// carry an image.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum EmbeddingsInputItem {
+    Text { text: String },
+    ImageUrl { image_url: ImageUrlObject },
+}
+
+/// Multimodal counterpart of [`ProxyEmbeddingsRequest`].
+///
+/// Kept separate so existing text-only embedders keep their typed surface;
+/// `dimensions` mirrors the OpenAI `dimensions` parameter (per-provider
+/// support is decided by the request builders).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProxyMultimodalEmbeddingsRequest {
+    pub model: String,
+    pub input: Vec<EmbeddingsInputItem>,
+    pub encoding_format: Option<String>,
+    pub dimensions: Option<u64>,
+    pub metadata: HashMap<String, String>,
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
