@@ -220,7 +220,7 @@ pub fn resolve_upstream_tool_choice(
         record_tool_choice_normalization(
             endpoint,
             &ToolChoiceNormalization {
-                original: tool_choice.clone(),
+                original: tool_choice,
                 normalized: Some(value.clone()),
                 reason: Some("forced tool_choice override".to_string()),
             },

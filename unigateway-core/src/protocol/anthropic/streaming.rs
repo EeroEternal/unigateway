@@ -66,7 +66,7 @@ pub(super) async fn start_chat_stream(
     Ok(ProxySession::Streaming(StreamingResponse {
         stream: Box::pin(UnboundedReceiverStream::new(chunk_rx)),
         completion: completion_rx,
-        response_headers: transport_response.headers.clone(),
+        response_headers: transport_response.headers,
         request_id,
         request_metadata,
     }))
@@ -133,7 +133,7 @@ async fn process_chat_frame(
     let event_type = frame
         .event
         .or_else(|| raw.get("type").and_then(Value::as_str).map(str::to_string));
-    if let Some(event_type) = event_type.clone()
+    if let Some(event_type) = event_type
         && let Some(object) = raw.as_object_mut()
     {
         object

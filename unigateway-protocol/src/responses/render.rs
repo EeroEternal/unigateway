@@ -62,7 +62,7 @@ pub fn render_openai_chat_session(
 
                 stream::iter(chunks)
             });
-            let done_adapter_state = adapter_state.clone();
+            let done_adapter_state = adapter_state;
             let done_request_id = request_id.clone();
             let done = stream::once(async move {
                 let mut adapter = done_adapter_state.lock().expect("adapter lock");
@@ -80,8 +80,8 @@ pub fn render_openai_chat_session(
                     Result<ChatResponseChunk, unigateway_core::GatewayError>,
                 >()),
                 completion,
-                response_headers: response_headers.clone(),
-                request_id: request_id.clone(),
+                response_headers,
+                request_id,
                 request_metadata,
             };
             tokio::spawn(async move {

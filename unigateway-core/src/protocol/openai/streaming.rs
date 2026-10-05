@@ -75,7 +75,7 @@ pub(super) async fn start_chat_stream(
     Ok(ProxySession::Streaming(StreamingResponse {
         stream: Box::pin(UnboundedReceiverStream::new(chunk_rx)),
         completion: completion_rx,
-        response_headers: transport_response.headers.clone(),
+        response_headers: transport_response.headers,
         request_id,
         request_metadata,
     }))
@@ -110,9 +110,9 @@ pub(super) async fn start_responses_stream(
     Ok(ProxySession::Streaming(StreamingResponse {
         stream: Box::pin(UnboundedReceiverStream::new(event_rx)),
         completion: completion_rx,
-        response_headers: transport_response.headers.clone(),
+        response_headers: transport_response.headers,
         request_id,
-        request_metadata: request.metadata.clone(),
+        request_metadata: request.metadata,
     }))
 }
 

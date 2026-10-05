@@ -151,7 +151,7 @@ impl<S: SessionStore + ?Sized> DeltaAssemblyMiddleware<S> {
         };
         if stored.epoch != ctx.epoch {
             return Err(SessionError::EpochMismatch {
-                key: key.clone(),
+                key,
                 expected_epoch: stored.epoch,
                 actual_epoch: ctx.epoch,
             });

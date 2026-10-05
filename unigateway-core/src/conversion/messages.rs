@@ -92,7 +92,7 @@ pub fn anthropic_messages_to_openai_messages(
                             if let ContentBlock::Thinking { thinking, .. } =
                                 anthropic_block_to_content_block(&block)?
                             {
-                                thinking_parts.push(thinking.to_string());
+                                thinking_parts.push(thinking);
                             }
                         }
                         _ => content_blocks.push(block),
