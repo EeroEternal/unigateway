@@ -42,11 +42,6 @@ impl HostMiddleware {
         Self::default()
     }
 
-    /// Returns whether any middleware is registered.
-    pub fn is_empty(&self) -> bool {
-        self.request.is_empty() && self.response.is_empty()
-    }
-
     /// Registers a request middleware handler.
     pub fn with_request(mut self, middleware: Arc<dyn ChatRequestMiddleware>) -> Self {
         self.request.push(middleware);

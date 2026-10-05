@@ -1,6 +1,6 @@
 use unigateway_core::{
     Endpoint, EndpointCapabilities, LoadBalancingStrategy, ModelPolicy, ProviderKind, ProviderPool,
-    RetryPolicy, SecretString,
+    RetryPolicy, SecretString, routing::normalize_base_url,
 };
 
 use crate::error::PoolLookupResult;
@@ -73,7 +73,7 @@ pub fn build_env_pool(
         endpoints: vec![Endpoint {
             endpoint_id: endpoint_id.clone(),
             provider_name: Some(endpoint_id.clone()),
-            source_endpoint_id: Some(endpoint_id.clone()),
+            source_endpoint_id: Some(endpoint_id),
             provider_family: Some(provider_name.clone()),
             provider_kind: provider.provider_kind(),
             driver_id: provider.driver_id().to_string(),
@@ -97,17 +97,6 @@ pub fn build_env_pool(
         )]),
         forward_metadata_as_headers: None,
     }
-}
-
-fn normalize_base_url(url: &str) -> String {
-    let mut normalized = url.trim().to_string();
-    if normalized.is_empty() {
-        return normalized;
-    }
-    if !normalized.ends_with('/') {
-        normalized.push('/');
-    }
-    normalized
 }
 
 #[cfg(test)]

@@ -1,16 +1,7 @@
 use llm_providers::get_endpoint;
 
 /// Normalize a base_url by ensuring it has a trailing slash.
-pub fn normalize_base_url(url: &str) -> String {
-    let mut s = url.trim().to_string();
-    if s.is_empty() {
-        return s;
-    }
-    if !s.ends_with('/') {
-        s.push('/');
-    }
-    s
-}
+pub use unigateway_core::routing::normalize_base_url;
 
 /// Resolves upstream base_url and optional family_id.
 ///

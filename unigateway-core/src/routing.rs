@@ -9,6 +9,18 @@ use crate::feedback::{EndpointSignal, RoutingFeedbackProvider};
 use crate::pool::{Endpoint, ExecutionTarget, PoolId, ProviderPool};
 use crate::retry::{LoadBalancingStrategy, RetryPolicy};
 
+/// Normalize a base URL by ensuring it has a trailing slash.
+pub fn normalize_base_url(url: &str) -> String {
+    let mut s = url.trim().to_string();
+    if s.is_empty() {
+        return s;
+    }
+    if !s.ends_with('/') {
+        s.push('/');
+    }
+    s
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct ExecutionSnapshot {
@@ -151,9 +163,7 @@ fn build_plan_snapshot(
     };
 
     if endpoints.is_empty() {
-        return Err(GatewayError::NoAvailableEndpoint {
-            pool_id: pool_id.clone(),
-        });
+        return Err(GatewayError::NoAvailableEndpoint { pool_id });
     }
 
     let load_balancing = plan

@@ -12,7 +12,6 @@ categories = ["api-bindings"]
 
 [features]
 default = ["host", "sglang-lite"]
-embed = ["host"]
 config = ["dep:unigateway-config"]
 core = ["dep:unigateway-core", "unigateway-core/engine"]
 protocol = ["core", "dep:unigateway-protocol"]

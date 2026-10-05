@@ -45,8 +45,7 @@ The core crate brings reqwest and tokio as transitive dependencies. No feature f
 required for the default HTTP transport.
 
 For `unigateway-sdk`, no extra feature flags are required for the default full embedder stack.
-If you disable default features, prefer `features = ["host"]`; `embed` remains available as a
-1.x compatibility alias. If you want reusable host fixtures for integration tests, enable
+If you disable default features, prefer `features = ["host"]`. If you want reusable host fixtures for integration tests, enable
 `features = ["testing"]`.
 
 ---

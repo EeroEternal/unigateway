@@ -160,7 +160,7 @@ Key files:
 - `unigateway-sdk/src/lib.rs`
   - Thin namespaced re-exports only.
 - `unigateway-sdk/Cargo.toml`
-  - Feature layout for `core`, `protocol`, `host`, and `embed`.
+  - Feature layout for `core`, `protocol`, and `host`.
 - `unigateway-sdk/README.md`
   - Version policy and facade positioning for embedders.
 

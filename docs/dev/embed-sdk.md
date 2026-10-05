@@ -45,7 +45,6 @@
 - `core`：仅暴露 `unigateway-core`。
 - `protocol`：暴露 `unigateway-core` + `unigateway-protocol`。
 - `host`：canonical 的完整 host-facing 栈；当前依赖顺序为 `host -> protocol -> core`。
-- `embed`：`1.x` 兼容别名，等价于 `host`，保留是为了不打断已发布依赖写法。
 - `testing`：在 `host` 之上继续转发 `unigateway-host/testing`，方便 facade-only embedder 复用测试夹具。
 
 当前推荐的依赖入口是：
@@ -73,13 +72,13 @@ unigateway-sdk = "2.0"
 - **Anthropic 请求 model alias 收口**：通过 `ANTHROPIC_REQUESTED_MODEL_ALIAS_KEY` 贯穿请求解析、streaming metadata 与响应渲染，不再额外传 `requested_model` 参数。
 - **SDK 门面已发布**：`unigateway-sdk` 已加入 workspace、补齐 README / guide / changelog，并已发布到 crates.io。
 - **embedder 测试夹具已公开**：`unigateway-host::testing` 已通过 feature gate 对外开放，`unigateway-sdk` 也同步转发该 feature。
-- **SDK feature 组合已入 CI**：workflow 现在会对 `core` / `protocol` / `host` / `embed` / `testing` 组合做校验，并补一轮 feature 级 `cargo test`。
+- **SDK feature 组合已入 CI**：`scripts/ci.sh` 现在会对 `core` / `protocol` / `host` / `testing` 组合做校验，并补一轮 feature 级 `cargo test`。
 
 ## 5. 当前剩余事项
 
 当前还没有完成的，不再是“是否应该有 SDK 门面”，而是门面之外的少量 contract 打磨：
 
-- **`embed` 兼容别名仍会继续存在一段时间**：主语义已经收束到 `host`，但为了 1.x 平滑兼容，短期内不会直接删除 `embed`。
+- **`embed` 兼容别名已删除**：主语义收束到 `host`；1.x 兼容窗口结束后（2.17）直接移除该 alias feature，旧写法需改为 `features = ["host"]`。
 - **`HostProtocol` 只是 `#[non_exhaustive]`，仍不是插件式协议注册**：新增协议族仍需要修改 `unigateway-host`。
 - **dispatch 仍是运行时配对**：虽然现在是 typed `HostError`，但 `HostProtocol` 与 `HostRequest` 的错配仍不是编译期禁止。
 - **env 符号仍显式公开**：`EnvProvider` / `EnvPoolHost` 已经不污染主 contract，但是否还要进一步缩 visibility 或通过门面再收口，仍可评估。

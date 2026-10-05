@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Removed
+
+* **Deprecated shim crate `unigateway` deleted**: use `unigateway-sdk` directly. The shim added a
+  publish per release with no code beyond a `pub use`.
+* **`unigateway-sdk` `embed` feature deleted**: the 1.x compatibility alias for `host` outlived
+  its window. Use `features = ["host"]`.
+* **`unigateway-core` empty `conversion` marker feature deleted**: it gated nothing; the
+  conversion surface is always available. (`unigateway-sdk`'s own `conversion` feature is
+  unaffected.)
+* **`HostMiddleware::is_empty` deleted**: no callers.
+
+### Changed
+
+* **`normalize_base_url` now lives in `unigateway-core::routing`** (single implementation).
+  `unigateway_config::routing::normalize_base_url` is a re-export, so config users are
+  unaffected; host uses the core copy directly.
+
 ## [2.16.0] - 2026-10-05
 
 ### Added

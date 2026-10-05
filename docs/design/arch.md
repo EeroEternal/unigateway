@@ -13,7 +13,7 @@ Embedders load TOML-backed `GatewayState`, project it into `UniGatewayEngine` po
 ### 1. Embedder facade (`unigateway-sdk/`)
 
 - Single dependency entry for `unigateway_sdk::core`, `::protocol`, `::host`.
-- Feature flags: `core`, `protocol`, `host`, `embed`, `testing`.
+- Feature flags: `core`, `protocol`, `host`, `testing`.
 
 ### 2. Config state (`unigateway-config/`)
 

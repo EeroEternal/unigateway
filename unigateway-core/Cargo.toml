@@ -9,8 +9,6 @@ repository = "https://github.com/EeroEternal/unigateway"
 
 [features]
 default = ["engine", "sglang-lite"]
-# Documentation marker; conversion types (request builders, parsing, endpoint context) are always available.
-conversion = []
 # ProviderDriver / DriverRegistry and HTTP driver implementations.
 drivers = []
 # Full in-process engine: routing, retries, hooks, registry, feedback.

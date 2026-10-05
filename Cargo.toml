@@ -7,7 +7,6 @@ members = [
     "unigateway-session",
     "unigateway-session-redis",
     "unigateway-sdk",
-    "unigateway",
 ]
 resolver = "2"
 
@@ -31,7 +30,6 @@ unigateway-host = { version = "2.16.0", path = "unigateway-host" }
 unigateway-session = { version = "2.16.0", path = "unigateway-session" }
 unigateway-session-redis = { version = "2.16.0", path = "unigateway-session-redis" }
 unigateway-protocol = { version = "2.16.0", path = "unigateway-protocol" }
-unigateway-sdk = { version = "2.16.0", path = "unigateway-sdk" }
 
 [profile.release]
 lto = "thin"
