@@ -8,7 +8,6 @@
   </p>
   <p>
     <a href="https://github.com/EeroEternal/unigateway"><img src="https://img.shields.io/badge/GitHub-EeroEternal%2Funigateway-181717?logo=github" alt="GitHub"></a>
-    <a href="https://github.com/EeroEternal/unigateway/actions/workflows/rust.yml"><img src="https://github.com/EeroEternal/unigateway/actions/workflows/rust.yml/badge.svg" alt="Build Status"></a>
     <a href="https://crates.io/crates/unigateway-sdk"><img src="https://img.shields.io/crates/v/unigateway-sdk.svg" alt="Crate"></a>
     <a href="https://github.com/EeroEternal/unigateway/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   </p>

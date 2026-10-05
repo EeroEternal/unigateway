@@ -58,22 +58,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 修改任意 `.rs` 后应在提交前跑通 `fmt` 与 `clippy`（与 Azure 等仓库惯例一致）。
 
-GitHub Actions 还会在 `ubuntu-latest` 上执行两组命令，发布前不要只依赖本机结果：
-
-```bash
-# .github/workflows/rust.yml 的 build job
-cargo fmt -- --check
-cargo clippy -- -D warnings
-cargo build --verbose
-cargo test --verbose
-
-# .github/workflows/release.yml 的 verify job
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-```
-
-如果改动包含 host / protocol / root crate，发布前至少手动对齐一次上述 GitHub Linux 命令；不要默认 macOS 本地通过就等于 Ubuntu CI 通过。
+本仓库不用 GitHub Actions；CI 就是本地脚本 `./scripts/ci.sh`（格式、clippy、构建、全量测试、`unigateway-sdk` feature 组合矩阵、`unigateway-host` testing feature）。提交前跑通它即可。
 
 ## 编码约定（摘要）
 
@@ -90,8 +75,8 @@ cargo test --workspace
 - 小步提交、保持 diff 聚焦需求；不顺带大段无关格式化或「顺手重构」。
 - 为新行为补充或更新 `#[cfg(test)]` 测试；对外部 HTTP 使用 mock 或可控替身。
 - 文档与注释随代码同步更新；用户可见行为变化时考虑更新 `README.md` 或 `docs/guide/`。
-- 发布新版本时，先把 release commit 推到 `main` 并确认 `Rust` workflow 在 GitHub Linux 上变绿，再创建并推送 `v*` tag；不要先推 tag 再补 `main` 上的 CI 修复。
-- 对带 guard 的 `match` 分支，如果错误值本身不会被使用，写成 `Err(_)` 或 `_error`；不要保留未使用绑定。GitHub Linux 上的 `cargo clippy -- -D warnings` 会把这类问题直接卡死。
+- 发布新版本时，先本地跑通 `./scripts/ci.sh`，再创建并推送 `v*` tag；发布 crates.io 用 `./scripts/release.sh`（需 `CARGO_REGISTRY_TOKEN`）。
+- 对带 guard 的 `match` 分支，如果错误值本身不会被使用，写成 `Err(_)` 或 `_error`；不要保留未使用绑定。CI 的 `cargo clippy -- -D warnings` 会把这类问题直接卡死。
 
 ## 不建议的行为
 
@@ -104,14 +89,13 @@ cargo test --workspace
 - [ ] `cargo test --workspace` 通过
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` 无告警
 - [ ] `cargo fmt --all -- --check` 通过
-- [ ] 如准备发版，已额外跑过 `.github/workflows/rust.yml` 中的 `cargo fmt -- --check`、`cargo clippy -- -D warnings`、`cargo build --verbose`、`cargo test --verbose`
-- [ ] 如准备发版，`main` 上对应提交的 GitHub `Rust` workflow 已通过，再推 `v*` tag
+- [ ] 如准备发版，`./scripts/ci.sh` 已全绿，再推 `v*` tag
 - [ ] 未包含密钥、token、或本机私密路径
 - [ ] 与改动相关的文档链接仍有效（`docs/` 下路径）
 
 ---
 
-维护者可随版本更新 MSRV、CI 命令与文档链接；代理以根 `Cargo.toml` 与 `.github/workflows` 为准。
+维护者可随版本更新 MSRV、CI 命令与文档链接；代理以根 `Cargo.toml` 与 `scripts/` 为准。
 
 ## Cursor Cloud specific instructions
 
